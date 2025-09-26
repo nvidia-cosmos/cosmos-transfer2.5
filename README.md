@@ -17,4 +17,4 @@ We are putting the final touches on the release to ensure a high-quality experie
 
 Thank you for your interest in our work!
 
-— The Nvidia Cosmos Team
+— The NVIDIA Cosmos Team
