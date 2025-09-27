@@ -1,10 +1,10 @@
 # 🚀 Coming Soon: [Cosmos-Transfer2.5] 
 
-Cosmos-Transfer2.5,built on top of [Cosmos-Predict2.5](https://github.com/nvidia-cosmos/cosmos-predict2.5), that produces high-quality world simulations conditioned on multiple spatial control inputs.
+Cosmos-Transfer2.5, built on top of [Cosmos-Predict2.5](https://github.com/nvidia-cosmos/cosmos-predict2.5), that produces high-quality world simulations conditioned on multiple spatial control inputs.
 
-📄 **Research White Paper:** [https://arxiv.org/abs/2501.03575](https://arxiv.org/abs/2501.03575)
+📄 [**NVIDIA Research White Paper**](https://research.nvidia.com/publication/2025-09_world-simulation-video-foundation-models-physical-ai)
 
-🔬 **Research Website:** [https://research.nvidia.com/labs/dir/cosmos-transfer2.5](https://research-staging.nvidia.com/labs/dir/cosmos-transfer2.5)
+🔬 [**NVIDIA Research Website**](https://research-staging.nvidia.com/labs/dir/cosmos-transfer2.5)
 
 Welcome to the official GitHub repository for **Cosmos-Transfer2.5** which will host the open-source release of:
 
