@@ -4,7 +4,7 @@ Cosmos-Transfer2.5, built on top of [Cosmos-Predict2.5](https://github.com/nvidi
 
 📄 [**NVIDIA Research White Paper**](https://research.nvidia.com/publication/2025-09_world-simulation-video-foundation-models-physical-ai)
 
-🔬 [**NVIDIA Research Website**](https://research-staging.nvidia.com/labs/dir/cosmos-transfer2.5)
+🔬 [**NVIDIA Research Website**](https://research.nvidia.com/labs/dir/cosmos-transfer2.5)
 
 Welcome to the official GitHub repository for **Cosmos-Transfer2.5** which will host the open-source release of:
 
