@@ -44,7 +44,7 @@ Leveraging sensor captured RGB or ground truth augmentations.
 
 | Input Video | Computed Control | Output Video |
 | --- | --- | --- |
-| <video src="https://github.com/user-attachments/assets/df4a0fce-ec62-44e4-91d6-0789b8111173" width="100%" alt="Input video" controls></video> | <video src="https://github.com/user-attachments/assets/21e2ca8e-7452-435a-a6cf-bc36e2d97b8e" width="100%" alt="Control map video" controls></video> | <video src="https://github.com/user-attachments/assets/5aa08b98-b02d-4ea1-a389-a930fce872f5" width="100%" alt="Output video" controls></video> |
+| <video src="https://github.com/user-attachments/assets/4705c192-b8c6-4ba3-af7f-fd968c4a3eeb" width="100%" alt="Input video" controls></video> | <video src="https://github.com/user-attachments/assets/ba92fa5d-2972-463e-af2e-a637a810a463" width="100%" alt="Control map video" controls></video> | <video src="https://github.com/user-attachments/assets/0c5151d4-968b-42ad-a517-cdc0dde37ee5" width="100%" alt="Output video" controls></video> |
 
 ## Cosmos-Transfer2.5 Model Family
 
