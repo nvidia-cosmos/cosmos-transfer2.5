@@ -61,10 +61,16 @@ For other issues, check [GitHub Issues](https://github.com/nvidia-cosmos/cosmos-
 
 ### Docker container
 
-Please make sure you have access to Docker on your machine and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) is installed.
+Please make sure you have access to Docker on your machine and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) is installed. To avoid running out of file descriptors when building the container, increase the limit with `--ulimit nofile` as in the example below. 
 
-Build and run the container:
+Example build command:
 
 ```bash
-docker run --gpus all --rm -v .:/workspace -v /workspace/.venv -it $(docker build -q .)
+docker build --ulimit nofile=131071:131071 -f Dockerfile . -t cosmos-transfer-2.5
+```
+
+Example run command:
+
+```bash
+docker run --gpus all --rm -v .:/workspace -v /workspace/.venv -it cosmos-transfer-2.5
 ```
