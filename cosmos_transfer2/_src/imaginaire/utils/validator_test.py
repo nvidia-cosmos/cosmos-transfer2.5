@@ -15,7 +15,7 @@
 
 import pytest
 
-from cosmos_transfer2._src.imaginaire.utils.validator import Bool, Float, Int, OneOf, String, Dict
+from cosmos_transfer2._src.imaginaire.utils.validator import Bool, Dict, Float, Int, OneOf, String
 from cosmos_transfer2._src.imaginaire.utils.validator_params import ValidatorParams
 
 param_dict = {

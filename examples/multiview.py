@@ -18,8 +18,9 @@ import os
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 import argparse
-from cosmos_transfer2.multiview2world import MultiviewInference
+
 from cosmos_transfer2.config import get_multiview_params_from_json
+from cosmos_transfer2.multiview2world import MultiviewInference
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -44,6 +45,8 @@ def main():
         num_gpus=args.num_gpus,
         experiment=args.experiment,
         ckpt_path=args.checkpoint_path,
+        disable_guardrails=params.disable_guardrails,
+        offload_guardrail_models=params.offload_guardrail_models,
     )
     pipe.infer(params)
 

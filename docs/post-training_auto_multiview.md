@@ -19,14 +19,14 @@ Before proceeding, please read the [Post-training Guide](./post-training.md) for
 
 The first step is preparing a dataset with videos.
 
-You must provide a folder containing a collection of videos in **MP4 format**, preferably 720p, as well as a corresponding folder containing a collection of the hdmap control input videos in  **MP4 format**. The views for each samples should be further stratified by subdirectories with the camera name.
+You must provide a folder containing a collection of videos in **MP4 format**, preferably 720p, as well as a corresponding folder containing a collection of the hdmap control input videos in  **MP4 format**. The views for each samples should be further stratified by subdirectories with the camera name. We have an example dataset that can be used at `assets/multiview_hdmap_posttrain_dataset`
 
 ### 1.2 Verify the dataset folder format
 
 Dataset folder format:
 
 ```
-datasets/multiview_hdmap_posttrain_dataset/
+assets/multiview_hdmap_posttrain_dataset/
 ├── captions/
 │   └── ftheta_camera_front_wide_120fov/
 │       └── *.json
@@ -111,7 +111,7 @@ python scripts/convert_distcp_to_pt.py $CHECKPOINT_DIR/model $CHECKPOINT_DIR
 This conversion will create three files:
 
 - `model.pt`: Full checkpoint containing both regular and EMA weights
-- `model_ema_fp32.pt`: EMA weights only in float32 precision  
+- `model_ema_fp32.pt`: EMA weights only in float32 precision
 - `model_ema_bf16.pt`: EMA weights only in bfloat16 precision (recommended for inference)
 
 ### 3.2 Running Inference

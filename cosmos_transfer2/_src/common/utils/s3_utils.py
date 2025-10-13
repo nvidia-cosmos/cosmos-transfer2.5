@@ -14,9 +14,7 @@
 # limitations under the License.
 
 import os
-
 from typing import Any, Optional
-
 
 from cosmos_transfer2._src.imaginaire.utils import distributed, log
 from cosmos_transfer2._src.imaginaire.utils.easy_io import easy_io

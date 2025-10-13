@@ -98,6 +98,8 @@ def make_config() -> Config:
     # experiment config are defined in the experiment folder
     # call import_all_modules_from_package to register them
     import_all_modules_from_package("cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.experiment", reload=True)
-    import_all_modules_from_package("cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.experiment_av", reload=True)
+    import_all_modules_from_package(
+        "cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.experiment_av", reload=True
+    )
 
     return c

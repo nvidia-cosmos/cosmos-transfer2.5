@@ -33,10 +33,8 @@ class Experiment:
     command_args: List[str]
 
 
-
 EXPERIMENTS = {}
-EXPERIMENTS_LIST = [
-]
+EXPERIMENTS_LIST = []
 for experiments in EXPERIMENTS_LIST:
     for exp_name, _ in experiments.items():
         assert exp_name not in EXPERIMENTS, f"Experiment {exp_name} already exists"

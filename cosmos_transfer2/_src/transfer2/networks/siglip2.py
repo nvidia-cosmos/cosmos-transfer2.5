@@ -23,9 +23,9 @@ try:
 except ImportError:
     Siglip2VisionModel = None
 
+from cosmos_transfer2._src.common.models.abstract_emb_model import AbstractEmbModel
 from cosmos_transfer2._src.imaginaire.utils import distributed, log
 from cosmos_transfer2._src.imaginaire.utils.easy_io import easy_io
-from cosmos_transfer2._src.common.models.abstract_emb_model import AbstractEmbModel
 
 S3_KEY = "_s3_predict2_siglip"
 S3_PATH_FORMAT = "s3://bucket/cosmos_diffusion_v2/pretrain_weights/siglip2/{model_name}.pth"

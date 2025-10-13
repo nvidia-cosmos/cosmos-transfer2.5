@@ -535,7 +535,12 @@ class ControlVideo2WorldModel(Video2WorldModel):
                 log.warning(f"No checkpoint path provided for control branch {nc}")
                 continue
 
-            cur_key_ckpt_full_path = os.path.join(checkpoint_path, "model")
+            checkpoint_format = "pt" if checkpoint_path.endswith(".pt") else "dcp"
+            cur_key_ckpt_full_path = (
+                checkpoint_path
+                if checkpoint_path.endswith("model") or checkpoint_format == "pt"
+                else os.path.join(checkpoint_path, "model")
+            )
             log.critical(f"Start loading checkpoint for control branch {nc} from {checkpoint_path}")
 
             if "s3://" in checkpoint_path:
@@ -549,11 +554,15 @@ class ControlVideo2WorldModel(Video2WorldModel):
             if torch.distributed.is_initialized():
                 torch.distributed.barrier()
 
-            dcp.load(
-                checkpoint_state_dict,
-                storage_reader=storage_reader,
-                planner=load_planner,
-            )
+            if checkpoint_format == "dcp":  # load dcp checkpoint
+                dcp.load(
+                    checkpoint_state_dict,
+                    storage_reader=storage_reader,
+                    planner=load_planner,
+                )
+            else:
+                # load pytorch checkpoint appending all keys to checkpoint_to_model_keys
+                checkpoint_state_dict = torch.load(checkpoint_path)
 
             # Create mapping from checkpoint keys to model keys
             # Checkpoint has "control_blocks" but we want to load into "control_blocks_{nc}"

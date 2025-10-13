@@ -15,6 +15,8 @@
 
 
 from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.driving import (
-    MADSDrivingVideoDataloaderConfig as MADSDrivingVideoDataloaderConfig,
     MADS_DRIVING_DATALOADER_CONFIG_PER_RESOLUTION as MADS_DRIVING_DATALOADER_CONFIG_PER_RESOLUTION,
+)
+from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.driving import (
+    MADSDrivingVideoDataloaderConfig as MADSDrivingVideoDataloaderConfig,
 )

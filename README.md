@@ -34,7 +34,7 @@ Minimizing the need for achieving high fidelity in 3D simulation.
 | --- | --- | --- |
 | <video src="https://github.com/user-attachments/assets/bffc031e-3933-4511-a659-136965931ab0" width="100%" alt="Input video" controls></video> | <video src="https://github.com/user-attachments/assets/8ed4c49c-af26-4318-b95a-32f9cf44d992" width="100%" alt="Control map video" controls></video> | <video src="https://github.com/user-attachments/assets/88f7e63b-efe1-46ff-8174-df2f01462c53" width="100%" alt="Output video" controls></video> |
 
-### Scale World State Diversity  
+### Scale World State Diversity
 
 Leveraging sensor captured RGB or ground truth augmentations.
 

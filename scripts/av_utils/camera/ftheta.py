@@ -617,7 +617,6 @@ class FThetaCamera(CameraBase):
         # Fix the type
         rays = rays.astype(np.float32)
 
-
         xy_norm = np.linalg.norm(rays[:, :2], axis=1, keepdims=True)
         cos_alpha = rays[:, 2:] / np.linalg.norm(rays, axis=1, keepdims=True)
 

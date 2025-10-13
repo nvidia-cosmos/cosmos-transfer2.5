@@ -24,19 +24,15 @@ PYTHONPATH=. torchrun --nproc_per_node=8 --master_port=12341 -m cosmos_transfer2
 ```
 """
 
-import pickle
-import random
-import argparse
 import os
+import random
 
-import torch
 import numpy as np
+import torch
 from loguru import logger
 from megatron.core import parallel_state
 
-from cosmos_transfer2._src.imaginaire.lazy_config import instantiate
 from cosmos_transfer2._src.imaginaire.utils import distributed
-from cosmos_transfer2._src.imaginaire.visualize.video import save_img_or_video
 from cosmos_transfer2._src.predict2.utils.model_loader import load_model_from_checkpoint
 
 
@@ -189,97 +185,3 @@ class ControlVideo2WorldInference:
             if parallel_state.is_initialized():
                 parallel_state.destroy_model_parallel()
             dist.destroy_process_group()
-
-
-def parse_arguments() -> argparse.Namespace:
-    """Parses command-line arguments for the Vid2Vid inference script."""
-    parser = argparse.ArgumentParser(description="Image2World/Video2World inference script")
-    parser.add_argument("--experiment", type=str, required=True, help="Experiment config")
-    parser.add_argument(
-        "--ckpt_path",
-        type=str,
-        default="",
-    )
-    parser.add_argument("--s3_cred", type=str, default="credentials/s3_checkpoint.secret")
-    parser.add_argument(
-        "--context_parallel_size",
-        type=int,
-        default=1,
-        help="Context parallel size (number of GPUs to split context over). Set to 8 for 8 GPUs",
-    )
-    # generation
-    parser.add_argument("--guidance", type=float, default=7, help="Guidance value")
-    parser.add_argument("--seed", type=int, default=1, help="Guidance value")
-    parser.add_argument("--fps", type=int, default=10, help="Frames per second")
-    # input
-    parser.add_argument("--save_root", type=str, default="results/image2world", help="Save root")
-    parser.add_argument("--max_samples", type=int, default=20, help="Maximum number of samples to generate")
-    parser.add_argument("--control_weight", type=float, default=1.0, help="Control weight")
-    # reproducibility
-    parser.add_argument(
-        "--deterministic",
-        action="store_true",
-        help="Use deterministic algorithms for reproducibility (may impact performance)",
-    )
-    # output
-    parser.add_argument(
-        "--save_npy",
-        action="store_true",
-        help="Additionally save results as numpy files",
-    )
-    parser.add_argument(
-        "--save_data_batch",
-        action="store_true",
-        help="Additionally save data batch as pkl files",
-    )
-    return parser.parse_args()
-
-
-def main() -> None:
-    """Main function to run the inference."""
-    torch.enable_grad(False)
-    args = parse_arguments()
-
-    # Set all random seeds and enable deterministic mode if requested
-    set_seeds(args.seed, deterministic=args.deterministic)
-    experiment_opts = ()
-    if args.deterministic:
-        experiment_opts = ("dataloader_train.dataset.is_train=False",)
-
-    # Initialize the inference handler with context parallel support
-    vid2vid_cli = ControlVideo2WorldInference(
-        args.experiment,
-        args.ckpt_path,
-        context_parallel_size=args.context_parallel_size,
-        experiment_opts=experiment_opts,
-    )
-    mem_bytes = torch.cuda.memory_allocated(device=torch.device("cuda" if torch.cuda.is_available() else "cpu"))
-    logger.info(f"GPU memory usage after model dcp.load: {mem_bytes / (1024**3):.2f} GB")
-
-    # Only process files on rank 0 if using distributed processing
-    rank0 = True
-    if args.context_parallel_size > 1:
-        rank0 = distributed.get_rank() == 0
-
-    os.makedirs(args.save_root, exist_ok=True)
-    dataloader = instantiate(vid2vid_cli.config.dataloader_train)
-    for i, batch in enumerate(dataloader):
-        if i >= args.max_samples:
-            break
-        batch["control_weight"] = args.control_weight
-        if args.save_data_batch and rank0:
-            with open(f"{args.save_root}/data_batch_{i}.pkl", "wb") as f:
-                pickle.dump(batch, f)
-
-        video = vid2vid_cli.generate_from_batch(batch, guidance=args.guidance, seed=args.seed)
-        if rank0:
-            rescaled = (1.0 + video[0]) / 2.0
-            save_img_or_video(rescaled, f"{args.save_root}/infer_from_train_{i}", fps=args.fps)
-
-            if args.save_npy:
-                rescaled_npy = rescaled.float().cpu().numpy()
-                np.save(f"{args.save_root}/infer_from_train_{i}.npy", rescaled_npy)
-
-
-if __name__ == "__main__":
-    main()

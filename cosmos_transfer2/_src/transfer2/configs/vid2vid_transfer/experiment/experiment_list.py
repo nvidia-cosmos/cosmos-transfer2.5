@@ -33,7 +33,6 @@ class Experiment:
     command_args: List[str]
 
 
-
 archi_ablation_experiments_720p = {
     "edge_720p_t24_spaced_layer4_cr1pt1_sdev2_lowsigma0.05_nonuniform_hqv3p1_20250714_64N_rectified_flow": Experiment(  # edge, hqv3p1 + spaced_4
         registered_exp_name="vid2vid_2B_control_720p_t24_control_layer4_cr1pt1_embedding_rectified_flow",

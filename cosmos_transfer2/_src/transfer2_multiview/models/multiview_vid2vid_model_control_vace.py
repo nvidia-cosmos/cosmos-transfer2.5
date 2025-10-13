@@ -187,7 +187,6 @@ class MultiviewControlVideo2WorldModel(ControlVideo2WorldModel):
         return x0_B_C_T_H_W, condition, epsilon_B_C_T_H_W, sigma_B_T
 
     def get_data_batch_with_latent_view_indices(self, data_batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-
         data_batch = self._preprocess_databatch(data_batch)
         if "latent_view_indices_B_T" in data_batch:
             log.debug("latent_view_indices_B_T already in data_batch")
@@ -263,7 +262,6 @@ class MultiviewControlVideo2WorldModel(ControlVideo2WorldModel):
         return new_data_batch
 
     def _preprocess_databatch(self, data_batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-
         """Preprocess data batch with dynamic view sampling"""
         if TRAIN_SAMPLING_APPLIED_KEY in data_batch and data_batch[TRAIN_SAMPLING_APPLIED_KEY] is True:
             return data_batch
@@ -390,14 +388,12 @@ class MultiviewControlVideo2WorldModel(ControlVideo2WorldModel):
         )
         return raw_state, latent_state, condition
 
-
     def get_x0_fn_from_batch(
         self,
         data_batch: dict[str, torch.Tensor],
         guidance: float = 1.5,
         is_negative_prompt: bool = False,
     ) -> Callable:
-
         data_batch_with_latent_view_indices = self.get_data_batch_with_latent_view_indices(data_batch)
         if NUM_CONDITIONAL_FRAMES_KEY in data_batch_with_latent_view_indices:
             num_conditional_frames = data_batch_with_latent_view_indices[NUM_CONDITIONAL_FRAMES_KEY]

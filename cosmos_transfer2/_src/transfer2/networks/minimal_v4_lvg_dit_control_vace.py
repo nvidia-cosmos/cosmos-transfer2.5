@@ -27,19 +27,15 @@ from torchvision import transforms
 from cosmos_transfer2._src.predict2.conditioner import DataType
 from cosmos_transfer2._src.predict2.networks.minimal_v4_dit import (
     Attention,
-)
-from cosmos_transfer2._src.predict2.networks.minimal_v4_dit import Block as BaseBlock
-from cosmos_transfer2._src.predict2.networks.minimal_v4_dit import (
     FinalLayer,
-)
-from cosmos_transfer2._src.predict2.networks.minimal_v4_dit import MiniTrainDIT as BaseMiniTrainDIT
-from cosmos_transfer2._src.predict2.networks.minimal_v4_dit import (
     PatchEmbed,
     SACConfig,
     TimestepEmbedding,
     Timesteps,
     replace_selfattn_op_with_sparse_attn_op,
 )
+from cosmos_transfer2._src.predict2.networks.minimal_v4_dit import Block as BaseBlock
+from cosmos_transfer2._src.predict2.networks.minimal_v4_dit import MiniTrainDIT as BaseMiniTrainDIT
 
 
 class I2VCrossAttentionFull(Attention):

@@ -212,7 +212,6 @@ def perf_buttercup_baseline_layer14_sacpred2_b1():
             ),
         ),
         dataloader_train=dict(
-
             batch_size=1,
             dataset=dict(
                 dataset_loading_keys=MULTI_VIEW_LOADING_KEYS,

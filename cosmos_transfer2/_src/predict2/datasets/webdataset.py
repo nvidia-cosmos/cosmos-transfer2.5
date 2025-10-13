@@ -22,7 +22,11 @@ from webdataset.handlers import reraise_exception
 
 from cosmos_transfer2._src.imaginaire.datasets.webdataset.config.schema import DatasetConfig
 from cosmos_transfer2._src.imaginaire.datasets.webdataset.utils.iterators import WebDataset
-from cosmos_transfer2._src.imaginaire.datasets.webdataset.utils.misc import remove_extensions_from_keys, skip_keys, update_url
+from cosmos_transfer2._src.imaginaire.datasets.webdataset.utils.misc import (
+    remove_extensions_from_keys,
+    skip_keys,
+    update_url,
+)
 from cosmos_transfer2._src.imaginaire.datasets.webdataset.webdataset import Dataset as BaseDataset
 from cosmos_transfer2._src.imaginaire.utils import log
 

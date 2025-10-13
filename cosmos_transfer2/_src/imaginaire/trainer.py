@@ -42,7 +42,6 @@ from cosmos_transfer2._src.imaginaire.utils.checkpointer import Checkpointer
 from cosmos_transfer2._src.imaginaire.utils.misc import StragglerDetectorV2
 
 
-
 class ImaginaireTrainer:
     """The base trainer class of Imaginaire.
 

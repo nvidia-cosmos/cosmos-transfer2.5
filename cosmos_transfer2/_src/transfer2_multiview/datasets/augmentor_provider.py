@@ -173,7 +173,6 @@ def get_video_augmentor_v2_multiview_with_control(
         output_keys=[f"hdmap_bbox_{i}" for i in range(n_views)] + [f"t5_xxl_{i}" for i in range(n_views)],
     )
 
-
     # Add video parsing for each video_i
     for i in range(n_views):  # video_0 to video_6
         augmentor_config[f"video_parsing_{i}"] = L(singleview_video_parsing.SingleViewVideoParsing)(
@@ -246,7 +245,6 @@ def get_video_augmentor_v2_multiview_with_control(
         input_keys=["hdmap_bbox"],
         args={"size": VIDEO_RES_SIZE_INFO[resolution]},
     )
-
 
     augmentor_config["add_control_input"] = L(control_input.AddControlInputHdmapBbox)(
         input_keys=["hdmap_bbox"], output_keys=["control_input_hdmap_bbox"], use_random=False

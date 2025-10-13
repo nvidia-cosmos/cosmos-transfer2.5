@@ -18,7 +18,7 @@ repos:
     rev: v1.2.0-rc0
     hooks:
       - id: addlicense
-        args: ["-f", "cosmos-transfer2/scripts/bin/license.txt"]
+        args: ["-f", "bin/license.txt"]
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
@@ -26,8 +26,8 @@ repos:
         exclude: ^tests/.*/fixtures/.*
       - id: end-of-file-fixer
         exclude: ^tests/.*/fixtures/.*
-      - id: check-executables-have-shebangs
-      - id: check-shebang-scripts-are-executable
+      # - id: check-executables-have-shebangs
+      # - id: check-shebang-scripts-are-executable
   - repo: local
     hooks:
       - id: uv-lock
@@ -43,13 +43,23 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.12.8
     hooks:
-      - id: ruff-check
-        args: [--fix, --config, cosmos-transfer2/ruff.toml]
+      - alias: ruff-check-only
+        id: ruff-check
+        stages: [manual]
+      - alias: ruff-fix
+        name: ruff fix
+        id: ruff-check
+        args: [--fix]
+      - alias: ruff-noqa
+        name: ruff noqa
+        id: ruff-check
+        args: [--add-noqa]
+        stages: [manual]
       - id: ruff-format
   - repo: https://github.com/tcort/markdown-link-check
     rev: v3.12.2 # DO NOT UPDATE UNTIL https://github.com/tcort/markdown-link-check/pull/452 IS MERGED
     hooks:
       - id: markdown-link-check
-        args: [--config, "cosmos-transfer2/.link-check.json", --quiet]
+        args: [--config, ".link-check.json", --quiet]
         stages: [manual]
         exclude: \bATTRIBUTIONS\b

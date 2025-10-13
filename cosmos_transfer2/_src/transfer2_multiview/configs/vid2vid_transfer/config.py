@@ -14,13 +14,12 @@
 # limitations under the License.
 
 from typing import Any, List
-from cosmos_transfer2._src.imaginaire.flags import INTERNAL
 
 import attrs
 
-
 import cosmos_transfer2._src.transfer2_multiview.datasets.augmentor_provider  # noqa: F401
 from cosmos_transfer2._src.imaginaire import config
+from cosmos_transfer2._src.imaginaire.flags import INTERNAL
 from cosmos_transfer2._src.imaginaire.trainer import ImaginaireTrainer as Trainer
 from cosmos_transfer2._src.imaginaire.utils.config_helper import import_all_modules_from_package
 from cosmos_transfer2._src.predict2.configs.common.defaults.checkpoint import register_checkpoint
@@ -35,10 +34,10 @@ from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.dataloade
 )
 from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.defaults.callbacks import register_callbacks
 from cosmos_transfer2._src.transfer2_multiview.configs.vid2vid_transfer.defaults.conditioner import register_conditioner
+from cosmos_transfer2._src.transfer2_multiview.configs.vid2vid_transfer.defaults.data import register_data_ctrlnet
 from cosmos_transfer2._src.transfer2_multiview.configs.vid2vid_transfer.defaults.dataloader import (
     register_training_and_val_data,
 )
-from cosmos_transfer2._src.transfer2_multiview.configs.vid2vid_transfer.defaults.data import register_data_ctrlnet
 from cosmos_transfer2._src.transfer2_multiview.configs.vid2vid_transfer.defaults.model import register_model
 from cosmos_transfer2._src.transfer2_multiview.configs.vid2vid_transfer.defaults.net import register_net
 

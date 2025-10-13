@@ -62,8 +62,6 @@ class MadsWebdataset(webdataset.Dataset):
             self.wdinfo.tar_files[0].root
             == "mads/cosmos-mads-dataset-transfer2-multiview-0823/v0/driving/resolution_720/aspect_ratio_16_9/duration_5_10/"
         ):
-            self.wdinfo.total_key_count = (
-                143_003  # Hardcoded for now due to incorrect wdinfo in S3.
-            )
+            self.wdinfo.total_key_count = 143_003  # Hardcoded for now due to incorrect wdinfo in S3.
         else:
             self.wdinfo.total_key_count = len(self.wdinfo.tar_files) * self.wdinfo.chunk_size

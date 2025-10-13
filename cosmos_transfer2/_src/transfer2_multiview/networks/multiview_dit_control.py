@@ -357,7 +357,6 @@ class MultiViewControlDiT(MinimalV4LVGControlVaceDiT):
             reshard_after_forward = i < len(self.blocks) - 1
             fully_shard(block, mesh=mesh, reshard_after_forward=reshard_after_forward)
 
-
         fully_shard(self.final_layer, mesh=mesh, reshard_after_forward=True)
         if self.extra_per_block_abs_pos_emb:
             for extra_pos_embedder in self.extra_pos_embedders_options.values():

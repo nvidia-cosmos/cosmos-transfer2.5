@@ -16,9 +16,9 @@
 
 from hydra.core.config_store import ConfigStore
 
-from cosmos_transfer2._src.predict2.datasets.local_datasets.dataset_video import get_sampler, get_generic_dataloader
-from cosmos_transfer2._src.transfer2.datasets.local_datasets.multiview_dataset import MultiviewTransferDataset
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
+from cosmos_transfer2._src.predict2.datasets.local_datasets.dataset_video import get_generic_dataloader, get_sampler
+from cosmos_transfer2._src.transfer2.datasets.local_datasets.multiview_dataset import MultiviewTransferDataset
 
 
 def get_hdmap_multiview_dataset(is_train=True):
@@ -42,7 +42,7 @@ def get_hdmap_multiview_dataset(is_train=True):
     }
 
     dataset = L(MultiviewTransferDataset)(
-        dataset_dir="datasets/multiview_hdmap_posttrain_dataset",
+        dataset_dir="assets/multiview_hdmap_posttrain_dataset",
         hint_key="control_input_hdmap_bbox",
         resolution="720",
         state_t=8,

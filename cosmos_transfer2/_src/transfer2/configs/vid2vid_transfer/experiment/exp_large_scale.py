@@ -27,11 +27,11 @@ from hydra.core.config_store import ConfigStore
 
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyDict
-from cosmos_transfer2._src.reason1.models.vlm_qwen_omni import QwenVLBaseModel
 from cosmos_transfer2._src.predict2.datasets.cached_replay_dataloader import duplicate_batches_random
 from cosmos_transfer2._src.predict2.models.video2world_model import HighSigmaStrategy
 from cosmos_transfer2._src.predict2.text_encoders.text_encoder import EmbeddingConcatStrategy
 from cosmos_transfer2._src.reason1.configs.default.model_config_qwen import QwenModelConfig, QwenVisionConfig
+from cosmos_transfer2._src.reason1.models.vlm_qwen_omni import QwenVLBaseModel
 from cosmos_transfer2._src.reason1.tokenizer.processor import build_tokenizer
 
 BASE_CKPT_480p_T20 = dict(
@@ -573,7 +573,7 @@ vid2vid_2B_control_720p_t24_control_layer14_cr1_embedding = LazyDict(
                 text_encoder_config=dict(
                     embedding_concat_strategy=str(EmbeddingConcatStrategy.FULL_CONCAT),
                     compute_online=True,
-                    ckpt_path="s3://bucket/cosmos_reasoning1/sft_exp500/sft_exp510_qwen7b_w_critique_n32/checkpoints/iter_000008000/model/",
+                    ckpt_path="s3://bucket/cosmos_reasoning1/sft_exp700/sft_exp721-1_qwen7b_tl_721_5vs5_s3_balanced_n32_resume_16k/checkpoints/iter_000016000/model/",
                     model_config=L(QwenVLBaseModel)(
                         model_config=L(QwenModelConfig)(
                             tokenizer_type="Qwen/Qwen2.5-VL-7B-Instruct",

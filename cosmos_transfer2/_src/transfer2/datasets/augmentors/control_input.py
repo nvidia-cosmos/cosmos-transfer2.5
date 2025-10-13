@@ -24,7 +24,7 @@ from pycocotools import mask as mask_utils
 
 from cosmos_transfer2._src.imaginaire.datasets.webdataset.augmentors.augmentor import Augmentor
 from cosmos_transfer2._src.imaginaire.utils import log
-from cosmos_transfer2._src.transfer2.datasets.augmentors.blur import BilateralFilter, BilateralFilterConfig
+from cosmos_transfer2._src.transfer2.datasets.augmentors.blur import Blur, BlurConfig
 from cosmos_transfer2._src.transfer2.datasets.augmentors.seg import decode_partial_rle_width1, segmentation_color_mask
 
 # Constants for segmentation color processing
@@ -141,7 +141,7 @@ class AddControlInputBlur(Augmentor):
         output_keys: Optional[list] = ["control_input_vis"],
         args: Optional[dict] = None,  # not used
         use_random: bool = True,  # whether to use random parameters
-        blur_config: BilateralFilterConfig = BilateralFilterConfig(),
+        blur_config: BlurConfig | None = None,
         downup_preset: str | int = "medium",  # preset strength for downup factor
         min_downup_factor: int = 4,  # minimum downup factor
         max_downup_factor: int = 16,  # maximum downup factor
@@ -168,8 +168,7 @@ class AddControlInputBlur(Augmentor):
             "high": 1,
             "very_high": 4,
         }
-        blur_config.use_random = use_random
-        self.blur = BilateralFilter(config=blur_config)
+        self.blur = Blur(config=blur_config, use_random=use_random)
 
         self.preset_strength = downup_preset
         self.downup_preset = downup_preset if isinstance(downup_preset, int) else downup_preset_values[downup_preset]

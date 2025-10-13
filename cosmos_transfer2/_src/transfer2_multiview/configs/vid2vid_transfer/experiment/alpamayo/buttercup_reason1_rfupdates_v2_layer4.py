@@ -18,15 +18,17 @@ import math
 from hydra.core.config_store import ConfigStore
 
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
-from cosmos_transfer2._src.reason1.models.vlm_qwen_omni import QwenVLBaseModel
 from cosmos_transfer2._src.predict2.models.video2world_model import HighSigmaStrategy
 from cosmos_transfer2._src.predict2.text_encoders.text_encoder import EmbeddingConcatStrategy
 from cosmos_transfer2._src.predict2_multiview.callbacks.every_n_draw_sample_multiviewvideo import (
     EveryNDrawSampleMultiviewVideo,
 )
 from cosmos_transfer2._src.reason1.configs.default.model_config_qwen import QwenModelConfig, QwenVisionConfig
+from cosmos_transfer2._src.reason1.models.vlm_qwen_omni import QwenVLBaseModel
 from cosmos_transfer2._src.reason1.tokenizer.processor import build_tokenizer
-from cosmos_transfer2._src.transfer2_multiview.configs.vid2vid_transfer.defaults.conditioner import TextAttrEmptyStringDropout
+from cosmos_transfer2._src.transfer2_multiview.configs.vid2vid_transfer.defaults.conditioner import (
+    TextAttrEmptyStringDropout,
+)
 
 """
 

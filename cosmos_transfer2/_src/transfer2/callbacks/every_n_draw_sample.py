@@ -115,9 +115,7 @@ class EveryNDrawSample(EveryN):
             self.data_parallel_id = self.rank
 
         if self.use_negative_prompt:
-            negative_prompt_path = (
-                "s3://bucket/edify_video/v4/validation/item_dataset/negative_prompt/000000.pkl"
-            )
+            negative_prompt_path = "s3://bucket/edify_video/v4/validation/item_dataset/negative_prompt/000000.pkl"
             self.negative_prompt_data = easy_io.load(negative_prompt_path)
 
     @misc.timer("EveryNDrawSample: x0")
@@ -128,7 +126,6 @@ class EveryNDrawSample(EveryN):
         tag = "ema" if self.is_ema else "reg"
 
         log.debug("starting data and condition model", rank0_only=False)
-
 
         raw_data, x0, condition = model.get_data_and_condition(data_batch)
         _, condition, x0, _ = model.broadcast_split_for_model_parallelsim(None, condition, x0, None)

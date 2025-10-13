@@ -23,17 +23,18 @@ from hydra.utils import instantiate
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
 from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.predict2.datasets.cached_replay_dataloader import get_cached_replay_dataloader
-from cosmos_transfer2._src.predict2.datasets.joint_dataloader import IterativeJointDataLoader  # or RandomJointDataLoader
-from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.driving import DrivingVideoDataloaderConfig
+from cosmos_transfer2._src.predict2.datasets.joint_dataloader import (
+    IterativeJointDataLoader,  # or RandomJointDataLoader
+)
+from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.driving import (
+    MADS_DRIVING_DATALOADER_CONFIG_PER_RESOLUTION,
+    DrivingVideoDataloaderConfig,
+    MADSDrivingVideoDataloaderConfig,
+)
 from cosmos_transfer2._src.predict2_multiview.datasets.alpamayo_raw_webdataset import AlpamayoRawWebdataset
 from cosmos_transfer2._src.predict2_multiview.datasets.alpamayo_tar_webdataset import AlpamayoTarWebdataset
 from cosmos_transfer2._src.predict2_multiview.datasets.dataset_provider import get_multiview_raw_webdataset
-from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.driving import (
-    MADSDrivingVideoDataloaderConfig,
-    MADS_DRIVING_DATALOADER_CONFIG_PER_RESOLUTION,
-)
 from cosmos_transfer2._src.transfer2_multiview.datasets.dataset_provider import get_transfer2_multiview_dataset
-
 
 
 def get_cached_replay_dataloader_video_only(

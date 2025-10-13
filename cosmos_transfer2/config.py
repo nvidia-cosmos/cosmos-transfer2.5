@@ -1,9 +1,25 @@
-from dataclasses import dataclass
-import os
-from typing import Literal
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import json
+import os
+from dataclasses import dataclass
+from typing import Literal
+
 from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_by_uuid
-from cosmos_transfer2._src.imaginaire.utils.validator import String, Int, Bool, Path, Dict, Float
+from cosmos_transfer2._src.imaginaire.utils.validator import Bool, Dict, Float, Int, Path, String
 from cosmos_transfer2._src.imaginaire.utils.validator_params import ValidatorParams
 
 DEFAULT_NEGATIVE_PROMPT = "The video captures a game playing, with bad crappy graphics and cartoonish frames. It represents a recording of old outdated games. The lighting looks very fake. The textures are very raw and basic. The geometries are very primitive. The images are very pixelated and of poor CG quality. There are many subtitles in the footage. Overall, the video is unrealistic at all."
@@ -30,7 +46,6 @@ MODEL_CHECKPOINTS = {
 }
 
 
-
 class Control2WorldParams(ValidatorParams):
     """All the required values to generate image from text at a given resolution."""
 
@@ -50,7 +65,7 @@ class Control2WorldParams(ValidatorParams):
     show_input = Bool(default=False)
     not_keep_input_resolution = Bool(default=False)
     disable_guardrails = Bool(default=False)
-    offload_guardrail_models = Bool(default=False)
+    offload_guardrail_models = Bool(default=True)
 
     edge = Dict(default={})
     vis = Dict(default={})
@@ -158,6 +173,9 @@ class MultiviewParams(ValidatorParams):
     cross_right = Dict(default={})
     front_tele = Dict(default={})
     fps = Int(default=10)
+
+    disable_guardrails = Bool(default=False)
+    offload_guardrail_models = Bool(default=True)
 
     @property
     def input_and_control_paths(self):

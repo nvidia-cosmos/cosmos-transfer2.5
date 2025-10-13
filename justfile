@@ -8,7 +8,7 @@ setup:
 
 # Install the repository
 install:
-  uv sync
+  uv sync --all-groups
 
 # Run linting and formatting
 lint: setup
@@ -40,3 +40,15 @@ release pypi_token='dry-run' *args:
 docker *args:
   # https://github.com/astral-sh/uv-docker-example/blob/main/run.sh
   docker run --gpus all --rm -v .:/workspace -v /workspace/.venv -it $(docker build -q .) {{args}}
+
+# Initialize the repository by auto-fixing/whitelisting all existing issues
+_init:
+  pre-commit run -a --hook-stage manual ruff-fix || true
+
+  # Run twice, since formatting will break some noqa comments
+  pre-commit run -a --hook-stage manual ruff-noqa || true
+  pre-commit run -a --hook-stage manual ruff-format || true
+  pre-commit run -a --hook-stage manual ruff-noqa || true
+  pre-commit run -a --hook-stage manual ruff-format || true
+
+  pre-commit run -a || pre-commit run -a

@@ -1,0 +1,168 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+must_pass_checks:
+  - question: Is the video or picture blurry?
+    answer: No, the video or picture is not blurry
+    contains:
+      - "no blurry"
+      - "not blurry"
+      - "no fuzzy"
+      - "not fuzzy"
+      - "no unclear"
+      - "not unclear"
+      - "no hazy"
+      - "not hazy"
+      - "no out of focus"
+      - "not out of focus"
+      - "no distorted"
+      - "not distorted"
+      - "no pixelated"
+      - "not pixelated"
+      - "is clear"
+      - "is well-lit"
+      - "is focused"
+      - "is clean"
+      - "detailed"
+
+  - question: Is there any noise, picture not clear, or picture/video is blurry?
+    answer: No, the video or picture is not noisy, not unclear, and not blurry
+    contains:
+      - "no blurry"
+      - "not blurry"
+      - "no fuzzy"
+      - "not fuzzy"
+      - "no unclear"
+      - "not unclear"
+      - "no hazy"
+      - "not hazy"
+      - "no out of focus"
+      - "not out of focus"
+      - "no distorted"
+      - "not distorted"
+      - "no pixelated"
+      - "not pixelated"
+      - "is clear"
+      - "is well-lit"
+      - "is focused"
+      - "is clean"
+      - "detailed"
+
+vqa_checks:
+  - question: From what perspective is the video captured?
+    answer: From inside a vehicle
+    contains:
+      - "inside a vehicle"
+      - "moving vehicle"
+      - "driver's view"
+      - "car interior"
+      - "car window"
+      - "inside vehicle"
+      - "from a car"
+      - "vehicle perspective"
+
+  - question: What type of environment does the street scene show?
+    answer: A calm, peaceful, and well-maintained residential or suburban area
+    contains:
+      - "calm"
+      - "peaceful"
+      - "quiet"
+      - "residential"
+      - "suburban"
+      - "well-maintained"
+      - "orderly"
+      - "pleasant"
+      - "tranquil"
+
+  - question: What vegetation is visible along the street?
+    answer: Lush green trees and hedges line both sides of the street
+    contains:
+      - "green trees"
+      - "lush trees"
+      - "hedges"
+      - "greenery"
+      - "lined with trees"
+      - "leafy"
+      - "vegetation"
+      - "green plants"
+
+  - question: How would you describe the traffic conditions in the video?
+    answer: Very light traffic with only a few vehicles visible
+    contains:
+      - "light traffic"
+      - "few vehicles"
+      - "minimal traffic"
+      - "quiet road"
+      - "low traffic"
+      - "sparse traffic"
+      - "not busy"
+      - "few cars"
+
+  - question: What is the pedestrian activity like in the scene?
+    answer: Minimal pedestrian activity with only a few people visible
+    contains:
+      - "few pedestrians"
+      - "minimal activity"
+      - "sparse pedestrians"
+      - "not many people"
+      - "quiet"
+      - "low foot traffic"
+      - "few people walking"
+
+  - question: What weather conditions are shown in the video?
+    answer: Bright sunny weather with clear skies
+    contains:
+      - "bright"
+      - "sunny"
+      - "clear skies"
+      - "strong sunlight"
+      - "well-lit"
+      - "bright weather"
+      - "sunny day"
+      - "clear weather"
+
+  - question: What season or time of year does the video suggest?
+    answer: autumn or winter
+    contains:
+      - "autumn"
+      - "winter"
+      - "autumn season"
+      - "winter season"
+      - "autumn or winter"
+
+  - question: How would you describe the condition of the road?
+    answer: Clean, wide, and well-paved
+    contains:
+      - "clean"
+      - "wide"
+      - "well-paved"
+      - "well-maintained"
+      - "good condition"
+      - "spacious"
+      - "orderly"
+      - "neat"
+
+  - question: What overall atmosphere does the video convey?
+    answer: A peaceful, green, and sunny suburban street with a calm atmosphere
+    contains:
+      - "peaceful"
+      - "calm"
+      - "green"
+      - "sunny"
+      - "suburban"
+      - "tranquil"
+      - "pleasant"
+      - "serene"
+      - "quiet"

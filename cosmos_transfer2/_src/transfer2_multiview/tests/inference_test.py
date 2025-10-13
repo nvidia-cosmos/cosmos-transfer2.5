@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Inference test for ControlVideo2WorldInference using subprocess to run the actual inference script.
 
@@ -5,19 +20,18 @@ pytest cosmos_transfer2/_src/transfer2_multiview/tests/inference_test.py --all -
 """
 
 import os
-import subprocess
+import pickle
 import shutil
-import numpy as np
+import subprocess
 import uuid
+from pathlib import Path
+
+import numpy as np
 import pytest
 from loguru import logger
-from pathlib import Path
-import pytest
-import pickle
 
-from cosmos_transfer2._src.imaginaire.utils.helper_test import RunIf
 from cosmos_transfer2._src.imaginaire.utils.easy_io import easy_io
-
+from cosmos_transfer2._src.imaginaire.utils.helper_test import RunIf
 
 # Experiment configuration
 EXPERIMENT_NAME = "buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase5knofps_mads720pmulticaps29frames_world_scenario_resumefrom21k"
@@ -46,7 +60,9 @@ def get_project_root() -> Path:
         # If the expected structure isn't found, try using the current working directory
         project_root = Path.cwd()
         if not (project_root / "cosmos_transfer2._src.imaginaire").exists():
-            raise RuntimeError(f"Could not find project root. Expected 'cosmos_transfer2._src.imaginaire' directory in {project_root}")
+            raise RuntimeError(
+                f"Could not find project root. Expected 'cosmos_transfer2._src.imaginaire' directory in {project_root}"
+            )
 
     return project_root
 

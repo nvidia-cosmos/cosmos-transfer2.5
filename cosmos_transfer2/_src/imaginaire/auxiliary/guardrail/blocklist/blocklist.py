@@ -23,9 +23,12 @@ import nltk
 from better_profanity import profanity
 
 from cosmos_transfer2._src.imaginaire.auxiliary.guardrail.blocklist.utils import read_keyword_list_from_dir, to_ascii
-from cosmos_transfer2._src.imaginaire.auxiliary.guardrail.common.core import ContentSafetyGuardrail, GuardrailRunner
+from cosmos_transfer2._src.imaginaire.auxiliary.guardrail.common.core import (
+    GUARDRAIL1_CHECKPOINT_DIR,
+    ContentSafetyGuardrail,
+    GuardrailRunner,
+)
 from cosmos_transfer2._src.imaginaire.utils import log, misc
-from cosmos_transfer2._src.imaginaire.auxiliary.guardrail.common.core import GUARDRAIL1_CHECKPOINT_DIR
 
 CENSOR = misc.Color.red("*")
 

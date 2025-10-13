@@ -24,12 +24,10 @@ from cosmos_transfer2._src.predict2.configs.common.mock_data import (
     MOCK_DATA_INTERLEAVE_CONFIG,
     MOCK_DATA_VIDEO_ONLY_CONFIG,
 )
-
+from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.dataloader import get_video_dataloader_multiview
 from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.driving import (
     MADS_DRIVING_DATALOADER_CONFIG_PER_RESOLUTION,
 )
-from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.dataloader import get_video_dataloader_multiview
-
 
 
 def register_training_and_val_data():

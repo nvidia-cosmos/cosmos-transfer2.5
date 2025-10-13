@@ -17,8 +17,8 @@ import math
 
 from hydra.core.config_store import ConfigStore
 
-from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
 from cosmos_transfer2._src.common.types.high_sigma_strategy import HighSigmaStrategy
+from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
 from cosmos_transfer2._src.predict2_multiview.callbacks.every_n_draw_sample_multiviewvideo import (
     EveryNDrawSampleMultiviewVideo,
 )
@@ -207,7 +207,6 @@ def buttercup_transfer2_2b_mv_7views_res720_fps10_t8_frompred25k_edge_control_la
             ),
         ),
         dataloader_train=dict(
-
             batch_size=1,
             dataloaders=dict(
                 image_data=dict(
@@ -379,7 +378,6 @@ def buttercup_transfer2_2b_mv_7views_res720_fps10_t8_frompred25k_hdmap_bbox_olds
             ),
         ),
         dataloader_train=dict(
-
             batch_size=1,
             dataset=dict(
                 dataset_loading_keys=MULTI_VIEW_LOADING_KEYS,

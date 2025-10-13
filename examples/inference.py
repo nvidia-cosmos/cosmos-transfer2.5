@@ -18,8 +18,9 @@ import os
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 import argparse
-from cosmos_transfer2.control2world import Control2WorldInference
+
 from cosmos_transfer2.config import get_params_from_json
+from cosmos_transfer2.control2world import Control2WorldInference
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -37,7 +38,12 @@ def main():
     else:
         raise ValueError(f"Params file {args.params_file} does not exist")
 
-    pipe = Control2WorldInference(num_gpus=args.num_gpus, hint_key=params.hint_key)
+    pipe = Control2WorldInference(
+        num_gpus=args.num_gpus,
+        hint_key=params.hint_key,
+        disable_guardrails=params.disable_guardrails,
+        offload_guardrail_models=params.offload_guardrail_models,
+    )
     pipe.infer(params)
 
 

@@ -16,7 +16,7 @@
 import os
 import random
 import time
-from typing import Optional
+from typing import Optional, Union
 
 import torch
 
@@ -46,17 +46,11 @@ class ControlVideo2WorldInference:
     def __init__(
         self,
         registered_exp_name: str,
-        ckpt_path: str,
+        checkpoint_paths: Union[str, list[str]],
         s3_credential_path: str,
-        preset_edge_threshold: str = "medium",
-        preset_blur_strength: str = "medium",
-        num_conditional_frames: int = 1,
-        num_video_frames_per_chunk: int = 93,
-        num_steps: int = 35,
         exp_override_opts: Optional[list[str]] = None,
         process_group: Optional[torch.distributed.ProcessGroup] = None,
         cache_dir: Optional[str] = None,
-        checkpoint_paths: Optional[list[str]] = None,
         skip_load_model: bool = False,
         base_load_from: Optional[str] = None,
     ):
@@ -68,21 +62,16 @@ class ControlVideo2WorldInference:
 
         Args:
             registered_exp_name (str): Name of the experiment configuration.
-            ckpt_path (str): Path to the model checkpoint (local or S3).
+            checkpoint_paths (Union[str, list[str]]): Single checkpoint path or List of checkpoint paths for multi-branch models.
             s3_credential_path (str): Path to S3 credentials file for ckpt & negative embedding (if loading from S3).
-            preset_edge_threshold (str): Preset strength for the canny edge detection.
-            preset_blur_strength (str): Preset strength for the blur strength.
             exp_override_opts (list[str]): List of experiment override options.
             process_group (torch.distributed.ProcessGroup): Process group for distributed training.
             cache_dir (str): Cache directory for storing pre-computed embeddings.
-            checkpoint_paths (list[str]): List of checkpoint paths for multi-branch models.
             skip_load_model (bool): Whether to skip loading model from checkpoint for multi-control models.
         """
         self.registered_exp_name = registered_exp_name
-        self.ckpt_path = ckpt_path
+        self.checkpoint_path = checkpoint_paths if isinstance(checkpoint_paths, str) else checkpoint_paths[0]
         self.s3_credential_path = s3_credential_path
-        self.preset_edge_threshold = preset_edge_threshold
-        self.preset_blur_strength = preset_blur_strength
         self.cache_dir = cache_dir
 
         if exp_override_opts is None:
@@ -95,7 +84,7 @@ class ControlVideo2WorldInference:
         # arguments. That is done in experiment_list.py. Here we simply replicate that process.
         model, config = load_model_from_checkpoint(
             experiment_name=self.registered_exp_name,
-            s3_checkpoint_dir=self.ckpt_path,
+            s3_checkpoint_dir=self.checkpoint_path,
             config_file="cosmos_transfer2/_src/transfer2/configs/vid2vid_transfer/config.py",
             load_ema_to_reg=True,
             local_cache_dir=(
@@ -103,12 +92,17 @@ class ControlVideo2WorldInference:
             ),  # for multi-control models, need to load other branches before caching
             experiment_opts=exp_override_opts,
         )
-        if checkpoint_paths and not skip_load_model:  # load other branches for multi-control models
+        if (
+            isinstance(checkpoint_paths, list) and len(checkpoint_paths) > 1 and not skip_load_model
+        ):  # load other branches for multi-control models
             load_from_local = False
             if cache_dir is not None:
                 # build a unique path for s3checkpoint dir
                 local_s3_ckpt_fp = os.path.join(
-                    cache_dir, self.ckpt_path.split("s3://")[1], "torch_model", f"_rank_{distributed.get_rank()}.pt"
+                    cache_dir,
+                    self.checkpoint_path.split("s3://")[1],
+                    "torch_model",
+                    f"_rank_{distributed.get_rank()}.pt",
                 )
                 if os.path.exists(local_s3_ckpt_fp):
                     load_from_local = True
@@ -136,9 +130,6 @@ class ControlVideo2WorldInference:
             log.info("Enabling CP in base model\n")
             model.net.enable_context_parallel(process_group)
 
-        self.num_video_frames_per_chunk = num_video_frames_per_chunk
-        self.num_conditional_frames = num_conditional_frames
-        self.num_steps = num_steps
         self.model = model
         self.config = config
         self.batch_size = 1
@@ -199,17 +190,19 @@ class ControlVideo2WorldInference:
 
         return data_batch
 
-    def _get_num_chunks(self, input_frames: torch.Tensor) -> tuple[int, int, int]:
+    def _get_num_chunks(
+        self, input_frames: torch.Tensor, num_video_frames_per_chunk: int, num_conditional_frames: int
+    ) -> tuple[int, int, int]:
         """
         Get the number of chunks for chunk-wise long video generation.
         """
         # Frame number settting for chunk-wise long video generation
         num_total_frames = input_frames.shape[1]
-        num_frames_per_chunk = self.num_video_frames_per_chunk - self.num_conditional_frames
-        if self.num_video_frames_per_chunk == 1:
+        num_frames_per_chunk = num_video_frames_per_chunk - num_conditional_frames
+        if num_video_frames_per_chunk == 1:
             num_chunks = 1
         else:
-            num_generated_frames_vid2vid = num_total_frames - self.num_video_frames_per_chunk
+            num_generated_frames_vid2vid = num_total_frames - num_video_frames_per_chunk
             num_chunks = 1 + num_generated_frames_vid2vid // num_frames_per_chunk
             if num_generated_frames_vid2vid % num_frames_per_chunk != 0:
                 num_chunks += 1
@@ -217,19 +210,23 @@ class ControlVideo2WorldInference:
         return num_total_frames, num_chunks, num_frames_per_chunk
 
     def _pad_input_frames(
-        self, input_frames: torch.Tensor, num_total_frames: int, padding_mode: str = "reflect"
+        self,
+        input_frames: torch.Tensor,
+        num_total_frames: int,
+        num_video_frames_per_chunk: int,
+        padding_mode: str = "reflect",
     ) -> torch.Tensor:
         """
         Pad input frames if total frames is less than chunk size
         """
-        if num_total_frames < self.num_video_frames_per_chunk:
+        if num_total_frames < num_video_frames_per_chunk:
             if padding_mode == "repeat":
                 last_frame = input_frames[:, -1:, :, :]  # Get the last frame
-                padding = last_frame.repeat(1, self.num_video_frames_per_chunk - num_total_frames, 1, 1)
+                padding = last_frame.repeat(1, num_video_frames_per_chunk - num_total_frames, 1, 1)
                 input_frames = torch.cat([input_frames, padding], dim=1)
             elif padding_mode == "reflect":
-                while input_frames.shape[1] < self.num_video_frames_per_chunk:
-                    padding = min(input_frames.shape[1] - 1, self.num_video_frames_per_chunk - input_frames.shape[1])
+                while input_frames.shape[1] < num_video_frames_per_chunk:
+                    padding = min(input_frames.shape[1] - 1, num_video_frames_per_chunk - input_frames.shape[1])
                     padding_frames = input_frames.flip(dims=[1])[:, :padding, :, :]
                     input_frames = torch.cat([input_frames, padding_frames], dim=1)
             else:
@@ -244,9 +241,14 @@ class ControlVideo2WorldInference:
         guidance: int = 7,
         seed: int = 1,
         resolution: str = "720",
+        num_conditional_frames: int = 1,
+        num_video_frames_per_chunk: int = 93,
+        num_steps: int = 35,
         control_weight: str = "1.0",
         sigma_max: float | None = None,
         hint_key: list[str] = ["edge"],
+        preset_edge_threshold: str = "medium",
+        preset_blur_strength: str = "medium",
         input_control_video_paths: dict[str, str] | None = None,
         show_control_condition: bool = False,
         show_input: bool = False,
@@ -328,12 +330,14 @@ class ControlVideo2WorldInference:
         )
 
         # -------- Stuff to handle chunk-wise long video generation --------
-        num_total_frames, num_chunks, num_frames_per_chunk = self._get_num_chunks(input_frames)
+        num_total_frames, num_chunks, num_frames_per_chunk = self._get_num_chunks(
+            input_frames, num_video_frames_per_chunk, num_conditional_frames
+        )
         # Pad input frames if total frames is less than chunk size
-        input_frames = self._pad_input_frames(input_frames, num_total_frames)
+        input_frames = self._pad_input_frames(input_frames, num_total_frames, num_video_frames_per_chunk)
         all_chunks, time_per_chunk = [], []
         # For first chunk, use zeros as input (after normalization it is 0)
-        prev_output = torch.zeros_like(input_frames[:, : self.num_video_frames_per_chunk]).to(torch.uint8).cuda()[None]
+        prev_output = torch.zeros_like(input_frames[:, :num_video_frames_per_chunk]).to(torch.uint8).cuda()[None]
 
         # --------Start of chunk-wise long video generation--------
         for chunk_id in range(num_chunks):
@@ -342,12 +346,14 @@ class ControlVideo2WorldInference:
 
             # Calculate start frame for this chunk
             chunk_start_frame = chunk_id * num_frames_per_chunk
-            chunk_end_frame = min(chunk_start_frame + self.num_video_frames_per_chunk, input_frames.shape[1])
+            chunk_end_frame = min(chunk_start_frame + num_video_frames_per_chunk, input_frames.shape[1])
 
             x_sigma_max = None
             if input_frames is not None:
                 cur_input_frames = input_frames[:, chunk_start_frame:chunk_end_frame]
-                cur_input_frames = self._pad_input_frames(cur_input_frames, cur_input_frames.shape[1])
+                cur_input_frames = self._pad_input_frames(
+                    cur_input_frames, cur_input_frames.shape[1], num_video_frames_per_chunk
+                )
                 if sigma_max is not None:
                     x0 = uint8_to_normalized_float(cur_input_frames, dtype=torch.bfloat16)[None].cuda()
                     x0 = self.model.encode(x0).contiguous()
@@ -375,7 +381,9 @@ class ControlVideo2WorldInference:
             # Online computation of depth/seg also happens here (if needed).
             for k, v in control_input_dict.items():
                 cur_control_input = v[:, chunk_start_frame:chunk_end_frame]
-                data_batch[k] = self._pad_input_frames(cur_control_input, cur_control_input.shape[1])
+                data_batch[k] = self._pad_input_frames(
+                    cur_control_input, cur_control_input.shape[1], num_video_frames_per_chunk
+                )
                 if k == "control_input_inpaint_mask":
                     data_batch["control_input_inpaint"] = cur_input_frames
             # Otherwise, compute control inputs on-the-fly via the augmentor（applicable to edge and vis).
@@ -383,15 +391,15 @@ class ControlVideo2WorldInference:
                 data_dict=data_batch,
                 input_keys=["input_video"],
                 output_keys=hint_key,
-                preset_edge_threshold=self.preset_edge_threshold,
-                preset_blur_strength=self.preset_blur_strength,
+                preset_edge_threshold=preset_edge_threshold,
+                preset_blur_strength=preset_blur_strength,
             )
 
             if chunk_id == 0:
                 data_batch[NUM_CONDITIONAL_FRAMES_KEY] = 0
             else:
                 data_batch[NUM_CONDITIONAL_FRAMES_KEY] = (
-                    1 + (self.num_conditional_frames - 1) // 4
+                    1 + (num_conditional_frames - 1) // 4
                 )  # tokenizer temporal compression is 4x
 
             random.seed(seed)
@@ -407,7 +415,7 @@ class ControlVideo2WorldInference:
                 is_negative_prompt=negative_prompt is not None,
                 x_sigma_max=x_sigma_max,
                 sigma_max=sigma_max,
-                num_steps=self.num_steps,
+                num_steps=num_steps,
             )
             video = self.model.decode(sample).cpu()  # Shape: (1, C, T, H, W)
 
@@ -434,11 +442,11 @@ class ControlVideo2WorldInference:
                 all_chunks.append(video_cat.cpu())
             else:
                 # For subsequent chunks, only append the non-overlapping frames
-                all_chunks.append(video_cat[:, :, self.num_conditional_frames :, :, :].cpu())
+                all_chunks.append(video_cat[:, :, num_conditional_frames:, :, :].cpu())
 
             # For next chunk, use last conditional_frames as input
             if chunk_id < num_chunks - 1:  # Don't need to prepare next input for last chunk
-                last_frames = video[:, :, -self.num_conditional_frames :, :, :]  # (1, C, num_conditional_frames, H, W)
+                last_frames = video[:, :, -num_conditional_frames:, :, :]  # (1, C, num_conditional_frames, H, W)
                 # Convert to uint8 [0, 255]
                 last_frames_uint8 = normalized_float_to_uint8(last_frames)
                 # Create blank frames for the rest
@@ -446,7 +454,7 @@ class ControlVideo2WorldInference:
                     (
                         1,
                         3,
-                        self.num_video_frames_per_chunk - self.num_conditional_frames,
+                        num_video_frames_per_chunk - num_conditional_frames,
                         video.shape[-2],
                         video.shape[-1],
                     ),

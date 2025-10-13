@@ -1,0 +1,179 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+must_pass_checks:
+  - question: Is the video or picture blurry?
+    answer: No, the video or picture is not blurry
+    contains:
+      - "no blurry"
+      - "not blurry"
+      - "no fuzzy"
+      - "not fuzzy"
+      - "no unclear"
+      - "not unclear"
+      - "no hazy"
+      - "not hazy"
+      - "no out of focus"
+      - "not out of focus"
+      - "no distorted"
+      - "not distorted"
+      - "no pixelated"
+      - "not pixelated"
+      - "is clear"
+      - "is well-lit"
+      - "is focused"
+      - "is clean"
+      - "detailed"
+
+  - question: Is there any noise, picture not clear, or picture/video is blurry?
+    answer: No, the video or picture is not noisy, not unclear, and not blurry
+    contains:
+      - "no blurry"
+      - "not blurry"
+      - "no fuzzy"
+      - "not fuzzy"
+      - "no unclear"
+      - "not unclear"
+      - "no hazy"
+      - "not hazy"
+      - "no out of focus"
+      - "not out of focus"
+      - "no distorted"
+      - "not distorted"
+      - "no pixelated"
+      - "not pixelated"
+      - "is clear"
+      - "is well-lit"
+      - "is focused"
+      - "is clean"
+      - "detailed"
+
+vqa_checks:
+  - question: What object are the robotic arms interacting with?
+    answer: A piece of blue fabric
+    contains:
+      - "blue fabric"
+      - "cloth"
+      - "fabric"
+      - "material"
+      - "textile"
+      - "blue cloth"
+
+  - question: What is the color of the fabric being manipulated?
+    answer: Blue
+    contains:
+      - "blue"
+      - "blue fabric"
+      - "blue cloth"
+
+  - question: What is the color of the couch in the background?
+    answer: Beige
+    contains:
+      - "beige"
+      - "beige couch"
+      - "light brown"
+      - "cream"
+
+  - question: What is the color of the cushion under the fabric?
+    answer: Yellow
+    contains:
+      - "yellow"
+      - "yellow cushion"
+      - "golden"
+
+  - question: What is the color of the left robotic arm?
+    answer: White
+    contains:
+      - "white"
+      - "white arm"
+      - "white robot"
+      - "left white arm"
+
+  - question: What is the color of the right robotic arm?
+    answer: Black
+    contains:
+      - "black"
+      - "black arm"
+      - "black robot"
+      - "right black arm"
+
+  - question: What kind of gripper does the left robotic arm have?
+    answer: A black simple gripper
+    contains:
+      - "black gripper"
+      - "simple gripper"
+      - "basic gripper"
+
+  - question: What kind of gripper does the right robotic arm have?
+    answer: A complex articulated gripper
+    contains:
+      - "articulated gripper"
+      - "complex gripper"
+      - "advanced gripper"
+
+  - question: What does the left robotic arm do when it approaches the fabric?
+    answer: It grips and lifts the fabric
+    contains:
+      - "grips"
+      - "lifts"
+      - "holds"
+      - "picks up"
+
+  - question: What does the right robotic arm do after the left one grips the fabric?
+    answer: It grasps the opposite side of the fabric
+    contains:
+      - "grasps"
+      - "holds"
+      - "grips"
+      - "takes the other side"
+
+  - question: How do the robotic arms manipulate the fabric together?
+    answer: By gripping and lifting it in coordination
+    contains:
+      - "coordinated"
+      - "together"
+      - "gripping"
+      - "lifting"
+      - "holding"
+
+  - question: What is the initial position of the fabric at the beginning of the video?
+    answer: Laid out on the cushion
+    contains:
+      - "laid out"
+      - "on the cushion"
+      - "flat on cushion"
+
+  - question: What is the initial action of the right robotic arm?
+    answer: It remains stationary
+    contains:
+      - "stationary"
+      - "still"
+      - "does not move"
+      - "waiting"
+
+  - question: How does the right arm adjust before grasping the fabric?
+    answer: By adjusting its gripper
+    contains:
+      - "adjusts gripper"
+      - "changes gripper"
+      - "positions gripper"
+
+  - question: How is the camera positioned during the video?
+    answer: It remains static
+    contains:
+      - "static"
+      - "fixed"
+      - "still camera"
+      - "unchanging view"

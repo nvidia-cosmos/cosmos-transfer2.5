@@ -14,8 +14,9 @@
 # limitations under the License.
 
 from hydra.core.config_store import ConfigStore
-from cosmos_transfer2.config import MODEL_CHECKPOINTS, ModelKey
+
 from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_path
+from cosmos_transfer2.config import MODEL_CHECKPOINTS, ModelKey
 
 _DEFAULT_CHECKPOINT = MODEL_CHECKPOINTS[ModelKey(variant="drive")]
 

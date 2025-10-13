@@ -14,32 +14,30 @@
 # limitations under the License.
 
 
+import json
 import os
 import pickle
 import traceback
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict
-import json
 
 import numpy as np
 import torch
 from decord import VideoReader, cpu
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms as T
 from tqdm import tqdm
 
-
+from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
+from cosmos_transfer2._src.imaginaire.lazy_config import instantiate
+from cosmos_transfer2._src.imaginaire.modules.input_handling.utils import detect_aspect_ratio
+from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.predict2.datasets.local_datasets.dataset_utils import (
     ResizePreprocess,
     ToTensorVideo,
 )
 from cosmos_transfer2._src.transfer2.datasets.augmentor_provider import get_hdmap_augmentor_for_local_datasets
-from cosmos_transfer2._src.imaginaire.modules.input_handling.utils import detect_aspect_ratio
-from cosmos_transfer2._src.imaginaire.lazy_config import instantiate
-from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
-from cosmos_transfer2._src.imaginaire.utils import log
-
 
 # mappings between control types and corresponding sub-folders names in the data folder
 CTRL_TYPE_INFO = {
@@ -52,6 +50,8 @@ CTRL_TYPE_INFO = {
     "vis": {"folder": None},  # Blur, computed on-the-fly
     "upscale": {"folder": None},  # Computed on-the-fly
 }
+
+AUTO_MV_DEFAULT_PROMPT = 'This multi-camera perspective captures a drive along a multi-lane urban freeway during the daytime under a hazy or partly cloudy sky. The vehicle travels in one of the right lanes, flanked on one side by a high retaining wall featuring a concrete base and a brown, brick-patterned upper section with some climbing vines, and on the other side by a concrete median barrier. As the car moves forward, it approaches and passes under a large concrete overpass, which frames a view of a distant downtown city skyline with numerous high-rise buildings. A green freeway sign for the "Hill St / Grand Ave" exit is briefly visible, and another overpass, distinguished by its overhead catenary power lines suggesting a light rail system, also crosses the roadway. The flow of traffic is moderate, with the camera vehicle sharing the road with other cars, including a white Dodge Grand Caravan minivan, a dark-colored SUV, and a black sedan, which are visible at various points ahead and behind. The asphalt road surface shows some visible cracks and wear, contributing to the overall scene of a typical day on a major metropolitan highway.'
 
 
 class MultiviewTransferDataset(Dataset):
@@ -273,12 +273,12 @@ class MultiviewTransferDataset(Dataset):
                 }
 
                 caption_path = os.path.join(self.captions_dir, f"{video_name}.json")
-                with open(caption_path, "r") as f:
-                    metadata = json.load(f)
-                if "t2w_qwen2p5_7b_long" in metadata and len(metadata["t2w_qwen2p5_7b_long"]) > 0:
-                    data_for_augmentor["ai_caption"] = metadata["t2w_qwen2p5_7b_long"]
-                else:
-                    data_for_augmentor["ai_caption"] = ""
+                data_for_augmentor["ai_caption"] = AUTO_MV_DEFAULT_PROMPT
+                if os.path.exists(caption_path):
+                    with open(caption_path, "r") as f:
+                        metadata = json.load(f)
+                    if "caption" in metadata and len(metadata["caption"]) > 0:
+                        data_for_augmentor["ai_caption"] = metadata["caption"]
 
                 if self.ctrl_types:
                     ctrl_data = self._load_control_data(video_name, camera_key, frame_ids)
@@ -322,7 +322,7 @@ class MultiviewTransferDataset(Dataset):
             final_data["front_cam_view_idx_sample_position"] = torch.tensor([0])
             return final_data
 
-        except Exception:
+        except Exception as e:
             self.num_failed_loads += 1
             log.warning(
                 f"Failed to load video {self.video_paths[index]} (total failures: {self.num_failed_loads}): {e}\n"

@@ -107,11 +107,10 @@ def test_inference_pipeline_get_num_chunks():
 
         pipeline = ControlVideo2WorldInference(
             registered_exp_name="test_experiment",
-            ckpt_path="test_path",
+            checkpoint_paths="test_path",
             s3_credential_path="test_cred",
             num_video_frames_per_chunk=93,
             num_conditional_frames=1,
-            use_neg_prompt=False,
         )
 
     # Test case 1: Small video (< chunk size)
@@ -151,10 +150,9 @@ def test_inference_pipeline_pad_input_frames():
 
         pipeline = ControlVideo2WorldInference(
             registered_exp_name="test_experiment",
-            ckpt_path="test_path",
+            checkpoint_paths="test_path",
             s3_credential_path="test_cred",
             num_video_frames_per_chunk=93,
-            use_neg_prompt=False,
         )
 
     # Test case 1: Video shorter than chunk size (needs padding)
@@ -180,6 +178,51 @@ def test_inference_pipeline_pad_input_frames():
 
 
 @pytest.mark.L1
+def test_inference_pipeline_multi_branch_generate_img2world():
+    """Test the inference pipeline initialization with multi-branch checkpoints."""
+
+    # Mock the model loading and multi-branch checkpoint loading
+    with patch("cosmos_transfer2._src.transfer2.inference.inference_pipeline.load_model_from_checkpoint") as mock_load:
+        mock_model = MagicMock()
+        mock_config = MagicMock()
+        mock_load.return_value = (mock_model, mock_config)
+        mock_model.load_multi_branch_checkpoints = MagicMock()
+
+        # Test cases: (checkpoint_paths, skip_load_model, should_call_multi_branch)
+        test_cases = [
+            ("single_checkpoint", False, False),  # Single string
+            (["single_checkpoint"], False, False),  # Single item list
+            (["ckpt1", "ckpt2", "ckpt3"], False, True),  # Multiple checkpoints
+            (["ckpt1", "ckpt2"], True, False),  # Multiple but skip_load_model=True
+        ]
+
+        for i, (checkpoint_paths, skip_load_model, should_call) in enumerate(test_cases):
+            mock_model.reset_mock()
+
+            # Create pipeline
+            pipeline = ControlVideo2WorldInference(
+                registered_exp_name="test_experiment",
+                checkpoint_paths=checkpoint_paths,
+                s3_credential_path="test_cred",
+                skip_load_model=skip_load_model,
+            )
+
+            # Verify multi-branch loading behavior
+            if should_call:
+                mock_model.load_multi_branch_checkpoints.assert_called_once_with(checkpoint_paths=checkpoint_paths)
+            else:
+                mock_model.load_multi_branch_checkpoints.assert_not_called()
+
+            # Verify pipeline attributes
+            assert pipeline.model == mock_model
+            assert pipeline.config == mock_config
+            expected_first_path = checkpoint_paths if isinstance(checkpoint_paths, str) else checkpoint_paths[0]
+            assert pipeline.checkpoint_path == expected_first_path
+
+    print("Multi-branch generate_img2world test passed.")
+
+
+@pytest.mark.L1
 def test_inference_pipeline_get_data_batch_input():
     """Test the _get_data_batch_input method."""
     dtype = torch.uint8
@@ -192,10 +235,9 @@ def test_inference_pipeline_get_data_batch_input():
 
         pipeline = ControlVideo2WorldInference(
             registered_exp_name="test_experiment",
-            ckpt_path="test_path",
+            checkpoint_paths="test_path",
             s3_credential_path="test_cred",
             num_video_frames_per_chunk=93,
-            use_neg_prompt=False,
         )
 
     # Create test input tensors
@@ -253,11 +295,10 @@ def test_inference_pipeline_chunk_calculations():
         for chunk_size, cond_frames, input_frames_count, expected_chunks, expected_frames_per_chunk in test_cases:
             pipeline = ControlVideo2WorldInference(
                 registered_exp_name="test_experiment",
-                ckpt_path="test_path",
+                checkpoint_paths="test_path",
                 s3_credential_path="test_cred",
                 num_video_frames_per_chunk=chunk_size,
                 num_conditional_frames=cond_frames,
-                use_neg_prompt=False,
             )
 
             input_frames = create_random_video_tensor((3, input_frames_count, 64, 64), dtype)
@@ -282,9 +323,8 @@ def test_inference_pipeline_tensor_shapes():
 
         pipeline = ControlVideo2WorldInference(
             registered_exp_name="test_experiment",
-            ckpt_path="test_path",
+            checkpoint_paths="test_path",
             s3_credential_path="test_cred",
-            use_neg_prompt=False,
         )
 
     # Test different tensor dimensions - using (C, T, H, W) format
@@ -347,11 +387,10 @@ def test_inference_pipeline_real_inference():
         # Create pipeline (using 93 frames per chunk)
         pipeline = ControlVideo2WorldInference(
             registered_exp_name="test_experiment",
-            ckpt_path="test_path",
+            checkpoint_paths="test_path",
             s3_credential_path="test_cred",
             num_video_frames_per_chunk=93,
             num_conditional_frames=1,
-            use_neg_prompt=False,
         )
 
         # Create test data matching real scenario (93 frames, 93 frames per chunk)
@@ -465,11 +504,10 @@ def test_inference_pipeline_multi_chunk_inference():
         # Create pipeline (using 93 frames per chunk)
         pipeline = ControlVideo2WorldInference(
             registered_exp_name="test_experiment",
-            ckpt_path="test_path",
+            checkpoint_paths="test_path",
             s3_credential_path="test_cred",
             num_video_frames_per_chunk=93,
             num_conditional_frames=1,
-            use_neg_prompt=False,
         )
 
         # Create longer video tensor requiring multiple chunks (121 frames, 93 frames per chunk)
@@ -572,6 +610,7 @@ def test_inference_pipeline_multi_chunk_inference():
 if __name__ == "__main__":
     test_inference_pipeline_get_num_chunks()
     test_inference_pipeline_pad_input_frames()
+    test_inference_pipeline_multi_branch_generate_img2world()
     test_inference_pipeline_get_data_batch_input()
     test_inference_pipeline_chunk_calculations()
     test_inference_pipeline_tensor_shapes()

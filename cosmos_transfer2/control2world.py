@@ -13,17 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import torch
 import json
-import numpy as np
+import os
 from typing import Union
+
+import numpy as np
+import torch
+
+from cosmos_transfer2._src.imaginaire.auxiliary.guardrail.common import presets as guardrail_presets
 from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.imaginaire.visualize.video import save_img_or_video
-from cosmos_transfer2._src.imaginaire.auxiliary.guardrail.common import presets as guardrail_presets
 from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.experiment.experiment_list import EXPERIMENTS
 from cosmos_transfer2._src.transfer2.inference.inference_pipeline import ControlVideo2WorldInference
-from cosmos_transfer2._src.transfer2.inference.utils import get_prompt_from_path, color_message
+from cosmos_transfer2._src.transfer2.inference.utils import color_message, get_prompt_from_path
 from cosmos_transfer2.config import MODEL_CHECKPOINTS, Control2WorldParams, ModelKey
 
 
@@ -34,27 +36,32 @@ class Control2WorldInference:
         num_gpus: int,
         hint_key: list[str] = ["edge"],
         disable_guardrails: bool = False,
-        offload_guardrail_models: bool = False,
+        offload_guardrail_models: bool = True,
     ) -> None:
-        self.hint_key = hint_key
-        log.info(f"Using {self.hint_key=}")
+        self.hint_keys = hint_key
+        log.info(f"Using {self.hint_keys=}")
 
-        checkpoint = MODEL_CHECKPOINTS[ModelKey(variant=self.hint_key[0])]  # type: ignore
-        registered_exp_name = EXPERIMENTS[checkpoint.experiment].registered_exp_name
-        exp_override_opts = EXPERIMENTS[checkpoint.experiment].command_args
-        ckpt_path = checkpoint.path
+        checkpoint = MODEL_CHECKPOINTS[ModelKey(variant=self.hint_keys[0])]  # type: ignore
+        if len(self.hint_keys) > 1:
+            # experiment name for multi-control model as per research script
+            experiment_name = "multibranch_720p_t24_spaced_layer4_cr1_sdev2_hqv1p1_20250715_basev2_25k_inference"
+        else:
+            experiment_name = checkpoint.experiment
+
+        registered_exp_name = EXPERIMENTS[experiment_name].registered_exp_name
+        exp_override_opts = EXPERIMENTS[experiment_name].command_args
+        log.critical(f"Using {experiment_name=} {registered_exp_name=} {exp_override_opts=}")
 
         # multi-control model checkpoint paths for single control model checkpoint paths are None
-
         checkpoint_paths = (
             [
                 checkpoint.path
-                for checkpoint in [MODEL_CHECKPOINTS[ModelKey(variant=hint_key)] for hint_key in self.hint_key]
+                for checkpoint in [MODEL_CHECKPOINTS[ModelKey(variant=hint_key)] for hint_key in self.hint_keys]
             ]
-            if len(self.hint_key) > 1
-            else None
+            if len(self.hint_keys) > 1
+            else checkpoint.path
         )  # type: ignore
-        log.critical(f"Loading model for {self.hint_key=} using {ckpt_path=} and {checkpoint_paths=}")
+        log.critical(f"Loading model for {self.hint_keys=} using {checkpoint_paths=}")
 
         self.device_rank = 0
         self.num_gpus = num_gpus
@@ -81,12 +88,10 @@ class Control2WorldInference:
         # Initialize the inference class
         self.inference_pipeline = ControlVideo2WorldInference(
             registered_exp_name=registered_exp_name,
-            ckpt_path=ckpt_path,
+            checkpoint_paths=checkpoint_paths,
             s3_credential_path="",
             exp_override_opts=exp_override_opts,
-            preset_blur_strength="high",
             process_group=process_group,
-            checkpoint_paths=checkpoint_paths,
         )
 
     def infer(self, params: Union[Control2WorldParams, dict]) -> None:
@@ -124,11 +129,10 @@ class Control2WorldInference:
 
         sigma_max = None if p.sigma_max is None else float(p.sigma_max)
         # control_weight is a string because of multi-control. for all hint_keys, seperate the control_weight by comma
-        if len(self.hint_key) > 1:
+        if len(self.hint_keys) > 1:
             control_weight_str = str(p.multicontrol_weight)
         else:
             control_weight_str = str(p.control_weight)
-
 
         # Run model inference
         output_video, fps, _ = self.inference_pipeline.generate_img2world(
@@ -141,7 +145,7 @@ class Control2WorldInference:
             resolution=p.resolution,
             control_weight=control_weight_str,
             sigma_max=sigma_max,
-            hint_key=self.hint_key,
+            hint_key=self.hint_keys,
             input_control_video_paths=input_control_video_paths,
             show_control_condition=p.show_control_condition,
             show_input=p.show_input,

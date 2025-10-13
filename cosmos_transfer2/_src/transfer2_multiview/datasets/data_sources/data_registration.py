@@ -12,10 +12,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from typing import Dict, List, Optional, Tuple
-
-from cosmos_transfer2._src.imaginaire.datasets.webdataset.config.schema import DatasetInfo
-
-from cosmos_transfer2._src.transfer2.datasets.data_sources.data_registration import create_dataset_infos, dataset_register
-

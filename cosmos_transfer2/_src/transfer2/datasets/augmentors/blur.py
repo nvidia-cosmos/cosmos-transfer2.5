@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Callable, Optional
+import random
+from typing import Callable, List, Optional
 
 import attrs
 import cv2
@@ -46,6 +47,22 @@ class BilateralFilterConfig:
 
     # Whether to use GPU kernel (inference only)
     use_cuda: bool = False
+
+
+@attrs.define
+class GaussianBlurConfig:
+    """Configuration for Gaussian blur"""
+
+    use_random: bool = False
+    # if use_random is False, then optionally define the param values
+    ksize: int = 25
+    sigmaX: float = 12.5
+
+    # if use_random is True, then optionally define the range
+    ksize_min: int = 21
+    ksize_max: int = 29
+    sigmaX_min: float = 10.5
+    sigmaX_max: float = 14.5
 
 
 def apply_bilateral_filter(
@@ -96,3 +113,126 @@ class BilateralFilter:
             sigma_space = config.sigma_space
             iter = config.iter
         return apply_bilateral_filter(frames, d, sigma_color, sigma_space, iter, self.bilateral_cuda_module)
+
+
+# frames CTHW
+def apply_gaussian_blur(frames: np.ndarray, ksize: int = 5, sigmaX: float = 1.0) -> np.ndarray:
+    if ksize % 2 == 0:
+        ksize += 1  # ksize must be odd
+    blurred_image = [
+        cv2.GaussianBlur(_image_np, (ksize, ksize), sigmaX=sigmaX) for _image_np in frames.transpose((1, 2, 3, 0))
+    ]
+    blurred_image = np.stack(blurred_image).transpose((3, 0, 1, 2))
+    return blurred_image
+
+
+class GaussianBlur:
+    def __init__(self, config: GaussianBlurConfig) -> None:
+        self.use_random = config.use_random
+        self.config = config
+
+    def __call__(self, frames: np.ndarray) -> np.ndarray:
+        if self.use_random:
+            ksize = np.random.randint(self.config.ksize_min, self.config.ksize_max + 1)
+            sigmaX = np.random.uniform(self.config.sigmaX_min, self.config.sigmaX_max)
+        else:
+            ksize = self.config.ksize
+            sigmaX = self.config.sigmaX
+        return apply_gaussian_blur(frames, ksize, sigmaX)
+
+
+@attrs.define
+class BlurCombinationConfig:
+    """Configuration for a combination of blurs with associated probability"""
+
+    # list of choices are:  ["gaussian", "bilateral"]
+    # the corresponding config must be defined for each item in this blur_types list
+    blur_types: List[str]
+    probability: float
+    gaussian_blur: Optional[GaussianBlurConfig] = None
+    bilateral_filter: Optional[BilateralFilterConfig] = None
+
+
+@attrs.define
+class BlurConfig:
+    """Configuration for blur augmentation with multiple combinations"""
+
+    # probabilities from the list of combinations should add up to 1.0
+    blur_combinations: List[BlurCombinationConfig] = []
+
+
+# For training
+random_blur_config = BlurConfig(
+    blur_combinations=[
+        BlurCombinationConfig(
+            blur_types=["bilateral"],
+            probability=0.5,
+            bilateral_filter=BilateralFilterConfig(use_random=True),
+        ),
+        BlurCombinationConfig(
+            blur_types=["gaussian"],
+            probability=0.3,
+            gaussian_blur=GaussianBlurConfig(use_random=True),
+        ),
+        BlurCombinationConfig(
+            blur_types=["bilateral", "gaussian"],
+            probability=0.2,
+            bilateral_filter=BilateralFilterConfig(use_random=True),
+            gaussian_blur=GaussianBlurConfig(use_random=True),
+        ),
+    ],
+)
+
+# For inference
+bilateral_blur_config = BlurConfig(
+    blur_combinations=[
+        BlurCombinationConfig(
+            blur_types=["bilateral"],
+            probability=1.0,
+            bilateral_filter=BilateralFilterConfig(use_random=False),
+        ),
+    ],
+)
+
+
+class Blur:
+    def __init__(self, config: BlurConfig | None = None, use_random: bool = True) -> None:
+        if config is None:
+            config = random_blur_config if use_random else bilateral_blur_config
+        probabilities = [combo.probability for combo in config.blur_combinations]
+        total_prob = sum(probabilities)
+        assert abs(total_prob - 1.0) < 1e-6, f"Probabilities must sum to 1.0, got {total_prob}"
+
+        self.blur_combinations = config.blur_combinations
+        self.probabilities = probabilities
+        self._set_blur_instances()
+
+    def _set_blur_instances(self):
+        if not self.blur_combinations:
+            return
+        self.blur_combinations_instances = []
+
+        for blur_combination in self.blur_combinations:
+            blur_mapping = {
+                "gaussian": (GaussianBlur, blur_combination.gaussian_blur),
+                "bilateral": (BilateralFilter, blur_combination.bilateral_filter),
+            }
+
+            cur_instances = []
+            for blur_type in blur_combination.blur_types:
+                assert blur_type in blur_mapping, f"Unknown {blur_type}. Needs to correct blur_type or blur_mapping."
+
+                blur_class, blur_config = blur_mapping[blur_type]
+                cur_instances.append(blur_class(blur_config))
+
+            self.blur_combinations_instances.append(cur_instances)
+
+        assert len(self.blur_combinations_instances) == len(self.blur_combinations), (
+            "Number of blur_combinations_instances needs to match number of blur_combinations."
+        )
+
+    def __call__(self, frames: np.ndarray) -> np.ndarray:
+        blur_instances = random.choices(self.blur_combinations_instances, weights=self.probabilities, k=1)[0]
+        for ins in blur_instances:
+            frames = ins(frames)
+        return frames

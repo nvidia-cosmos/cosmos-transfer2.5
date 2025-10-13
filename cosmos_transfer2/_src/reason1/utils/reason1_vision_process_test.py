@@ -30,7 +30,9 @@ from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.imaginaire.utils.easy_io import easy_io
 from cosmos_transfer2._src.imaginaire.utils.helper_test import RunIf
 from cosmos_transfer2._src.reason1.datasets.video_decoder_qwen import pixels_to_token
-from cosmos_transfer2._src.reason1.utils.reason1_vision_process import process_vision_info as process_vision_info_reason1
+from cosmos_transfer2._src.reason1.utils.reason1_vision_process import (
+    process_vision_info as process_vision_info_reason1,
+)
 from cosmos_transfer2._src.reason1.utils.video_preprocess import tensor_to_pil_images
 
 video_path_s3 = "s3://cosmos_reasoning/benchmark/agibot_reasoning_20250226/v4/clips/327-684224-head_color-0-268-0.mp4"
