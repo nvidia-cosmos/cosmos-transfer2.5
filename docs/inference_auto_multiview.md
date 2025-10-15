@@ -20,7 +20,7 @@ Complete workflow from 3D scene annotations to multiview video output. Scene ann
 
 **Step 1: Download scene annotations**
 ```bash
-mkdir -p datasets && curl -Lf https://github.com/nvidia-cosmos/cosmos-dependencies/releases/download/assets/3d_scene_metadata.zip | tar -xz -C datasets
+mkdir -p datasets && curl -Lf https://github.com/nvidia-cosmos/cosmos-dependencies/releases/download/assets/3d_scene_metadata.zip -o temp.zip && unzip temp.zip -d datasets && rm temp.zip
 ```
 
 **Step 2: Generate world scenario videos**
