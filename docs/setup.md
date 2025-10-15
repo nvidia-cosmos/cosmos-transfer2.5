@@ -69,5 +69,5 @@ docker build --ulimit nofile=131071:131071 -f Dockerfile . -t cosmos-transfer-2.
 Example run command:
 
 ```bash
-docker run --gpus all --rm -v .:/workspace -v /workspace/.venv -v /path/to/hf:/workspace/hf -e HF_HOME=/workspace/hf -it --ipc=host cosmos-transfer-2.5
+docker run --gpus all --rm -v .:/workspace -v /workspace/.venv -v ${HF_HOME:-$HOME/.cache/huggingface}:/root/.cache/huggingface -e HF_HOME=/root/.cache/huggingface -it --ipc=host cosmos-transfer-2.5
 ```
