@@ -220,6 +220,9 @@ class ControlVideo2WorldInference:
         Pad input frames if total frames is less than chunk size
         """
         if num_total_frames < num_video_frames_per_chunk:
+            # Check whether the input_frames is empty. If so, there is nothing to pad.
+            if num_total_frames == 0:
+                raise ValueError("No input frames; cannot pad. Verify that video frame counts match.")
             if padding_mode == "repeat":
                 last_frame = input_frames[:, -1:, :, :]  # Get the last frame
                 padding = last_frame.repeat(1, num_video_frames_per_chunk - num_total_frames, 1, 1)
