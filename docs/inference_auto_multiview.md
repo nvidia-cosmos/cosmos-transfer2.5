@@ -5,7 +5,7 @@
 1. Follow the [Setup guide](setup.md) for environment setup, checkpoint download and hardware requirements.
 
 ## Examples
-Multiview requires 8 GPUs
+Multiview requires **8 GPUs**.
 
 Run multiview2world:
 
@@ -21,10 +21,7 @@ For full instructions, see [world_scenario_video_generation.md](world_scenario_v
 
 **Step 1: Download scene annotations**
 ```bash
-cd assets
-wget https://github.com/nvidia-cosmos/cosmos-dependencies/releases/download/assets/multiview_example1.zip
-unzip multiview_example1.zip
-cd ..
+mkdir -p datasets && curl -Lf https://github.com/nvidia-cosmos/cosmos-dependencies/releases/download/assets/3d_scene_metadata.zip -o temp.zip && unzip temp.zip -d datasets && rm temp.zip
 ```
 
 **Step 2: Generate world scenario videos**
