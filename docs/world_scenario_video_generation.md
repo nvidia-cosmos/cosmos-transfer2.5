@@ -124,6 +124,8 @@ scene_annotations_directory/
 └── ... (other optional parquet files)
 ```
 
+See [World Scenario Parquet File Structure](world_scenario_parquet.md) for more details.
+
 ### Output Structure
 ```
 save_root/
