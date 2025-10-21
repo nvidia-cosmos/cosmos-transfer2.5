@@ -83,7 +83,7 @@ Contains 3D bounding box annotations for dynamic objects (vehicles, pedestrians,
         "label_class_id": str         # Annotation version (not used)
     },
     "obstacle": {
-        "trackline_id": str,          # Unique track identifier
+        "trackline_id": str,          # Trackline identity used to group different sensor sightings of the same obstacle together.
         "center": {                   # 3D position in world coordinates
             "x": float,               # meters
             "y": float,               # meters
@@ -367,11 +367,11 @@ Lane boundaries for driving lanes.
     "lane": {
         "left_rail": [{"x": float, "y": float, "z": float}, ...],   # Polyline points
         "right_rail": [{"x": float, "y": float, "z": float}, ...],  # Polyline points
-        "left_edge_styles": [str, ...],   # Style per segment: "VIRTUAL", "SOLID", etc.
+        "left_edge_styles": [str, ...],   # Style per segment: "VIRTUAL", "SOLID", "DASHED", "ROAD_BOUNDARY", etc. 
         "right_edge_styles": [str, ...],
-        "left_edge_colors": [str, ...],   # Color per segment: "WHITE", "YELLOW"
+        "left_edge_colors": [str, ...],   # Color per segment: "WHITE", "YELLOW", "MIXED", etc.
         "right_edge_colors": [str, ...],
-        "lane_direction": str,             # Optional: traffic direction
+        "lane_direction": str,             # Optional: STRAIGHT, LEFT_TURN
         "speed_limit": float,              # Optional: speed limit (mph)
         "vehicle_types": [str, ...],       # Optional: allowed vehicle types
     },
@@ -530,7 +530,7 @@ Road signs and information boards.
         "category": str,             # "STOP", "UNKNOWN"
         "location": [{"x": float, "y": float, "z": float}, ...],  # Polyline
         "is_implicit": bool,         # Whether line is implicit or explicitly marked
-        "intersection_subtype": str  # Intersection type information (not used)
+        "intersection_subtype": str  # Whether this wait line is entry, exit or part of buffer zone at intersections or not applicable. (not used for rendering)
     },
     "version": uint64    # Data version number (not used by rendering pipeline)
 }
