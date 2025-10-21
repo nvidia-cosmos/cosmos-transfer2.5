@@ -14,16 +14,17 @@
 # limitations under the License.
 
 import os
-from typing import Union
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+from pathlib import Path
+
 import numpy as np
 import torch
 
 from cosmos_transfer2._src.imaginaire.auxiliary.guardrail.common import presets as guardrail_presets
+from cosmos_transfer2._src.imaginaire.lazy_config.lazy import LazyConfig
 from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.imaginaire.visualize.video import save_img_or_video
-from cosmos_transfer2._src.transfer2.inference.utils import color_message, get_prompt_from_path
 from cosmos_transfer2._src.transfer2_multiview.configs.vid2vid_transfer.defaults.driving import (
     MADS_DRIVING_DATALOADER_CONFIG_PER_RESOLUTION,
 )
@@ -32,27 +33,14 @@ from cosmos_transfer2._src.transfer2_multiview.datasets.local_dataset import (
     LocalMultiviewDatasetBuilder,
 )
 from cosmos_transfer2._src.transfer2_multiview.inference.inference import ControlVideo2WorldInference
-from cosmos_transfer2.config import MODEL_CHECKPOINTS, ModelKey, MultiviewParams
+from cosmos_transfer2.multiview_config import MultiviewInferenceArguments, MultiviewSetupArguments
 
-_DEFAULT_CHECKPOINT = MODEL_CHECKPOINTS[ModelKey(variant="drive")]
 NUM_DATALOADER_WORKERS = 8
 
 
 class MultiviewInference:
-    def __init__(
-        self,
-        num_gpus=8,
-        experiment="",
-        ckpt_path="",
-        disable_guardrails=False,
-        offload_guardrail_models=True,
-    ):
-        if not ckpt_path:
-            ckpt_path = _DEFAULT_CHECKPOINT.path
-        if not experiment:
-            experiment = _DEFAULT_CHECKPOINT.experiment
-
-        log.info(f"Using {experiment=} and {ckpt_path=}")
+    def __init__(self, args: MultiviewSetupArguments):
+        log.debug(f"{args.__class__.__name__}({args})")
 
         # Enable deterministic inference
         os.environ["NVTE_FUSED_ATTN"] = "0"
@@ -60,45 +48,78 @@ class MultiviewInference:
         torch.backends.cudnn.deterministic = True
         torch.enable_grad(False)  # Disable gradient calculations for inference
 
+        self.setup_args = args
+
         self.pipe = ControlVideo2WorldInference(
-            experiment_name=experiment,
-            ckpt_path=ckpt_path,
-            context_parallel_size=num_gpus,
+            # pyrefly: ignore  # bad-argument-type
+            experiment_name=args.experiment,
+            # pyrefly: ignore  # bad-argument-type
+            ckpt_path=args.checkpoint_path,
+            # pyrefly: ignore  # bad-argument-type
+            context_parallel_size=args.context_parallel_size,
         )
 
         self.rank0 = True
-        self.guardrail_enabled = not disable_guardrails
 
-        if num_gpus > 1:
+        # pyrefly: ignore  # unsupported-operation
+        if args.context_parallel_size > 1:
             self.rank0 = torch.distributed.get_rank() == 0
 
-        if self.rank0 and self.guardrail_enabled:
-            self.text_guardrail_runner = guardrail_presets.create_text_guardrail_runner(offload_model_to_cpu=True)
-            self.video_guardrail_runner = guardrail_presets.create_video_guardrail_runner(offload_model_to_cpu=True)
+        if self.rank0:
+            args.output_dir.mkdir(parents=True, exist_ok=True)
+            # pyrefly: ignore  # bad-argument-type
+            LazyConfig.save_yaml(self.pipe.config, args.output_dir / "config.yaml")
+
+        if self.rank0 and args.enable_guardrails:
+            self.text_guardrail_runner = guardrail_presets.create_text_guardrail_runner(
+                offload_model_to_cpu=args.offload_guardrail_models
+            )
+            self.video_guardrail_runner = guardrail_presets.create_video_guardrail_runner(
+                offload_model_to_cpu=args.offload_guardrail_models
+            )
         else:
+            # pyrefly: ignore  # bad-assignment
             self.text_guardrail_runner = None
+            # pyrefly: ignore  # bad-assignment
             self.video_guardrail_runner = None
 
-    def infer(self, params: Union[MultiviewParams, dict]):
-        if isinstance(params, dict):
-            p = MultiviewParams.create(params)
-        else:
-            p = params
-        log.info(f"params: {p}")
+    def generate(self, samples: list[MultiviewInferenceArguments], output_dir: Path) -> list[str]:
+        sample_names = [sample.name for sample in samples]
+        log.info(f"Generating {len(samples)} samples: {sample_names}")
+
+        output_paths: list[str] = []
+        for i_sample, sample in enumerate(samples):
+            log.info(f"[{i_sample + 1}/{len(samples)}] Processing sample {sample.name}")
+            output_path = self._generate_sample(sample, output_dir)
+            if output_path is not None:
+                output_paths.append(output_path)
+        return output_paths
+
+    def _generate_sample(self, sample: MultiviewInferenceArguments, output_dir: Path) -> str | None:
+        log.debug(f"{sample.__class__.__name__}({sample})")
+        output_path = output_dir / sample.name
+
+        if self.rank0:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            open(f"{output_path}.json", "w").write(sample.model_dump_json())
+            log.info(f"Saved arguments to {output_path}.json")
+
         driving_dataloader_config = MADS_DRIVING_DATALOADER_CONFIG_PER_RESOLUTION[
             self.pipe.config.model.config.resolution
         ]
-        driving_dataloader_config.n_views = p.n_views
-
-        prompt, _ = get_prompt_from_path(p.prompt_path, p.prompt)
+        driving_dataloader_config.n_views = sample.n_views
 
         # run text guardrail on the prompt
         if self.rank0:
             if self.text_guardrail_runner is not None:
                 log.info("Running guardrail check on prompt...")
-                if not guardrail_presets.run_text_guardrail(prompt, self.text_guardrail_runner):
+                assert sample.prompt is not None
+                if not guardrail_presets.run_text_guardrail(sample.prompt, self.text_guardrail_runner):
                     log.critical("Guardrail blocked control2world generation. Prompt: {prompt}")
-                    exit(1)
+                    if self.setup_args.keep_going:
+                        return None
+                    else:
+                        exit(1)
                 else:
                     log.success("Passed guardrail on prompt")
             elif self.text_guardrail_runner is None:
@@ -107,12 +128,15 @@ class MultiviewInference:
         # setup the control and input videos dict
         input_video_file_dict = {}
         control_video_file_dict = {}
-        for key, value in p.input_and_control_paths.items():
-            if "_input" in key:
+        for key, value in sample.input_and_control_paths.items():
+            if "_input" in key and value is not None:
                 input_video_file_dict[key.removesuffix("_input")] = value
             elif "_control" in key:
                 control_video_file_dict[key.removesuffix("_control")] = value
 
+        # if number_of_condtional_frames=0, input videos are optional use control videos instead as mock input
+        if sample.num_conditional_frames == 0:
+            input_video_file_dict = control_video_file_dict
         dataset = LocalMultiviewDatasetBuilder(
             input_video_file_dict=input_video_file_dict, control_video_file_dict=control_video_file_dict
         ).build_dataset(
@@ -132,11 +156,11 @@ class MultiviewInference:
             raise ValueError("No input data found")
 
         for _, batch in enumerate(dataloader):
-            batch["ai_caption"] = [prompt]
-            batch["control_weight"] = p.control_weight
-            batch["num_conditional_frames"] = p.num_conditional_frames
+            batch["ai_caption"] = [sample.prompt]
+            batch["control_weight"] = sample.control_weight
+            batch["num_conditional_frames"] = sample.num_conditional_frames
             log.info(f"------ Generating video ------")
-            video = self.pipe.generate_from_batch(batch, guidance=p.guidance, seed=p.seed)
+            video = self.pipe.generate_from_batch(batch, guidance=sample.guidance, seed=sample.seed)
             if self.rank0:
                 video = (1.0 + video[0]) / 2
                 # run video guardrail on the video
@@ -147,7 +171,10 @@ class MultiviewInference:
                     processed_frames = guardrail_presets.run_video_guardrail(frames, self.video_guardrail_runner)
                     if processed_frames is None:
                         log.critical("Guardrail blocked video2world generation.")
-                        exit(1)
+                        if self.setup_args.keep_going:
+                            return None
+                        else:
+                            exit(1)
                     else:
                         log.success("Passed guardrail on generated video")
 
@@ -157,5 +184,6 @@ class MultiviewInference:
                 else:
                     log.warning("Guardrail checks on video are disabled")
 
-                save_img_or_video(video, f"{p.output_dir}/output", fps=p.fps)
-                log.info(color_message(f"Generated video saved to {p.output_dir}/output.mp4\n", "green"))
+                save_img_or_video(video, str(output_path), fps=sample.fps)
+                log.success(f"Generated video saved to {output_path}.mp4")
+        return f"{output_path}.mp4"

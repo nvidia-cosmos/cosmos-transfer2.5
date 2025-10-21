@@ -1,9 +1,10 @@
 {
-    "prompt_path": "assets/car_example/car_prompt.json",
-    "output_dir": "outputs/car_depth",
-    "video_path": "assets/car_example/car_input.mp4",
-    "control_weight": 1.0,
+    "name": "car_depth",
+    "prompt_path": "../car_prompt.txt",
+    "video_path": "../car_input.mp4",
+    "guidance": 3,
     "depth": {
-        "control_path": "assets/car_example/depth/car_depth.mp4"
+        "control_path": "car_depth.mp4",
+        "control_weight": 1.0
     }
 }

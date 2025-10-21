@@ -16,19 +16,18 @@
 from hydra.core.config_store import ConfigStore
 
 from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_path
-from cosmos_transfer2.config import MODEL_CHECKPOINTS, ModelKey
-
-_DEFAULT_CHECKPOINT = MODEL_CHECKPOINTS[ModelKey(variant="drive")]
+from cosmos_transfer2.multiview_config import DEFAULT_CHECKPOINT
 
 transfer2_auto_multiview_post_train_example = dict(
     defaults=[
-        f"/experiment/{_DEFAULT_CHECKPOINT.experiment}",
+        f"/experiment/{DEFAULT_CHECKPOINT.experiment}",
         {"override /data_train": "example_multiview_train_data_control_input_hdmap"},
     ],
     job=dict(project="cosmos_transfer_v2p5", group="auto_multiview", name="2b_cosmos_multiview_post_train_example"),
     checkpoint=dict(
         save_iter=200,
-        load_path=get_checkpoint_path(_DEFAULT_CHECKPOINT.s3.uri),
+        # pyrefly: ignore  # missing-attribute
+        load_path=get_checkpoint_path(DEFAULT_CHECKPOINT.s3.uri),
         load_training_state=False,
         strict_resume=False,
         load_from_object_store=dict(

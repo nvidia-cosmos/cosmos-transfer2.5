@@ -20,44 +20,29 @@ from cosmos_gradio.gradio_app.gradio_app import GradioApp
 from cosmos_gradio.gradio_app.gradio_ui import create_gradio_UI
 from loguru import logger as log
 
-from cosmos_transfer2._src.imaginaire.utils import log
-from cosmos_transfer2.control2world import Control2WorldInference, Control2WorldParams
 from cosmos_transfer2.gradio.model_config import Config as ModelConfig
-from cosmos_transfer2.multiview2world import MultiviewInference, MultiviewParams
 
 
-def create_control2world(hint_key: str):
-    log.info("Creating predict pipeline and validator")
+def create_control2world():
+    from cosmos_transfer2.gradio.control2world_worker import Control2World_Worker
+
     global_env = DeploymentEnv()
-    pipeline = Control2WorldInference(num_gpus=global_env.num_gpus, hint_key=hint_key)
+    log.info(f"Creating control2world pipeline with {global_env=}")
+    pipeline = Control2World_Worker(model=global_env.model_name, num_gpus=global_env.num_gpus)
     gc.collect()
     torch.cuda.empty_cache()
 
     return pipeline
 
 
-def create_edge():
-    return create_control2world(hint_key=["edge"])
-
-
-def create_vis():
-    return create_control2world(hint_key=["vis"])
-
-
-def create_depth():
-    return create_control2world(hint_key=["depth"])
-
-
-def create_seg():
-    return create_control2world(hint_key=["seg"])
-
-
 def create_multiview():
-    log.info("Creating predict pipeline and validator")
+    from cosmos_transfer2.gradio.multiview_worker import Multiview_Worker
+
     global_env = DeploymentEnv()
+    log.info(f"Creating multiview pipeline with {global_env=}")
     # we cannot hard-code: user needs to create 8-gpu instance and start 8 workers
     assert global_env.num_gpus == 8, "Multiview currently requires 8 GPUs"
-    pipeline = MultiviewInference(
+    pipeline = Multiview_Worker(
         num_gpus=global_env.num_gpus,
     )
     gc.collect()
@@ -67,15 +52,17 @@ def create_multiview():
 
 
 def validate_control2world(kwargs):
-    params = Control2WorldParams.create(kwargs)
-    _ = params.control_modalities  # validate paths
-    return params.to_kwargs()
+    from cosmos_transfer2.config import InferenceArguments
+
+    params = InferenceArguments(**kwargs)
+    return params.model_dump(mode="json")
 
 
 def validate_multiview(kwargs):
-    params = MultiviewParams.create(kwargs)
-    _ = params.input_and_control_paths  # validate paths
-    return params.to_kwargs()
+    from cosmos_transfer2.multiview_config import MultiviewInferenceArguments
+
+    params = MultiviewInferenceArguments(**kwargs)
+    return params.model_dump(mode="json")
 
 
 if __name__ == "__main__":
@@ -84,19 +71,11 @@ if __name__ == "__main__":
 
     log.info(f"Starting Gradio app with deployment config: {deploy_cfg!s}")
 
-    factory_module = {
-        "vis": "cosmos_transfer2.gradio.gradio_bootstrapper",
-        "depth": "cosmos_transfer2.gradio.gradio_bootstrapper",
-        "edge": "cosmos_transfer2.gradio.gradio_bootstrapper",
-        "seg": "cosmos_transfer2.gradio.gradio_bootstrapper",
-        "multiview": "cosmos_transfer2.gradio.gradio_bootstrapper",
-    }
-
     factory_function = {
-        "vis": "create_vis",
-        "depth": "create_depth",
-        "edge": "create_edge",
-        "seg": "create_seg",
+        "vis": "create_control2world",
+        "depth": "create_control2world",
+        "edge": "create_control2world",
+        "seg": "create_control2world",
         "multiview": "create_multiview",
     }
 
@@ -111,7 +90,7 @@ if __name__ == "__main__":
     app = GradioApp(
         num_gpus=deploy_cfg.num_gpus,
         validator=validators[deploy_cfg.model_name],
-        factory_module=factory_module[deploy_cfg.model_name],
+        factory_module="cosmos_transfer2.gradio.gradio_bootstrapper",
         factory_function=factory_function[deploy_cfg.model_name],
         output_dir=deploy_cfg.output_dir,
     )

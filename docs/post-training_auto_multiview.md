@@ -4,10 +4,19 @@ This guide provides instructions on running post-training with the Cosmos-Transf
 
 ## Table of Contents
 
+<!--TOC-->
+
+- [Table of Contents](#table-of-contents)
 - [Prerequisites](#prerequisites)
-- [Preparing Data](#1-preparing-data)
-- [Post-training](#2-post-training)
-- [Inference with the Post-trained checkpoint](#3-inference-with-the-post-trained-checkpoint)
+- [1. Preparing Data](#1-preparing-data)
+  - [1.1 Prepare Transfer Multiview Training Dataset](#11-prepare-transfer-multiview-training-dataset)
+  - [1.2 Verify the dataset folder format](#12-verify-the-dataset-folder-format)
+- [2. Post-training](#2-post-training)
+- [3. Inference with the Post-trained checkpoint](#3-inference-with-the-post-trained-checkpoint)
+  - [3.1 Converting DCP Checkpoint to Consolidated PyTorch Format](#31-converting-dcp-checkpoint-to-consolidated-pytorch-format)
+  - [3.2 Running Inference](#32-running-inference)
+
+<!--TOC-->
 
 ## Prerequisites
 
@@ -67,10 +76,10 @@ assets/multiview_hdmap_posttrain_dataset/
 Run the following command to execute an example post-training job with multiview data.
 
 ```bash
-torchrun --nproc_per_node=8 --master_port=12341 -m scripts.train --config=cosmos_transfer2/_src/transfer2_multiview/configs/vid2vid_transfer/config.py -- experiment=transfer2_auto_multiview_post_train_example
+torchrun --nproc_per_node=8 --master_port=12341 -m scripts.train --config=cosmos_transfer2/_src/transfer2_multiview/configs/vid2vid_transfer/config.py -- experiment=transfer2_auto_multiview_post_train_example job.wandb_mode=disabled
 ```
 
-The model will be post-trained using the multiview dataset. See the [data config](../projects/cosmos/transfer2_multiview/configs/vid2vid_transfer/defaults/data.py) to understand how the dataloader is defined.
+The model will be post-trained using the multiview dataset. See the [data config](../cosmos_transfer2/_src/transfer2_multiview/configs/vid2vid_transfer/defaults/data.py) to understand how the dataloader is defined.
 
 Checkpoints are saved to `${IMAGINAIRE_OUTPUT_ROOT}/PROJECT/GROUP/NAME/checkpoints`. By default, `IMAGINAIRE_OUTPUT_ROOT` is `/tmp/imaginaire4-output`. We strongly recommend setting `IMAGINAIRE_OUTPUT_ROOT` to a location with sufficient storage space for your checkpoints.
 
@@ -120,9 +129,9 @@ After converting the checkpoint, you can run inference with your post-trained mo
 
 ```bash
 export NUM_GPUS=8
-torchrun --nproc_per_node=$NUM_GPUS --master_port=12341 -m examples.multiview --params_file assets/multiview_example/multiview_spec.json --num_gpus=$NUM_GPUS --checkpoint_path $CHECKPOINT_DIR/model_ema_bf16.pt --experiment transfer2_auto_multiview_post_train_example
+torchrun --nproc_per_node=$NUM_GPUS --master_port=12341 -m examples.multiview -i assets/multiview_example/multiview_spec.json -o outputs/postrained-auto-mv --checkpoint_path $CHECKPOINT_DIR/model_ema_bf16.pt --experiment transfer2_auto_multiview_post_train_example
 ```
 
-Generated videos will be saved to the output directory (e.g., `outputs/multiview_control2world/`).
+Generated videos will be saved to the output directory (e.g., `outputs/postrained-auto-mv/`).
 
 For more inference options and advanced usage, see [docs/inference.md](./inference.md).

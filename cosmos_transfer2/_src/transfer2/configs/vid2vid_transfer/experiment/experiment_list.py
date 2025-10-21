@@ -87,6 +87,18 @@ archi_ablation_experiments_720p = {
             "optimizer.lr=0.0000432",  # 2**(-14.5)
         ],
     ),
+    "multibranch_720p_t24_spaced_layer4_cr1pt1_rectified_flow_inference": Experiment(  # spaced_4, multi-branch, rectified flow
+        registered_exp_name="vid2vid_2B_control_720p_t24_control_layer4_cr1pt1_embedding_rectified_flow",
+        job_name_for_ckpt="multibranch_720p_t24_spaced_layer4_cr1pt1_rectified_flow_inference",
+        job_group="vid2vid_2B_control",
+        nnode=64,
+        command_args=[
+            "model.config.hint_keys=edge_vis_depth_seg",
+            "dataloader_train.dataset.control_input_type=edge_vis_depth_segcolor",
+            "model.config.net.num_control_branches=4",
+            "model.config.net.use_after_proj_for_multi_branch=False",
+        ],
+    ),
 }
 
 release_experiments = {

@@ -13,43 +13,54 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
+"""Auto multiview model inference script."""
 
-os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+from pathlib import Path
+from typing import Annotated
 
-import argparse
+import pydantic
+import tyro
 
-from cosmos_transfer2.config import get_multiview_params_from_json
-from cosmos_transfer2.multiview2world import MultiviewInference
-
-
-def parse_arguments() -> argparse.Namespace:
-    """Parses command-line arguments for the Video2World inference script."""
-    parser = argparse.ArgumentParser(description="Image2World/Video2World inference script")
-    parser.add_argument("--params_file", type=str, required=True)
-    parser.add_argument("--num_gpus", type=int, default=8, required=True)
-    parser.add_argument("--experiment", type=str, required=False)
-    parser.add_argument("--checkpoint_path", type=str, required=False)
-
-    return parser.parse_args()
+from cosmos_transfer2.config import handle_tyro_exception, is_rank0
+from cosmos_transfer2.init import cleanup_environment, init_environment, init_output_dir
+from cosmos_transfer2.multiview_config import (
+    MultiviewInferenceArguments,
+    MultiviewInferenceOverrides,
+    MultiviewSetupArguments,
+)
 
 
-def main():
-    args = parse_arguments()
-    if os.path.exists(args.params_file):
-        params = get_multiview_params_from_json(args.params_file)
-    else:
-        raise ValueError(f"Params file {args.params_file} does not exist")
+class Args(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
-    pipe = MultiviewInference(
-        num_gpus=args.num_gpus,
-        experiment=args.experiment,
-        ckpt_path=args.checkpoint_path,
-        disable_guardrails=params.disable_guardrails,
-        offload_guardrail_models=params.offload_guardrail_models,
-    )
-    pipe.infer(params)
+    input_files: Annotated[list[Path], tyro.conf.arg(aliases=("-i",))]
+    """Path to the inference parameter files."""
+    setup: MultiviewSetupArguments
+    """Setup arguments."""
+    overrides: MultiviewInferenceOverrides
+    """Inference parameter overrides."""
+
+
+def main(
+    args: Args,
+):
+    inference_samples, _ = MultiviewInferenceArguments.from_files(args.input_files, overrides=args.overrides)
+    init_output_dir(args.setup.output_dir, profile=args.setup.profile)
+
+    from cosmos_transfer2.multiview import MultiviewInference
+
+    multiview_inference = MultiviewInference(args.setup)
+    multiview_inference.generate(inference_samples, output_dir=args.setup.output_dir)
 
 
 if __name__ == "__main__":
-    main()
+    init_environment()
+
+    try:
+        args = tyro.cli(Args, description=__doc__, console_outputs=is_rank0(), config=(tyro.conf.OmitArgPrefixes,))
+    except Exception as e:
+        handle_tyro_exception(e)
+    # pyrefly: ignore  # unbound-name
+    main(args)
+
+    cleanup_environment()

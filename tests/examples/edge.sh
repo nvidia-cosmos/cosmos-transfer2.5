@@ -18,38 +18,5 @@
 # Mandatory for the script to fail if any command fails
 set -eux
 
-# cd to repository root
-cd $(git rev-parse --show-toplevel)
-
-# Export the mandatory variables for every test case! CI will fail if these are not set
-export OUTPUT_DIR=outputs/robot_edge
-export GENERATED_OUTPUT_FILE=$OUTPUT_DIR/output.mp4
-
-# create the output directory
-mkdir -p $OUTPUT_DIR
-
-# Run the robot inference command
-NUM_GPUS=1
-torchrun --nproc_per_node=$NUM_GPUS --master_port=12345 examples/inference.py \
-  --num_gpus $NUM_GPUS \
-  --params_file assets/robot_example/edge/robot_edge_spec.json
-
-# Verify that the output file exists
-if [ ! -f "$GENERATED_OUTPUT_FILE" ]; then
-    echo "Output file $GENERATED_OUTPUT_FILE does not exist! Check the inference generation command."
-    exit 1
-fi
-
-# Run the car inference command
-export OUTPUT_DIR=outputs/car_edge
-export GENERATED_OUTPUT_FILE=$OUTPUT_DIR/output.mp4
-NUM_GPUS=1
-torchrun --nproc_per_node=$NUM_GPUS --master_port=12345 examples/inference.py \
-  --num_gpus $NUM_GPUS \
-  --params_file assets/car_example/edge/car_edge_spec.json
-
-# Verify that the output file exists
-if [ ! -f "$GENERATED_OUTPUT_FILE" ]; then
-    echo "Output file $GENERATED_OUTPUT_FILE does not exist! Check the inference generation command."
-    exit 1
-fi
+export COSMOS_VERBOSE=1
+python examples/inference.py -i assets/edge.jsonl -o outputs

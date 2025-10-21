@@ -92,6 +92,8 @@ def load_obstacle_data_interpolated(
 
                         category_map = {
                             "automobile": "Car",
+                            "other_vehicle": "Car",
+                            "vehicle": "Car",
                             "car": "Car",
                             "pedestrian": "Pedestrian",
                             "person": "Pedestrian",
@@ -101,6 +103,10 @@ def load_obstacle_data_interpolated(
                             "rider": "Cyclist",
                             "bus": "Truck",
                             "truck": "Truck",
+                            "heavy_truck": "Truck",
+                            "train_or_tram_car": "Truck",
+                            "trolley_bus": "Truck",
+                            "trailer": "Truck",
                         }
                         object_type = category_map.get(obstacle.get("category", "default").lower(), "Others")
 
@@ -197,6 +203,8 @@ def load_obstacle_data_interpolated(
         first_obs = observations[0]["obstacle"]
         category_map = {
             "automobile": "Car",
+            "other_vehicle": "Car",
+            "vehicle": "Car",
             "car": "Car",
             "pedestrian": "Pedestrian",
             "person": "Pedestrian",
@@ -206,6 +214,10 @@ def load_obstacle_data_interpolated(
             "rider": "Cyclist",
             "bus": "Truck",
             "truck": "Truck",
+            "heavy_truck": "Truck",
+            "train_or_tram_car": "Truck",
+            "trolley_bus": "Truck",
+            "trailer": "Truck",
         }
         object_type = category_map.get(first_obs.get("category", "default").lower(), "Others")
 
@@ -491,12 +503,14 @@ def load_map_data(
                 if len(loc) >= 2:
                     # Use the provided 2 points (base and top)
                     points = [[pt["x"], pt["y"], pt["z"]] for pt in loc]
-                    map_data["poles"].append(np.array(points))
+                    dense_points = interpolate_polyline(np.array(points), factor=10)
+                    map_data["poles"].append(dense_points)
                 elif len(loc) == 1:
                     # If only one point, create vertical line
                     base = [loc[0]["x"], loc[0]["y"], loc[0]["z"]]
                     top = [loc[0]["x"], loc[0]["y"], loc[0]["z"] + 3.0]
-                    map_data["poles"].append(np.array([base, top]))
+                    dense_points = interpolate_polyline(np.array([base, top]), factor=10)
+                    map_data["poles"].append(dense_points)
 
     # Load road markings (polygons)
     if road_marking_file is not None:

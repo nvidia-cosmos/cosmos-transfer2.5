@@ -1,0 +1,3 @@
+{"name": "robot_seg", "prompt_path": "robot_example/robot_prompt.txt", "video_path": "robot_example/robot_input.mp4", "guidance": 3, "seg": {"control_weight": 1.0, "control_path": "robot_example/seg/robot_seg.mp4"}}
+{"name": "car_seg", "prompt_path": "car_example/car_prompt.txt", "video_path": "car_example/car_input.mp4", "guidance": 3, "seg": {"control_weight": 1.0, "control_path": "car_example/seg/car_seg.mp4"}}
+{"name": "car_seg_on_the_fly", "prompt_path": "car_example/car_prompt.txt", "video_path": "car_example/car_input.mp4", "guidance": 3, "seg": {"control_weight": 1.0}}

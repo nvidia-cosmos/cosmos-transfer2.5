@@ -31,13 +31,12 @@ The following table shows generation times(*) across different NVIDIA GPU hardwa
 
 Individual control variants can be run on a single GPU:
 ```bash
-python examples/inference.py --params_file assets/robot_example/depth/robot_depth_spec.json
+python examples/inference.py -i assets/robot_example/depth/robot_depth_spec.json -o outputs/depth
 ```
 
 For multi-GPU inference on a single control or to run multiple control variants, use [torchrun](https://docs.pytorch.org/docs/stable/elastic/run.html):
 ```bash
-export NUM_GPUS=8
-torchrun --nproc_per_node=$NUM_GPUS --master_port=12341 -m examples.inference --params_file assets/robot_example/vis/robot_vis_spec.json --num_gpus=$NUM_GPUS
+torchrun --nproc_per_node=8 --master_port=12341 -m examples.inference -i assets/multicontrol.jsonl -o outputs/multicontrol
 ```
 
 We provide example parameter files for each individual control variant along with a multi-control variant:
@@ -95,6 +94,19 @@ Parameters can be specified as json:
     // Blur control settings
     "vis":{
         // Control video computed on the fly
+        "control_weight": 0.5
+    }
+}
+```
+
+If you would like the control inputs to only be used for some regions, you can define binary spatiotemporal masks with the corresponding control input modality in mp4 format. White pixels means the control will be used in that region, whereas black pixels will not. Example below:
+
+
+```jsonc
+{
+    "depth": {
+        "control_path": "assets/robot_example/depth/robot_depth.mp4",
+        "mask_path": "/path/to/depth/mask.mp4",
         "control_weight": 0.5
     }
 }

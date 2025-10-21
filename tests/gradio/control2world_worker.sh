@@ -1,3 +1,4 @@
+#!/bin/bash
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -13,31 +14,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-line-length = 120
-target-version = "py310"
-extend-exclude = [
-    "dist",
-    "pipelines",
-    "third_party",
-]
+set -e
 
-[lint]
-select = [
-    "E", # pycodestyle errors
-    "F", # pyflakes
-    "I", # isort
-    "TID252", # relative-imports
-    "T10", # debugger
-]
-ignore = [
-    "E402", # module-import-not-at-top-of-file
-    "E501", # line-too-long
-    "E721", # type-comparison
-    "E741", # ambiguous-variable-name
-    "F541", # f-string-missing-placeholders
-    "F601", # multi-value-repeated-key-literal
-    "F811", # redefined-while-unused
-    "F821", # undefined-name
-    "F841", # unused-variable
-]
-fixable = ["ALL"]
+echo -e "\e[95mRunning predict worker...\e[0m"
+# WAR
+ln -s packages/cosmos-gradio/cosmos_gradio cosmos_gradio
+
+export MODEL_NAME="edge"
+export COSMOS_INTERNAL="0"
+
+if PYTHONPATH=. python tests/gradio/test_worker.py; then
+    echo -e "\e[92mPython command succeeded\e[0m"
+else
+    echo -e "\e[91mPython command failed with exit code $?\e[0m"
+    exit 1
+fi

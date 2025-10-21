@@ -1,9 +1,10 @@
 {
-    "prompt_path": "assets/car_example/car_prompt.json",
-    "output_dir": "outputs/car_edge",
-    "video_path": "assets/car_example/car_input.mp4",
-    "control_weight": 1.0,
+    "prompt_path": "../car_prompt.txt",
+    "name": "car_edge",
+    "video_path": "../car_input.mp4",
+    "guidance": 3,
     "edge": {
-        "control_path": "assets/car_example/edge/car_edge.mp4"
+        "control_path": "car_edge.mp4",
+        "control_weight": 1.0
     }
 }

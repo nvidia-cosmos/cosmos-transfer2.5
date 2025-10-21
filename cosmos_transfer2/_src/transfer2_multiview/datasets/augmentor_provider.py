@@ -173,6 +173,20 @@ def get_video_augmentor_v2_multiview_with_control(
         output_keys=[f"hdmap_bbox_{i}" for i in range(n_views)] + [f"t5_xxl_{i}" for i in range(n_views)],
     )
 
+    # Map correct camera keys to indices
+    camera_to_view_id = driving_dataloader_config.camera_to_view_id
+    video_id_to_camera_key = driving_dataloader_config.video_id_to_camera_key
+    input_ids = video_id_to_camera_key.keys()
+    output_ids = [str(camera_to_view_id[video_id_to_camera_key[i]]) for i in input_ids]
+    augmentor_config["video_rename"] = L(merge_datadict_multiview_with_control.OptionalKeyRenamer)(
+        input_keys=[f"video_{i}" for i in input_ids]
+        + [f"hdmap_bbox_{i}" for i in input_ids]
+        + [f"t5_xxl_{i}" for i in input_ids],
+        output_keys=[f"video_{i}" for i in output_ids]
+        + [f"hdmap_bbox_{i}" for i in output_ids]
+        + [f"t5_xxl_{i}" for i in output_ids],
+    )
+
     # Add video parsing for each video_i
     for i in range(n_views):  # video_0 to video_6
         augmentor_config[f"video_parsing_{i}"] = L(singleview_video_parsing.SingleViewVideoParsing)(

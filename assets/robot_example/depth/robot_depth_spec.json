@@ -1,10 +1,10 @@
 {
-    "prompt_path": "assets/robot_example/robot_prompt.json",
-    "output_dir": "outputs/robot_depth",
-    "video_path": "assets/robot_example/robot_input.mp4",
-    "control_weight": 1.0,
+    "name": "robot_depth",
+    "prompt_path": "../robot_prompt.txt",
+    "video_path": "../robot_input.mp4",
     "guidance": 3,
     "depth": {
-        "control_path": "assets/robot_example/depth/robot_depth.mp4"
+        "control_path": "robot_depth.mp4",
+        "control_weight": 1.0
     }
 }

@@ -1,0 +1,2 @@
+{"name": "robot_vis", "prompt_path": "robot_example/robot_prompt.txt", "video_path": "robot_example/robot_input.mp4", "guidance": 3, "vis": {"control_weight": 1.0}}
+{"name": "car_vis", "prompt_path": "car_example/car_prompt.txt", "video_path": "car_example/car_input.mp4", "guidance": 3, "vis": {"control_weight": 1.0}}

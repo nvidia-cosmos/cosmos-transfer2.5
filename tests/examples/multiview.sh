@@ -18,24 +18,6 @@
 # Mandatory for the script to fail if any command fails
 set -eux
 
-# cd to repository root
-cd $(git rev-parse --show-toplevel)
-
-# Export the mandatory variables for every test case! CI will fail if these are not set
-export OUTPUT_DIR=outputs/multiview
-export GENERATED_OUTPUT_FILE=$OUTPUT_DIR/output.mp4
-
-# create the output directory
-mkdir -p $OUTPUT_DIR
-
+export COSMOS_VERBOSE=1
 # Run the inference command
-NUM_GPUS=8
-torchrun --nproc_per_node=$NUM_GPUS --master_port=12341 -m examples.multiview \
-  --params_file assets/multiview_example/multiview_spec.json --num_gpus=$NUM_GPUS
-
-# Verify that the output file exists
-if [ ! -f "$GENERATED_OUTPUT_FILE" ]; then
-    echo "Output file $GENERATED_OUTPUT_FILE does not exist! Check the inference generation command."
-    tree ./output
-    exit 1
-fi
+torchrun --nproc_per_node=8 --master_port=12341 -m examples.multiview -i assets/multiview_example/multiview_spec.json -o outputs

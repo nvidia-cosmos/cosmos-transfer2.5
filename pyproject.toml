@@ -84,6 +84,13 @@ dependencies = [
     "transformers>=4.51.3",
     "tyro>=0.9.32",
     "webdataset>=0.2.111",
+    "sam2>=1.1.0",
+    "natsort>=8.4.0",
+    "cattrs>=25.2.0",
+    "video-depth-anything @ git+https://github.com/jeanachoi/Video-Depth-Anything.git",
+    "easydict>=1.9",
+    "xformers>=0.0.23",
+    "OpenEXR>=3.3.1",
 ]
 
 [project.optional-dependencies]
@@ -117,7 +124,10 @@ gradio = ["cosmos_gradio"]
 profile = ["pyinstrument>=5.1.1"]
 
 [dependency-groups]
-dev = []
+dev = [
+    "pyrefly>=0.37.0",
+    "pytest-xdist>=3.8.0",
+]
 # This must mirror project.optional-dependencies
 # It is needed, because uv does not support default extras
 cu128_torch271 = [
@@ -163,7 +173,7 @@ issues = "https://github.com/nvidia-cosmos/cosmos-transfer2/issues"
 repository = "https://github.com/nvidia-cosmos/cosmos-transfer2"
 
 [tool.uv]
-default-groups = ["dev", "cu128_torch271"]
+default-groups = "all"
 no-build-package = [
   "apex",
   "flash-attn",
@@ -179,37 +189,25 @@ transformer-engine = [{ index = "cosmos" }]
 torch = [{ index = "cosmos" }]
 torchvision = [{ index = "cosmos" }]
 cosmos-gradio = [{ path = "./packages/cosmos-gradio", editable = true }]
+video-depth-anything = { git = "https://github.com/jeanachoi/Video-Depth-Anything.git" }
 
 [[tool.uv.index]]
 name = "cosmos"
 url = "https://nvidia-cosmos.github.io/cosmos-dependencies/simple"
 explicit = true
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.build.targets.sdist]
 packages = [
   "cosmos_transfer2",
-  "imaginaire",
-  "projects",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = [
   "cosmos_transfer2",
-  "imaginaire",
-  "projects",
 ]
 exclude = [
   "*_test.py",
-]
-
-[tool.coverage.report]
-include_namespace_packages = true
-skip_empty = true
-omit = [
-    "tests/*",
-    "legacy/*",
-    ".venv/*",
-    "**/test_*.py",
-    "config.py",
-    "config-3.10.py"
 ]

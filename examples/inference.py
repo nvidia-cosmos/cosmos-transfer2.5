@@ -13,39 +13,53 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
+from pathlib import Path
+from typing import Annotated
 
-os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+import pydantic
+import tyro
 
-import argparse
-
-from cosmos_transfer2.config import get_params_from_json
-from cosmos_transfer2.control2world import Control2WorldInference
-
-
-def parse_arguments() -> argparse.Namespace:
-    """Parses command-line arguments for the mulitcontrol inference script."""
-    parser = argparse.ArgumentParser(description="Transfer2.5 inference script")
-    parser.add_argument("--params_file", type=str, required=True)
-    parser.add_argument("--num_gpus", type=int, default=1, required=False)
-    return parser.parse_args()
+from cosmos_transfer2.config import (
+    InferenceArguments,
+    InferenceOverrides,
+    SetupArguments,
+    handle_tyro_exception,
+    is_rank0,
+)
+from cosmos_transfer2.init import cleanup_environment, init_environment, init_output_dir
 
 
-def main():
-    args = parse_arguments()
-    if os.path.exists(args.params_file):
-        params = get_params_from_json(args.params_file)
-    else:
-        raise ValueError(f"Params file {args.params_file} does not exist")
+class Args(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
-    pipe = Control2WorldInference(
-        num_gpus=args.num_gpus,
-        hint_key=params.hint_key,
-        disable_guardrails=params.disable_guardrails,
-        offload_guardrail_models=params.offload_guardrail_models,
-    )
-    pipe.infer(params)
+    input_files: Annotated[list[Path], tyro.conf.arg(aliases=("-i",))]
+    """Path to the inference parameter files."""
+    setup: SetupArguments
+    """Setup arguments."""
+    overrides: InferenceOverrides
+    """Inference parameter overrides."""
+
+
+def main(
+    args: Args,
+):
+    inference_samples, batch_hint_keys = InferenceArguments.from_files(args.input_files, overrides=args.overrides)
+    init_output_dir(args.setup.output_dir, profile=args.setup.profile)
+
+    from cosmos_transfer2.inference import Control2WorldInference
+
+    inference = Control2WorldInference(args.setup, batch_hint_keys=batch_hint_keys)
+    inference.generate(inference_samples, output_dir=args.setup.output_dir)
 
 
 if __name__ == "__main__":
-    main()
+    init_environment()
+
+    try:
+        args = tyro.cli(Args, description=__doc__, console_outputs=is_rank0(), config=(tyro.conf.OmitArgPrefixes,))
+    except Exception as e:
+        handle_tyro_exception(e)
+    # pyrefly: ignore  # unbound-name
+    main(args)
+
+    cleanup_environment()

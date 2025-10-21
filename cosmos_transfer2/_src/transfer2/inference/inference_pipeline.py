@@ -20,6 +20,7 @@ from typing import Optional, Union
 
 import torch
 
+from cosmos_transfer2._src.imaginaire.flags import INTERNAL
 from cosmos_transfer2._src.imaginaire.utils import distributed, log
 from cosmos_transfer2._src.imaginaire.utils.easy_io import easy_io
 from cosmos_transfer2._src.predict2.datasets.utils import VIDEO_RES_SIZE_INFO
@@ -78,7 +79,8 @@ class ControlVideo2WorldInference:
             exp_override_opts = []
         # no need to load base model separately at inference
         exp_override_opts.append("model.config.base_load_from=null")
-
+        if not INTERNAL:
+            exp_override_opts.append("~data_train")
         # Load the model and config. Each trained model's config is composed by
         # loading a pre-registered experiment config, and then (optionally) overriding with some command-line
         # arguments. That is done in experiment_list.py. Here we simply replicate that process.
@@ -249,6 +251,7 @@ class ControlVideo2WorldInference:
         hint_key: list[str] = ["edge"],
         preset_edge_threshold: str = "medium",
         preset_blur_strength: str = "medium",
+        seg_control_prompt: str | None = None,
         input_control_video_paths: dict[str, str] | None = None,
         show_control_condition: bool = False,
         show_input: bool = False,
@@ -257,7 +260,7 @@ class ControlVideo2WorldInference:
         negative_prompt: str | None = None,
         max_frames: int | None = None,
         context_frame_idx: int | None = None,
-    ) -> tuple[torch.Tensor, int, tuple[int, int]]:
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor], int, tuple[int, int]]:
         """
         Generates a video based on an input video and text prompt.
         Supports chunk-wise long video generation.
@@ -275,6 +278,7 @@ class ControlVideo2WorldInference:
             context_frame_idx (int, optional): Frame index of the input video to use as image context. Defaults to None. In this case, can still use image_context_path to provide image context.
         Returns:
             torch.Tensor: The generated video tensor (B, C, T, H, W) in the range [-1, 1].
+            dict[str, torch.Tensor]: Dictionary mapping hint key to the corresponding control input video tensor.
             int: Frames per second of the original input video.
             tuple[int, int]: Original height and width of the input video.
 
@@ -326,7 +330,11 @@ class ControlVideo2WorldInference:
         # Load control inputs from paths, or optionally compute on-the-fly, and add to data batch.
         log.info("Loading control inputs...")
         control_input_dict = read_and_process_control_input(
-            input_control_video_paths, hint_key=hint_key, resolution=resolution
+            video_path=video_path,
+            input_control_paths=input_control_video_paths,
+            hint_key=hint_key,
+            resolution=resolution,
+            seg_control_prompt=seg_control_prompt,
         )
 
         # -------- Stuff to handle chunk-wise long video generation --------
@@ -336,6 +344,9 @@ class ControlVideo2WorldInference:
         # Pad input frames if total frames is less than chunk size
         input_frames = self._pad_input_frames(input_frames, num_total_frames, num_video_frames_per_chunk)
         all_chunks, time_per_chunk = [], []
+        # Initialize control_video_dict to accumulate control inputs across chunks
+        control_video_dict = {}
+        all_control_chunks = {key: [] for key in hint_key}
         # For first chunk, use zeros as input (after normalization it is 0)
         prev_output = torch.zeros_like(input_frames[:, :num_video_frames_per_chunk]).to(torch.uint8).cuda()[None]
 
@@ -378,7 +389,6 @@ class ControlVideo2WorldInference:
 
             # Process control inputs as specified in the hint_key list.
             # If pre-computed control inputs are provided, load them into the data batch.
-            # Online computation of depth/seg also happens here (if needed).
             for k, v in control_input_dict.items():
                 cur_control_input = v[:, chunk_start_frame:chunk_end_frame]
                 data_batch[k] = self._pad_input_frames(
@@ -420,23 +430,30 @@ class ControlVideo2WorldInference:
             video = self.model.decode(sample).cpu()  # Shape: (1, C, T, H, W)
 
             # For visualization: concatenate condition and input videos with generated video
-            if show_control_condition:
-                # Tensor value range: [-1, 1]
-                # From top to bottom: input_video, control_input, generated_video
-                conditions = []
-                # if input_video is not None:
-                #     conditions += [input_video[:, :, start_frame:end_frame]]
-                for key in hint_key:
-                    control_input = data_batch["control_input_" + key]
-                    if f"control_input_{key}_mask" in data_batch:
-                        control_input = (control_input + 1) / 2 * data_batch[f"control_input_{key}_mask"] * 2 - 1
-                    conditions += [control_input.cpu()]
-                video_cat = torch.cat([*conditions, video], dim=-1)
-            elif show_input and input_frames is not None:
+            video_cat = video
+            conditions = []
+            if show_input and input_frames is not None:
                 x0 = uint8_to_normalized_float(cur_input_frames, dtype=torch.bfloat16)[None]
-                video_cat = torch.cat([x0, video], dim=-1)
-            else:
-                video_cat = video
+                video_cat = torch.cat([x0, video_cat], dim=-1)
+
+            # Accumulate control inputs for each chunk
+            for key in hint_key:
+                control_input = data_batch["control_input_" + key]
+                if f"control_input_{key}_mask" in data_batch:
+                    control_input = (control_input + 1) / 2 * data_batch[f"control_input_{key}_mask"] * 2 - 1
+
+                # Store control input for this chunk
+                if chunk_id == 0:
+                    all_control_chunks[key].append(control_input.cpu())
+                else:
+                    # For subsequent chunks, only append the non-overlapping frames
+                    all_control_chunks[key].append(control_input[:, :, num_conditional_frames:, :, :].cpu())
+
+                if show_control_condition:
+                    conditions += [control_input.cpu()]
+
+            if show_control_condition:
+                video_cat = torch.cat([*conditions, video_cat], dim=-1)
 
             if chunk_id == 0:
                 all_chunks.append(video_cat.cpu())
@@ -470,10 +487,23 @@ class ControlVideo2WorldInference:
         # Keep only the original number of frames
         full_video = full_video[:, :, :num_total_frames, :, :]
 
+        # Concatenate all control chunks and trim to original frames
+        for key in hint_key:
+            if all_control_chunks[key]:
+                control_video_dict[key] = torch.cat(all_control_chunks[key], dim=2)  # (1, C, T, H, W)
+                # Keep only the original number of frames
+                control_video_dict[key] = control_video_dict[key][:, :, :num_total_frames, :, :]
+
         if keep_input_resolution:
             # reshape output video to match the input video resolution
             full_video = reshape_output_video_to_input_resolution(
                 full_video, hint_key, show_control_condition, show_input, original_hw
             )
+            # Also resize control videos to match input resolution
+            for key in hint_key:
+                if key in control_video_dict and control_video_dict[key] is not None:
+                    control_video_dict[key] = reshape_output_video_to_input_resolution(
+                        control_video_dict[key], [key], False, False, original_hw
+                    )
         log.info(f"Average time per chunk: {sum(time_per_chunk) / len(time_per_chunk)}")
-        return full_video, fps, original_hw
+        return full_video, control_video_dict, fps, original_hw

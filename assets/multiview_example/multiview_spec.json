@@ -1,32 +1,32 @@
 {
-    "output_dir": "outputs/multiview",
-    "prompt_path": "assets/multiview_example/prompt.txt",
+    "name": "auto_multiview",
+    "prompt_path": "prompt.txt",
     "front_wide":{
-        "input_path": "assets/multiview_example/input_videos/night_front_wide_120fov.mp4",
-        "control_path": "assets/multiview_example/world_scenario_videos/ws_front_wide_120fov.mp4"
+        "input_path": "input_videos/night_front_wide_120fov.mp4",
+        "control_path": "world_scenario_videos/ws_front_wide_120fov.mp4"
     },
     "cross_left":{
-        "input_path": "assets/multiview_example/input_videos/night_cross_left_120fov.mp4",
-        "control_path": "assets/multiview_example/world_scenario_videos/ws_cross_left_120fov.mp4"
+        "input_path": "input_videos/night_cross_left_120fov.mp4",
+        "control_path": "world_scenario_videos/ws_cross_left_120fov.mp4"
     },
     "cross_right":{
-        "input_path": "assets/multiview_example/input_videos/night_cross_right_120fov.mp4",
-        "control_path": "assets/multiview_example/world_scenario_videos/ws_cross_right_120fov.mp4"
+        "input_path": "input_videos/night_cross_right_120fov.mp4",
+        "control_path": "world_scenario_videos/ws_cross_right_120fov.mp4"
     },
     "rear_left":{
-        "input_path": "assets/multiview_example/input_videos/night_rear_left_70fov.mp4",
-        "control_path": "assets/multiview_example/world_scenario_videos/ws_rear_left_70fov.mp4"
+        "input_path": "input_videos/night_rear_left_70fov.mp4",
+        "control_path": "world_scenario_videos/ws_rear_left_70fov.mp4"
     },
     "rear_right":{
-        "input_path": "assets/multiview_example/input_videos/night_rear_right_70fov.mp4",
-        "control_path": "assets/multiview_example/world_scenario_videos/ws_rear_right_70fov.mp4"
+        "input_path": "input_videos/night_rear_right_70fov.mp4",
+        "control_path": "world_scenario_videos/ws_rear_right_70fov.mp4"
     },
     "rear":{
-        "input_path": "assets/multiview_example/input_videos/night_rear_30fov.mp4",
-        "control_path": "assets/multiview_example/world_scenario_videos/ws_rear_30fov.mp4"
+        "input_path": "input_videos/night_rear_30fov.mp4",
+        "control_path": "world_scenario_videos/ws_rear_30fov.mp4"
     },
     "front_tele":{
-        "input_path": "assets/multiview_example/input_videos/night_front_tele_30fov.mp4",
-        "control_path": "assets/multiview_example/world_scenario_videos/ws_front_tele_30fov.mp4"
+        "input_path": "input_videos/night_front_tele_30fov.mp4",
+        "control_path": "world_scenario_videos/ws_front_tele_30fov.mp4"
     }
 }

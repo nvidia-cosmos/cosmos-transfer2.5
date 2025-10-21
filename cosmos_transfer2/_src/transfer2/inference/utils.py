@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import pickle
+import tempfile
 import time
 from typing import Any, Optional
 
@@ -30,6 +31,7 @@ from cosmos_transfer2._src.imaginaire.utils import distributed, log
 from cosmos_transfer2._src.imaginaire.utils.easy_io import easy_io
 from cosmos_transfer2._src.predict2.datasets.utils import VIDEO_RES_SIZE_INFO
 from cosmos_transfer2._src.predict2.inference.get_t5_emb import get_text_embedding
+from cosmos_transfer2._src.transfer2.auxiliary.sam2.sam2_model import VideoSegmentationModel
 
 _VIDEO_EXTENSIONS = [".mp4", ".avi", ".mov", ".mkv", ".webm"]
 _IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg"]
@@ -242,6 +244,39 @@ def read_video_or_image_into_frames_BCTHW(
     if also_return_fps:
         return input_tensor, fps
     return input_tensor
+
+
+def _resize_to_target_resolution(
+    video_tensor: torch.Tensor | np.ndarray,
+    resolution: str = "720",
+    interpolation: int = cv2.INTER_AREA,
+) -> torch.Tensor:
+    """
+    Resize video tensor to target resolution based on aspect ratio.
+
+    Args:
+        video_tensor: Input video (C, T, H, W) as torch.Tensor or numpy array
+        resolution: Target resolution (e.g., "720")
+        interpolation: OpenCV interpolation method
+
+    Returns:
+        Resized video tensor (C, T, H, W)
+    """
+    if isinstance(video_tensor, torch.Tensor):
+        video_np = video_tensor.numpy()
+        was_torch = True
+    else:
+        video_np = video_tensor
+        was_torch = False
+
+    aspect_ratio = detect_aspect_ratio((video_np.shape[-1], video_np.shape[-2]))
+    w, h = VIDEO_RES_SIZE_INFO[resolution][aspect_ratio]
+
+    resized = resize_video(video_np[None], h, w, interpolation=interpolation)[0]
+
+    if was_torch:
+        return torch.from_numpy(resized)
+    return resized
 
 
 def read_and_resize_input(
@@ -501,26 +536,83 @@ def get_negative_prompt_embedding(
     return neg_t5_embeddings
 
 
+def _compute_depth_maps(video_np: np.ndarray) -> torch.Tensor | None:
+    """
+    Compute depth maps from video frames using Depth Anything models.
+    Matches video_annotation.py normalization strategy.
+
+    Args:
+        video_np: Video array with shape (T, H, W, C) and dtype uint8
+
+    Returns:
+        Depth tensor (1, T, H, W) in range [0, 255] with per-video normalization,
+        or None if computation fails
+    """
+    try:
+        from cosmos_transfer2._src.transfer2.auxiliary.depth_anything.depth_anything_v2 import DepthAnythingV2Model
+        from cosmos_transfer2._src.transfer2.auxiliary.depth_anything.video_depth_anything import (
+            VideoDepthAnythingModel,
+            is_video_depth_anything_available,
+        )
+
+        log.info(f"Computing depth for video with shape {video_np.shape}...")
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        # Use VideoDepthAnything for temporal consistency, fallback to DepthAnythingV2
+        if is_video_depth_anything_available():
+            log.info("Using VideoDepthAnything (temporally consistent)")
+            model = VideoDepthAnythingModel(device=device)
+            model.setup()
+            depth_maps = model.generate(video_np)
+        else:
+            log.info("Using DepthAnythingV2 (frame-by-frame)")
+            model = DepthAnythingV2Model(device=device)
+            model.setup()
+            depth_maps = model.generate_float16_array_from_video_array(video_np)
+
+        # Normalize to [0, 255]
+        depth_tensor = torch.from_numpy(depth_maps.astype(np.float32))
+        d_min, d_max = depth_tensor.min(), depth_tensor.max()
+        depth_normalized = (depth_tensor - d_min) / (d_max - d_min + 1e-8) * 255.0
+        depth_normalized = depth_normalized.unsqueeze(0)  # (1, T, H, W)
+
+        log.info(color_message(f"✓ Depth computed: {depth_normalized.shape}", "bright_green"))
+        return depth_normalized
+
+    except Exception as e:
+        log.error(color_message(f"Failed to compute depth: {e}", "bright_red"))
+        import traceback
+
+        log.error(traceback.format_exc())
+        return None
+
+
 def read_and_process_control_input(
+    video_path: str | None,
     input_control_paths: dict[str, str] | None,
     hint_key: list[str],
     resolution: str = "720",
+    seg_control_prompt: str | None = None,
     s3_credential_path: str | None = None,
 ):
     """
-    Load pre-computed control inputs from file.
-    If a modality is specified in the hint_key list but pre-computed file does not exist:
-    - For seg/depth, compute them in this function
-    - For edge/vis, skip the key. Will compute them in the augmentor function.
+    Load or compute control inputs for video transfer.
+
+    For each modality in hint_key:
+    - If pre-computed file exists: load and resize to target resolution
+    - If missing: compute on-the-fly (depth via Video Depth Anything, seg via SAM2)
+    - edge/vis: skip here, will be computed by augmentor
 
     Args:
+        video_path: Path to the input video file
         input_control_paths: Dictionary mapping modality to file path
-        hint_key: List of control modalities to process
-        resolution: Target resolution for processing
-        s3_credential_path: Path to the S3 credential file.
+        hint_key: List of control modalities to process (e.g., ['depth', 'edge'])
+        resolution: Target resolution for processing (e.g., '720', '1080')
+        seg_control_prompt: Text prompt for SAM2 segmentation
+        s3_credential_path: Path to S3 credentials file
 
     Returns:
-        Dictionary mapping control input keys to tensors
+        Dictionary mapping control input keys to tensors (e.g., 'control_input_depth' -> tensor)
     """
     control_input_dict = {}
 
@@ -561,7 +653,7 @@ def read_and_process_control_input(
         control_path = input_control_paths.get(modality, None)
         control_key = f"control_input_{modality}"
 
-        if control_path:
+        if control_path and os.path.exists(control_path):
             # Load pre-computed control input
             control_attr, fps, _, _ = read_and_resize_input(
                 control_path,
@@ -572,10 +664,48 @@ def read_and_process_control_input(
             control_input_dict[control_key] = control_attr
         elif config["fallback_msg"]:
             log.info(color_message(config["fallback_msg"], "yellow"))
-            # For depth/seg: compute here using third party models.
-            # For edge/vis: skip if no pre-computed file is provided (will be computed by augmentor)
-            if modality in ["depth", "seg"]:
-                control_input_dict[control_key] = None
+            # For depth/seg: computed here using third party models
+            # For edge/vis: skip (computed by augmentor)
+            if modality == "seg":
+                log.info(f"Computing seg masks on the fly with prompt {seg_control_prompt=}.")
+                segment = VideoSegmentationModel()
+                with tempfile.NamedTemporaryFile(suffix=".mp4") as temp_output_video:
+                    segment(input_video=video_path, prompt=seg_control_prompt, output_video=temp_output_video.name)
+                    control_attr, fps, _, _ = read_and_resize_input(
+                        temp_output_video.name,
+                        resolution=resolution,
+                        interpolation=config["interpolation"],
+                        s3_credential_path=s3_credential_path,
+                    )
+                    control_input_dict["control_input_seg"] = control_attr
+            elif modality == "depth":
+                # Load video at original resolution, compute depth, then resize
+                video_frames, _ = read_video_or_image_into_frames_BCTHW(
+                    video_path,
+                    H=None,
+                    W=None,
+                    normalize=False,
+                    max_frames=-1,
+                    also_return_fps=True,
+                    s3_credential_path=s3_credential_path,
+                )
+                # Convert to (T, H, W, C) format for depth models
+                if isinstance(video_frames, torch.Tensor):
+                    video_np = einops.rearrange(video_frames[0].cpu().numpy(), "c t h w -> t h w c")
+                else:
+                    video_np = einops.rearrange(video_frames[0], "c t h w -> t h w c")
+                video_np = np.clip(video_np, 0, 255).astype(np.uint8)
+
+                depth_computed = _compute_depth_maps(video_np)
+                if depth_computed is not None:
+                    depth_rgb = depth_computed.expand(3, -1, -1, -1)  # (3, T, H, W)
+                    control_input_dict[control_key] = _resize_to_target_resolution(
+                        depth_rgb,
+                        resolution=resolution,
+                        interpolation=config["interpolation"],
+                    )
+                else:
+                    control_input_dict[control_key] = None
 
         control_mask_path = input_control_paths.get(f"{modality}_mask")
         if control_mask_path:
