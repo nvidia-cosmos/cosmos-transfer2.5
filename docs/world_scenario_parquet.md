@@ -32,7 +32,7 @@ scene_annotations_directory/
 ├── {clip_id}.traffic_sign.parquet          (optional)
 ```
 
-All files must share the same `clip_id` prefix, which represents a unique scene identifier.
+All files must share the same `clip_id` prefix, which represents a unique clip identifier.
 
 ## Coordinate Systems
 
@@ -78,7 +78,7 @@ Contains 3D bounding box annotations for dynamic objects (vehicles, pedestrians,
 ```python
 {
     "key": {
-        "clip_id": str,               # Scene identifier (not used)
+        "clip_id": str,               # Clip identifier (not used)
         "timestamp_micros": int,      # Timestamp in microseconds
         "label_class_id": str         # Annotation version (not used)
     },
@@ -121,7 +121,7 @@ Contains camera calibration and vehicle sensor configuration data.
 ```python
 {
     "key": {
-        "clip_id": str,               # Scene identifier (not used)
+        "clip_id": str,               # Clip identifier (not used)
         "timestamp_micros": int       # Usually -1 (static calibration, not used)
     },
     "calibration_estimate": {
@@ -326,7 +326,7 @@ Contains vehicle trajectory data (position and orientation over time).
 ```python
 {
     "key": {
-        "clip_id": str,               # Scene identifier (not used)
+        "clip_id": str,               # Clip identifier (not used)
         "timestamp_micros": int       # Timestamp in microseconds
     },
     "egomotion_estimate": {
