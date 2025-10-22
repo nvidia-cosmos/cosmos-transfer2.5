@@ -263,36 +263,8 @@ def load_camera_from_calibration_estimate(
         if camera_dict is None:
             raise ValueError(f"Camera {camera_name} not found in calibration data. Available cameras: {found_cameras}")
 
-        props = camera_dict["properties"]
-
-        poly_key = None
-        if "polynomial" in props:
-            poly_key = "polynomial"
-        elif "bw-poly" in props:
-            poly_key = "bw-poly"
-
-        if poly_key is None:
-            raise ValueError(f"Camera {camera_name} missing polynomial coefficients")
-
-        poly_str = props[poly_key]
-        poly_coeffs = [float(x) for x in poly_str.split()]
-        if len(poly_coeffs) == 5:
-            poly_coeffs.append(0.0)
-
-        cx = float(props["cx"])
-        cy = float(props["cy"])
-        width = int(props["width"])
-        height = int(props["height"])
-
-        camera = FThetaCamera(
-            cx=cx,
-            cy=cy,
-            width=width,
-            height=height,
-            poly=np.array(poly_coeffs, dtype=np.float32),
-            is_bw_poly=True,
-            linear_cde=np.array([1.0, 0.0, 0.0], dtype=np.float32),
-        )
+        # Use the existing FThetaCamera factory method to parse calibration
+        camera = FThetaCamera.from_dict(camera_dict)
 
         resize_w, resize_h = resize_hw
         rescale_h = resize_h / camera.height

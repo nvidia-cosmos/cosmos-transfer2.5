@@ -149,10 +149,10 @@ The system uses the **FTheta camera model**, which maps pixel distance from the 
   "width": "3848",                      // Image width (pixels)
   "height": "2168",                     // Image height (pixels)
   "polynomial": "0 0.000538 2.356e-09 1.907e-12 1.204e-16",  // Polynomial coefficients
-  "polynomial-type": "pixeldistance-to-angle",  // Mapping direction (not used)
-  "linear-c": "1.000000",               // Linear correction factor C (not used)
-  "linear-d": "0.000000",               // Linear correction factor D (not used)
-  "linear-e": "0.000000"                // Linear correction factor E (not used)
+  "polynomial-type": "pixeldistance-to-angle",  // Mapping direction
+  "linear-c": "1.000000",               // Linear correction factor C
+  "linear-d": "0.000000",               // Linear correction factor D
+  "linear-e": "0.000000"                // Linear correction factor E
 }
 ```
 
@@ -163,17 +163,10 @@ The system uses the **FTheta camera model**, which maps pixel distance from the 
   - For "pixeldistance-to-angle": θ = k0 + k1*r + k2*r² + k3*r³ + k4*r⁴ + k5*r⁵
   - Where r is the pixel distance from (cx, cy) and θ is the ray angle in radians
 - **polynomial-type**: 
-  - `"pixeldistance-to-angle"`: Maps pixel radius to viewing angle (forward projection) - **Currently the only supported type**
-  - `"angle-to-pixeldistance"`: Maps viewing angle to pixel radius (backward projection) - **Not supported by the rendering pipeline**
-  
-  Note: While the FTheta camera model supports both polynomial directions, the current rendering pipeline implementation (`scripts/av_utils/clip_gt_io.py`) only handles "pixeldistance-to-angle" type. All calibration data must use this format.
-- **linear-c, linear-d, linear-e**: Additional linear correction factors applied after undistortion
-  - **Note**: These values are ignored by the rendering pipeline and hardcoded to (1.0, 0.0, 0.0)
-
-**Important Limitations:**
-1. Only "pixeldistance-to-angle" polynomial type is supported
-2. Linear correction factors (c, d, e) are ignored - always uses (1, 0, 0)
-3. If your calibration uses different values, the rendered output will not match your actual camera model
+  - `"pixeldistance-to-angle"`: Maps pixel radius to viewing angle (backward polynomial)
+  - `"angle-to-pixeldistance"`: Maps viewing angle to pixel radius (forward polynomial)
+- **linear-c, linear-d, linear-e**: Additional linear correction factors
+  - Default values if not specified: c=1.0, d=0.0, e=0.0
 
 ### Camera Extrinsic Parameters
 
@@ -281,9 +274,11 @@ Within the rig JSON, find your target camera in the `sensors` array. Each camera
 **For intrinsics** (in `properties`):
 - Update `cx`, `cy` with your principal point
 - Update `width`, `height` with your image dimensions
-- Replace `polynomial` coefficients with your coefficients
-- Keep `polynomial-type` as `"pixeldistance-to-angle"` (required)
-- Adjust `linear-c/d/e` if needed (usually 1.0, 0.0, 0.0)
+- Replace `polynomial` coefficients with your distortion model coefficients
+- Set `polynomial-type` to match your model:
+  - `"pixeldistance-to-angle"` for backward polynomial (pixel → angle)
+  - `"angle-to-pixeldistance"` for forward polynomial (angle → pixel)
+- Set `linear-c`, `linear-d`, `linear-e` to your linear correction factors (defaults: 1.0, 0.0, 0.0)
 
 **For extrinsics** (in `nominalSensor2Rig_FLU`):
 - Update `t` with your camera position [x, y, z] in meters
