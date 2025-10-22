@@ -115,11 +115,15 @@ def main(input_root: Path, save_root: Path, cameras: str):
     clip_id = input_root.name
     parquet_files = list(input_root.glob("*.parquet"))
     if parquet_files:
-        first_file = parquet_files[0]
-        if ".obstacle.parquet" in first_file.name:
-            clip_id = first_file.name.replace(".obstacle.parquet", "")
-        elif ".calibration_estimate.parquet" in first_file.name:
-            clip_id = first_file.name.replace(".calibration_estimate.parquet", "")
+        # Look for required parquet files to determine clip_id
+        def get_clip_id(files, default_clip_id):
+            required_suffix = [".obstacle.parquet", ".calibration_estimate.parquet", ".egomotion_estimate.parquet"]
+            for file in files:
+                for suffix in required_suffix:
+                    if file.name.endswith(suffix):
+                        return file.name.replace(suffix, "")
+            return default_clip_id
+        clip_id = get_clip_id(parquet_files, clip_id)
 
     logger.info(f"Processing clip: {clip_id}")
     logger.info(f"Cameras: {camera_names}")
