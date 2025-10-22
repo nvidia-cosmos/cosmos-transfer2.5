@@ -15,6 +15,7 @@
 
 from pathlib import Path
 
+from cosmos_transfer2._src.imaginaire.utils import distributed
 from cosmos_transfer2.config import (
     InferenceArguments,
     SetupArguments,
@@ -24,6 +25,9 @@ from cosmos_transfer2.inference import Control2WorldInference
 
 class Control2World_Worker:
     def __init__(self, num_gpus=1, model="edge"):
+        if num_gpus > 1:
+            distributed.init()
+        
         setup_args = SetupArguments(
             context_parallel_size=num_gpus,
             output_dir=Path("outputs"),  # dummy parameter, we want to save videos in per inference folders
