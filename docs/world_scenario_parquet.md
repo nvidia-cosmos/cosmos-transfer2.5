@@ -281,7 +281,7 @@ Within the rig JSON, find your target camera in the `sensors` array. Each camera
 **For intrinsics** (in `properties`):
 - Update `cx`, `cy` with your principal point
 - Update `width`, `height` with your image dimensions
-- Replace `polynomial` coefficients with your distortion model
+- Replace `polynomial` coefficients with your coefficients
 - Keep `polynomial-type` as `"pixeldistance-to-angle"` (required)
 - Adjust `linear-c/d/e` if needed (usually 1.0, 0.0, 0.0)
 
