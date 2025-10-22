@@ -107,11 +107,13 @@ Contains 3D bounding box annotations for dynamic objects (vehicles, pedestrians,
 ```
 
 **Category Mapping:**
-- `automobile`, `car` → `Car`
-- `pedestrian`, `person` → `Pedestrian`
-- `bicycle`, `cyclist`, `motorcycle`, `rider` → `Cyclist`
-- `bus`, `truck` → `Truck`
-- Others → `Others`
+- `automobile`, `other_vehicle`, `vehicle` → `Car`
+- `person` → `Pedestrian`  
+- `rider` → `Cyclist`
+- `bus`, `heavy_truck`, `train_or_tram_car`, `trolley_bus`, `trailer` → `Truck`
+- All other categories (including `stroller`, `protruding_object`, `animal`) → `Others`
+
+Note: The rendering pipeline uses case-insensitive matching.
 
 ### 2. Calibration Estimate File (`{clip_id}.calibration_estimate.parquet`)
 
