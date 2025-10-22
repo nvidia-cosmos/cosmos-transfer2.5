@@ -270,8 +270,12 @@ class FThetaCamera(CameraBase):
         if linear_cde is None:
             linear_cde = np.array([1, 0, 0], dtype=np.float32)
         assert linear_cde is not None
-        assert len(poly) == 6, f"poly must have 6 coefficients, got {len(poly)}"
+        assert len(poly) in [5, 6], f"poly must have 5 or 6 coefficients, got {len(poly)}"
         assert len(linear_cde) == 3, f"linear_cde must have 3 coefficients, got {len(linear_cde)}"
+        
+        # Normalize to 6 coefficients by appending 0 for power 5 because parts of the code assume 6 coefficients
+        if len(poly) == 5:
+            poly = np.append(poly, 0.0)
 
         self._center = np.asarray([cx, cy], dtype=np.float32)
         self._width = int(width)
