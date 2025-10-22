@@ -538,37 +538,3 @@ Road signs and information boards.
 }
 ```
 
-## Data Processing Pipeline
-
-### Frame Rate Configuration
-
-The rendering pipeline uses two configurable frame rates (defined in `scripts/av_utils/render_config.py`):
-- **`INPUT_POSE_FPS`** (default: 30): Processing frame rate for interpolation - determines how many frames are generated
-- **`TARGET_RENDER_FPS`** (default: 30): Output video frame rate - determines playback speed
-
-Common source data rates:
-- **`SOURCE_POSE_FPS`**: 10Hz (ego motion in parquet files)
-- **`SOURCE_OBSTACLE_FPS`**: 10Hz (obstacle data in parquet files)
-
-### 1. Interpolation
-- **Obstacle data**: Interpolated from source frequency (typically 10Hz) to processing frame rate (default: 30 fps, configurable via `INPUT_POSE_FPS` in `scripts/av_utils/render_config.py`)
-- **Egomotion data**: Interpolated to same processing frame rate (default: 30 fps, using `INPUT_POSE_FPS`)
-- **Map data**: Static elements loaded once (no interpolation needed)
-- **Note**: The processing frame rate (`INPUT_POSE_FPS`) determines the temporal resolution for rendering. The output video frame rate (`TARGET_RENDER_FPS`) is separate and typically matches the processing rate.
-
-### 2. Coordinate Systems
-- **World coordinates**: Right-handed coordinate system (x=forward, y=left, z=up)
-- **Camera coordinates**: Converted to camera coordinate system where:
-  - x-axis points right
-  - y-axis points down
-  - z-axis points forward (into the scene)
-  - This follows the convention where the camera looks along the positive z-axis
-- **FLU convention**: Forward-Left-Up used internally
-
-### 3. Rendering Process
-1. Load camera calibration
-2. Parse egomotion trajectory and interpolate to processing frame rate
-3. Interpolate obstacle tracks to match ego timestamps
-4. Transform all geometries to camera view
-5. Render
-6. Output as MP4 video files
