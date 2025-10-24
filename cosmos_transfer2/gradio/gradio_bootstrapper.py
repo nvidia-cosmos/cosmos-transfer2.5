@@ -116,7 +116,7 @@ if __name__ == "__main__":
     interface.launch(
         server_name="0.0.0.0",
         server_port=8080,
-        share=True,
+        share=False,
         debug=True,
         max_file_size="500MB",
         allowed_paths=[deploy_cfg.output_dir, deploy_cfg.uploads_dir],

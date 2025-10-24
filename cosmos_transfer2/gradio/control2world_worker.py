@@ -54,7 +54,7 @@ class Control2World_Worker:
         """
 
         output_dir = args.pop("output_dir", "outputs")
-        
+
         inference_args = InferenceArguments(**args)
         output_videos = self.pipe.generate([inference_args], Path(output_dir))
 
