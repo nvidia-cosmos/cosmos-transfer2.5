@@ -24,7 +24,7 @@ from cosmos_transfer2.inference import Control2WorldInference
 
 
 class Control2World_Worker:
-    def __init__(self, num_gpus=1, model="edge"):
+    def __init__(self, num_gpus=1, model="edge", batch_hint_keys=None):
         if num_gpus > 1:
             distributed.init()
         
@@ -34,8 +34,11 @@ class Control2World_Worker:
             model=model,
             keep_going=True,
         )
-
-        self.pipe = Control2WorldInference(setup_args, batch_hint_keys=[model])
+        
+        self.pipe = Control2WorldInference(
+            setup_args, 
+            batch_hint_keys=batch_hint_keys or [model]
+        )
 
     def infer(self, args: dict):
         """
@@ -51,7 +54,7 @@ class Control2World_Worker:
         """
 
         output_dir = args.pop("output_dir", "outputs")
-
+        
         inference_args = InferenceArguments(**args)
         output_videos = self.pipe.generate([inference_args], Path(output_dir))
 

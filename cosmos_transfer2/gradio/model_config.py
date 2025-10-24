@@ -21,6 +21,7 @@ from cosmos_transfer2.config import InferenceArguments
 from cosmos_transfer2.gradio.sample_data import (
     sample_request_depth,
     sample_request_edge,
+    sample_request_multicontrol,
     sample_request_mv,
     sample_request_seg,
     sample_request_vis,
@@ -39,6 +40,7 @@ class Config:
             "depth": "Cosmos-Transfer2.5 Depth Transfer",
             "edge": "Cosmos-Transfer2.5 Edge Transfer",
             "seg": "Cosmos-Transfer2.5 Segmentation Transfer",
+            "multicontrol": "Cosmos-Transfer2.5 Multi-Control Transfer",
             "multiview": "Cosmos-Transfer2.5 Multiview",
         }
     )
@@ -49,6 +51,7 @@ class Config:
             "depth": help_control2world,
             "edge": help_control2world,
             "seg": help_control2world,
+            "multicontrol": help_control2world,
             "multiview": help_text_mv,
         }
     )
@@ -59,6 +62,7 @@ class Config:
             "depth": json.dumps(sample_request_depth, indent=2),
             "edge": json.dumps(sample_request_edge, indent=2),
             "seg": json.dumps(sample_request_seg, indent=2),
+            "multicontrol": json.dumps(sample_request_multicontrol, indent=2),
             "multiview": json.dumps(sample_request_mv, indent=2),
         }
     )
