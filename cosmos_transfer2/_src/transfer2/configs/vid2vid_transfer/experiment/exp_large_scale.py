@@ -231,7 +231,6 @@ vid2vid_2B_control_480p_base_weight_init = LazyDict(
                 ),
                 tokenizer=dict(
                     temporal_window=16,
-                    compile_encode=True,
                 ),
                 net=dict(
                     vace_block_every_n=2,  # Default setting in VACE. For 28-layer base model, this means 14 control blocks.
@@ -895,7 +894,6 @@ vid2vid_2B_control_720p_t24_control_layer14_image_context = LazyDict(
                 ),
                 tokenizer=dict(
                     temporal_window=16,
-                    compile_encode=True,
                 ),
                 net=dict(
                     vace_block_every_n=2,
@@ -1122,7 +1120,6 @@ vid2vid_2B_control_720p_t24_control_layer4_cr1pt1_embedding_rectified_flow = Laz
                 ),
                 tokenizer=dict(
                     temporal_window=16,
-                    compile_encode=True,
                 ),
                 text_encoder_class="reason1p1_7B",
                 text_encoder_config=dict(

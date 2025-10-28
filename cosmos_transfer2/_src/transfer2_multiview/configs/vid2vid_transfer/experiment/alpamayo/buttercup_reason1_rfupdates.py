@@ -176,7 +176,6 @@ def buttercup_transfer2_2b_mv_7views_res720_fps10_t8_basefromcond01rffix1n13k_ma
                 ),
                 tokenizer=dict(
                     temporal_window=16,
-                    compile_encode=False,
                 ),
             ),
         ),

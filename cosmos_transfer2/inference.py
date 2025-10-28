@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 from pathlib import Path
 
 import numpy as np
@@ -24,7 +25,15 @@ from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.imaginaire.visualize.video import save_img_or_video
 from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.experiment.experiment_list import EXPERIMENTS
 from cosmos_transfer2._src.transfer2.inference.inference_pipeline import ControlVideo2WorldInference
-from cosmos_transfer2.config import MODEL_CHECKPOINTS, InferenceArguments, ModelKey, SetupArguments, path_to_str
+from cosmos_transfer2._src.transfer2.inference.utils import compile_tokenizer_if_enabled
+from cosmos_transfer2.config import (
+    MODEL_CHECKPOINTS,
+    InferenceArguments,
+    ModelKey,
+    SetupArguments,
+    is_rank0,
+    path_to_str,
+)
 
 
 class Control2WorldInference:
@@ -79,7 +88,12 @@ class Control2WorldInference:
             s3_credential_path="",
             exp_override_opts=EXPERIMENTS[self.experiment].command_args,
             process_group=process_group,
+            use_cp_wan=args.enable_parallel_tokenizer,
+            wan_cp_grid=args.parallel_tokenizer_grid,
         )
+
+        compile_tokenizer_if_enabled(self.inference_pipeline, args.compile_tokenizer.value)
+
         if self.device_rank == 0:
             log.info(f"Found {len(self.batch_hint_keys)} hint keys across all samples")
             if len(self.batch_hint_keys) > 1:
@@ -92,6 +106,7 @@ class Control2WorldInference:
             # pyrefly: ignore  # bad-argument-type
             LazyConfig.save_yaml(self.inference_pipeline.config, config_path)
             log.info(f"Saved config to {config_path}")
+        self.benchmark_times = []
 
     def generate(self, samples: list[InferenceArguments], output_dir: Path) -> list[str]:
         sample_names = [sample.name for sample in samples]
@@ -100,12 +115,21 @@ class Control2WorldInference:
         output_paths: list[str] = []
         for i_sample, sample in enumerate(samples):
             log.info(f"[{i_sample + 1}/{len(samples)}] Processing sample {sample.name}")
-            output_path = self._generate_sample(sample, output_dir)
+            output_path = self._generate_sample(sample, output_dir, sample_id=i_sample)
             if output_path is not None:
                 output_paths.append(output_path)
+
+        if is_rank0() and len(self.benchmark_times) > 0:
+            avg_time = sum(self.benchmark_times) / len(self.benchmark_times)
+            log.info("=" * 50)
+            log.info("BENCHMARK RESULTS")
+            log.info("=" * 50)
+            log.info(f"Benchmark runs: {[f'{t:.2f}s' for t in self.benchmark_times]}")
+            log.info(f"Average time (last {self.benchmark_times} runs): {avg_time:.2f} seconds")
+            log.info("=" * 50)
         return output_paths
 
-    def _generate_sample(self, sample: InferenceArguments, output_dir: Path) -> str | None:
+    def _generate_sample(self, sample: InferenceArguments, output_dir: Path, sample_id: int = 0) -> str | None:
         log.debug(f"{sample.__class__.__name__}({sample})")
         output_path = output_dir / sample.name
 
@@ -125,11 +149,12 @@ class Control2WorldInference:
                 log.info("Running guardrail check on prompt...")
 
                 if not guardrail_presets.run_text_guardrail(prompt, self.text_guardrail_runner):
-                    log.critical("Guardrail blocked control2world generation. Prompt: {prompt}")
+                    message = f"Guardrail blocked generation. Prompt: {prompt}"
+                    log.critical(message)
                     if self.setup_args.keep_going:
                         return None
                     else:
-                        exit(1)
+                        raise Exception(message)
                 else:
                     log.success("Passed guardrail on prompt")
 
@@ -137,8 +162,12 @@ class Control2WorldInference:
                     negative_prompt,
                     self.text_guardrail_runner,
                 ):
-                    log.critical("Guardrail blocked control2world generation. Negative prompt: {neg_prompt}")
-                    exit(1)
+                    message = f"Guardrail blocked generation. Negative prompt: {negative_prompt}"
+                    log.critical(message)
+                    if self.setup_args.keep_going:
+                        return None
+                    else:
+                        raise Exception(message)
                 else:
                     log.success("Passed guardrail on negative prompt")
             elif self.text_guardrail_runner is None:
@@ -155,6 +184,13 @@ class Control2WorldInference:
             # pyrefly: ignore  # missing-attribute
             control_weight += sample.control_weight_dict.get(key, "0.0") + ","
         control_weight = control_weight[:-1]
+
+        # Measure the time in case of benchmarking, but only for samples which aren't warm-up samples.
+        if sample_id > 0 and self.setup_args.benchmark:
+            torch.cuda.synchronize()
+            start_time = time.time()
+        else:
+            start_time = None
 
         # Run model inference
         output_video, control_video_dict, fps, _ = self.inference_pipeline.generate_img2world(
@@ -182,6 +218,10 @@ class Control2WorldInference:
             num_steps=sample.num_steps,
         )
 
+        if start_time is not None:
+            torch.cuda.synchronize()
+            self.benchmark_times.append(time.time() - start_time)
+
         # Save video
         if self.device_rank == 0:
             output_video = (1.0 + output_video[0]) / 2
@@ -197,11 +237,10 @@ class Control2WorldInference:
                 frames = frames.permute(1, 2, 3, 0).cpu().numpy().astype(np.uint8)  # (T, H, W, C)
                 processed_frames = guardrail_presets.run_video_guardrail(frames, self.video_guardrail_runner)
                 if processed_frames is None:
-                    log.critical("Guardrail blocked video2world generation.")
                     if self.setup_args.keep_going:
                         return None
                     else:
-                        exit(1)
+                        raise Exception("Guardrail blocked video2world generation.")
                 else:
                     log.success("Passed guardrail on generated video")
 

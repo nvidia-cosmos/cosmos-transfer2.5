@@ -52,7 +52,7 @@ Checkpoints are automatically downloaded during inference and post-training. To 
 
 ### Docker container
 
-Please make sure you have access to Docker on your machine and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) is installed. To avoid running out of file descriptors when building the container, increase the limit with `--ulimit nofile` as in the example below. We recommend setting the environment variable `HF_HOME` to a path available to the container so that you do not need to redownload the checkpoints every time you run the container. Finally, it is easy to run out of shared memory for parallel torchrun, so consider setting `--shm-size` high or using `--ipc=host` (if allowed by your security policy) in your docker run command.
+Please make sure you have access to Docker on your machine and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) is installed. To avoid running out of file descriptors when building the container, increase the limit with `--ulimit nofile` as in the example below.
 
 Example build command:
 
@@ -63,5 +63,5 @@ docker build --ulimit nofile=131071:131071 -f Dockerfile . -t cosmos-transfer-2.
 Example run command:
 
 ```bash
-docker run --gpus all --rm -v .:/workspace -v /workspace/.venv -v ${HF_HOME:-$HOME/.cache/huggingface}:/root/.cache/huggingface -e HF_HOME=/root/.cache/huggingface -it --ipc=host cosmos-transfer-2.5
+docker run --gpus all --rm -v .:/workspace -v /workspace/.venv -it cosmos-transfer-2.5
 ```

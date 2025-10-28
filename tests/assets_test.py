@@ -20,22 +20,22 @@ import pytest
 from cosmos_transfer2.config import CommonInferenceArguments, InferenceArguments
 from cosmos_transfer2.multiview_config import MultiviewInferenceArguments
 
-_INFERENCE_ASSETS: list[tuple[str, type[CommonInferenceArguments]]] = [
-    ("car_example/edge", InferenceArguments),
-    ("car_example/seg", InferenceArguments),
-    ("car_example/multicontrol", InferenceArguments),
-    ("robot_example/depth", InferenceArguments),
-    ("robot_example/edge", InferenceArguments),
-    ("robot_example/vis", InferenceArguments),
-    ("robot_example/seg", InferenceArguments),
-    ("robot_example/vis", InferenceArguments),
-    ("robot_example/multicontrol", InferenceArguments),
-    ("multiview_example", MultiviewInferenceArguments),
-]
 
-
-@pytest.mark.L0
-@pytest.mark.parametrize("name,args_cls", _INFERENCE_ASSETS, ids=[asset[0] for asset in _INFERENCE_ASSETS])
+@pytest.mark.parametrize(
+    "name,args_cls",
+    [
+        pytest.param("car_example/edge", InferenceArguments, id="car_example/edge"),
+        pytest.param("car_example/seg", InferenceArguments, id="car_example/seg"),
+        pytest.param("car_example/multicontrol", InferenceArguments, id="car_example/multicontrol"),
+        pytest.param("robot_example/depth", InferenceArguments, id="robot_example/depth"),
+        pytest.param("robot_example/edge", InferenceArguments, id="robot_example/edge"),
+        pytest.param("robot_example/vis", InferenceArguments, id="robot_example/vis"),
+        pytest.param("robot_example/seg", InferenceArguments, id="robot_example/seg"),
+        pytest.param("robot_example/vis", InferenceArguments, id="robot_example/vis"),
+        pytest.param("robot_example/multicontrol", InferenceArguments, id="robot_example/multicontrol"),
+        pytest.param("multiview_example", MultiviewInferenceArguments, id="multiview_example"),
+    ],
+)
 def test_inference_assets(name: str, args_cls: type[CommonInferenceArguments]):
     input_dir = Path("assets") / name
     # Sample names should be unique accross json files

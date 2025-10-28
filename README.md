@@ -14,7 +14,7 @@ Cosmos World Foundation Models come in three model types which can all be custom
 * [October 21, 2025] We added on-the-fly computation support for depth and segmentation, and fixed multicontrol experiments in [inference](docs/inference.md). Also, updated Docker base image version, and Gradio related documentation.
 
 * [October 13, 2025] Updated Transfer2.5 Auto Multiview [post-training datasets](https://github.com/nvidia-cosmos/cosmos-transfer2.5/blob/main/docs/post-training_auto_multiview.md), and setup dependencies to support NVIDIA Blackwell.
-  
+
 * [October 6, 2025] We released [Cosmos-Transfer2.5](https://github.com/nvidia-cosmos/cosmos-transfer2.5) and [Cosmos-Predict2.5](https://github.com/nvidia-cosmos/cosmos-predict2.5) - the next generation of our world simulation models!
 
 * [June 12, 2025] As part of the Cosmos family, we released [Cosmos-Transfer1-DiffusionRenderer](https://github.com/nv-tlabs/cosmos-transfer1-diffusion-renderer)

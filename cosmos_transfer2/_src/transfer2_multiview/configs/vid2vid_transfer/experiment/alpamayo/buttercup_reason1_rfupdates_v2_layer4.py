@@ -177,7 +177,6 @@ def buttercup_transfer2_2b_mv_7views_res720_fps10_t8_frompred2madsreason7brffixd
                 ),
                 tokenizer=dict(
                     temporal_window=16,
-                    compile_encode=False,
                 ),
             ),
         ),
@@ -341,7 +340,6 @@ def buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase2p5_mads720pmult
                 ),
                 tokenizer=dict(
                     temporal_window=16,
-                    compile_encode=False,
                 ),
                 text_encoder_class="reason1p1_7B",
                 text_encoder_config=dict(
@@ -587,6 +585,141 @@ def buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase5knofps_mads720p
         ),
         checkpoint=dict(
             load_path="cosmos_transfer2_multiview/cosmos2_mv/buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase2p5_mads720pmulticaps29frames_world_scenario-0/checkpoints/iter_000021000",
+            load_from_object_store=dict(
+                enabled=True,
+            ),
+        ),
+    )
+
+
+def buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase5knofps_mads720pmulticaps29frames_world_scenario_nofps_uniform():
+    return dict(
+        defaults=[
+            "/experiment/buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase2p5_mads720pmulticaps29frames_hdmapbbox",
+            {
+                "override /callbacks": [
+                    "basic",
+                    "viz_online_sampling",
+                    "wandb",
+                    "cluster_speed",
+                    "load_base_model_callbacks",
+                ]
+            },
+            "_self_",
+        ],
+        job=dict(
+            group="cosmos2_mv",
+            name="buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase5knofps_mads720pmulticaps29frames_world_scenario_nofps_uniform",
+        ),
+        dataloader_train=dict(
+            dataset=dict(
+                dataset_loading_keys=MULTI_VIEW_LOADING_KEYS_V2,
+            ),
+        ),
+        model=dict(
+            config=dict(
+                base_load_from=dict(
+                    load_path="bucket/cosmos_predict2_multiview/cosmos2_mv/buttercup_predict2p5_2b_7views_res720p_fps30_t8_from48kfps30mv_condprobs0442_joint_alpamayo1capnoviewprefix_allcapsviewprefix_29frames_nofps-0/checkpoints/iter_000005000",
+                    credentials="credentials/s3_checkpoint.secret",
+                ),
+                train_time_weight="uniform",
+                net=dict(
+                    rope_enable_fps_modulation=False,
+                ),
+            ),
+        ),
+        checkpoint=dict(
+            load_path="cosmos_transfer2_multiview/cosmos2_mv/buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase5knofps_mads720pmulticaps29frames_world_scenario_resumefrom21k-0/checkpoints/iter_000010000",
+            load_from_object_store=dict(
+                enabled=True,
+            ),
+        ),
+    )
+
+
+def buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_fromfinetuned5knofpsuniform_mads720pmulticaps29frames_world_scenario_nofps_uniform():
+    return dict(
+        defaults=[
+            "/experiment/buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase2p5_mads720pmulticaps29frames_hdmapbbox",
+            {
+                "override /callbacks": [
+                    "basic",
+                    "viz_online_sampling",
+                    "wandb",
+                    "cluster_speed",
+                    "load_base_model_callbacks",
+                ]
+            },
+            "_self_",
+        ],
+        job=dict(
+            group="cosmos2_mv",
+            name="buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_fromfinetuned5knofpsuniform_mads720pmulticaps29frames_world_scenario_nofps_uniform",
+        ),
+        dataloader_train=dict(
+            dataset=dict(
+                dataset_loading_keys=MULTI_VIEW_LOADING_KEYS_V2,
+            ),
+        ),
+        model=dict(
+            config=dict(
+                base_load_from=dict(
+                    load_path="bucket/cosmos_predict2_multiview/cosmos2_mv/buttercup_predict2p5_2b_7views_res720p_fps30_t8_joint_alpamayo1capviewprefix_allcapsviewprefix_29frames_nofps_uniform_dropoutt0-0/checkpoints/iter_000005000",
+                    credentials="credentials/s3_checkpoint.secret",
+                ),
+                train_time_weight="uniform",
+                net=dict(
+                    rope_enable_fps_modulation=False,
+                ),
+            ),
+        ),
+        checkpoint=dict(
+            load_path="cosmos_transfer2_multiview/cosmos2_mv/buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase5knofps_mads720pmulticaps29frames_world_scenario_nofps_uniform-0/checkpoints/iter_000006000",
+            load_from_object_store=dict(
+                enabled=True,
+            ),
+        ),
+    )
+
+
+def buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_fromfinetuned12knofpsuniform_mads720pmulticaps29frames_world_scenario_nofps_uniform():
+    return dict(
+        defaults=[
+            "/experiment/buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase2p5_mads720pmulticaps29frames_hdmapbbox",
+            {
+                "override /callbacks": [
+                    "basic",
+                    "viz_online_sampling",
+                    "wandb",
+                    "cluster_speed",
+                    "load_base_model_callbacks",
+                ]
+            },
+            "_self_",
+        ],
+        job=dict(
+            group="cosmos2_mv",
+            name="buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_fromfinetuned12knofpsuniform_mads720pmulticaps29frames_world_scenario_nofps_uniform",
+        ),
+        dataloader_train=dict(
+            dataset=dict(
+                dataset_loading_keys=MULTI_VIEW_LOADING_KEYS_V2,
+            ),
+        ),
+        model=dict(
+            config=dict(
+                base_load_from=dict(
+                    load_path="bucket/cosmos_predict2_multiview/cosmos2_mv/buttercup_predict2p5_2b_7views_res720p_fps30_t8_joint_alpamayo1capviewprefix_allcapsviewprefix_29frames_nofps_uniform_dropoutt0-0/checkpoints/iter_000012000",
+                    credentials="credentials/s3_checkpoint.secret",
+                ),
+                train_time_weight="uniform",
+                net=dict(
+                    rope_enable_fps_modulation=False,
+                ),
+            ),
+        ),
+        checkpoint=dict(
+            load_path="cosmos_transfer2_multiview/cosmos2_mv/buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_fromfinetuned5knofpsuniform_mads720pmulticaps29frames_world_scenario_nofps_uniform-0/checkpoints/iter_000006500",
             load_from_object_store=dict(
                 enabled=True,
             ),
@@ -1062,7 +1195,6 @@ def buttercup_transfer2p5_2b_mv_7views_res480p_fps15_t8_frombase2p5_mads420pmult
                 ),
                 tokenizer=dict(
                     temporal_window=16,
-                    compile_encode=False,
                 ),
                 text_encoder_class="reason1p1_7B",
                 text_encoder_config=dict(
@@ -1208,8 +1340,11 @@ experiments = [
     buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase2p5_mads720pmulticaps29frames_world_scenario(),
     buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase48k_mads720pmulticaps29frames_world_scenario_resumefrom21k(),
     buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase5knofps_mads720pmulticaps29frames_world_scenario_resumefrom21k(),
+    buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase5knofps_mads720pmulticaps29frames_world_scenario_nofps_uniform(),
     buttercup_transfer2p5_2b_mv_7views_res480p_fps15_t8_frombase2p5_mads420pmulticaps121to61frames_world_scenario(),
     buttercup_transfer2p5_2b_mv_7views_res480p_fps10_t8_from5knofps_mads420pmulticaps61frames_world_scenario(),
+    buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_fromfinetuned5knofpsuniform_mads720pmulticaps29frames_world_scenario_nofps_uniform(),
+    buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_fromfinetuned12knofpsuniform_mads720pmulticaps29frames_world_scenario_nofps_uniform(),
     # realtime demo experiments
     buttercup_transfer2p5_2b_mv_7views_res480p_fps10_t8_frombase5ktdrop0_mads480pmulticaps29frames_world_scenario_from(),
     buttercup_transfer2p5_2b_mv_4views_res480p_fps10_t8_frombase5ktdrop0_mads480pmulticaps29frames_world_scenario_from(),

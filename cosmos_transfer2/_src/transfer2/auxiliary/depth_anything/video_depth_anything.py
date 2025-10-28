@@ -27,22 +27,9 @@ from cosmos_transfer2._src.transfer2.auxiliary.depth_anything.utils import get_m
 logger = logging.getLogger(__name__)
 
 try:
-    # Import video_depth_anything - installed via uv from fork
-    # Install with: uv sync --extra video_depth_anything
     from video_depth_anything import video_depth
-
-    VIDEO_DEPTH_ANYTHING_AVAILABLE = True
 except ImportError as e:
-    VIDEO_DEPTH_ANYTHING_AVAILABLE = False
-    logger.warning(
-        f"video_depth_anything package not available: {e}. Install with: uv sync --extra video_depth_anything"
-    )
-
-
-def is_video_depth_anything_available() -> bool:
-    """Check if video_depth_anything package is available."""
-    return VIDEO_DEPTH_ANYTHING_AVAILABLE
-
+    logger.warning(f"video_depth_anything package not available: {e}. Install with: uv sync")
 
 # Model configurations for different encoder variants
 MODEL_CONFIGS = {
@@ -69,12 +56,6 @@ class VideoDepthAnythingModel:
         encoder: str = "vits",
         device: Optional[str] = None,
     ):
-        if not VIDEO_DEPTH_ANYTHING_AVAILABLE:
-            raise ImportError(
-                "video_depth_anything package is not installed. "
-                "Please install it or use DepthAnythingV2Model for frame-by-frame depth estimation."
-            )
-
         if encoder not in MODEL_CONFIGS:
             raise ValueError(f"Unknown encoder: {encoder}. Choose from {list(MODEL_CONFIGS.keys())}")
 

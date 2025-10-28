@@ -22,9 +22,23 @@ from cosmos_gradio.model_ipc.model_server import ModelServer
 
 from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2.config import InferenceArguments, SetupArguments
-from cosmos_transfer2.gradio.sample_data import sample_request_edge, sample_request_mv
+from cosmos_transfer2.gradio.sample_data import (
+    sample_request_depth,
+    sample_request_edge,
+    sample_request_mv,
+    sample_request_seg,
+    sample_request_vis,
+)
 
 global_env = DeploymentEnv()
+
+sample_request = {
+    "edge": sample_request_edge,
+    "vis": sample_request_vis,
+    "depth": sample_request_depth,
+    "seg": sample_request_seg,
+    "multiview": sample_request_mv,
+}
 
 
 def test_transfer_args():
@@ -34,7 +48,8 @@ def test_transfer_args():
     log.info(json.dumps(params.model_dump(mode="json"), indent=4))
 
 
-def test_transfer(model_name, params):
+def test_transfer(model_name):
+    params = sample_request[model_name]
     from cosmos_transfer2.gradio.control2world_worker import Control2World_Worker
 
     params = InferenceArguments(**params)
@@ -78,9 +93,9 @@ if __name__ == "__main__":
     log.info(f"test_worker current dir={os.getcwd()}")
     log.info(f"global_env: {global_env}")
 
-    if global_env.model_name == "edge":
-        test_transfer_args()
-        test_transfer("edge", sample_request_edge)
-    elif global_env.model_name == "multiview":
+    if global_env.model_name == "multiview":
         test_multiview_args()
         test_transfer_mv()
+    else:
+        test_transfer_args()
+        test_transfer(global_env.model_name)

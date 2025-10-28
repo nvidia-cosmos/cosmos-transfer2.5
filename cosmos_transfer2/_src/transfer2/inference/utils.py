@@ -19,7 +19,7 @@ import os
 import pickle
 import tempfile
 import time
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import cv2
 import einops
@@ -549,26 +549,17 @@ def _compute_depth_maps(video_np: np.ndarray) -> torch.Tensor | None:
         or None if computation fails
     """
     try:
-        from cosmos_transfer2._src.transfer2.auxiliary.depth_anything.depth_anything_v2 import DepthAnythingV2Model
         from cosmos_transfer2._src.transfer2.auxiliary.depth_anything.video_depth_anything import (
             VideoDepthAnythingModel,
-            is_video_depth_anything_available,
         )
 
         log.info(f"Computing depth for video with shape {video_np.shape}...")
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        # Use VideoDepthAnything for temporal consistency, fallback to DepthAnythingV2
-        if is_video_depth_anything_available():
-            log.info("Using VideoDepthAnything (temporally consistent)")
-            model = VideoDepthAnythingModel(device=device)
-            model.setup()
-            depth_maps = model.generate(video_np)
-        else:
-            log.info("Using DepthAnythingV2 (frame-by-frame)")
-            model = DepthAnythingV2Model(device=device)
-            model.setup()
-            depth_maps = model.generate_float16_array_from_video_array(video_np)
+        log.info("Using VideoDepthAnything")
+        model = VideoDepthAnythingModel(device=device)
+        model.setup()
+        depth_maps = model.generate(video_np)
 
         # Normalize to [0, 255]
         depth_tensor = torch.from_numpy(depth_maps.astype(np.float32))
@@ -584,6 +575,46 @@ def _compute_depth_maps(video_np: np.ndarray) -> torch.Tensor | None:
         import traceback
 
         log.error(traceback.format_exc())
+        return None
+
+
+def generate_control_weight_mask_from_prompt(
+    video_path: str,
+    prompt: str,
+    output_folder: str,
+    modality: str,
+) -> str | None:
+    """
+    Generate a binary control weight mask video from a text prompt using SAM2.
+
+    Args:
+        video_path: Path to the input video
+        prompt: Text prompt describing objects to segment (e.g., "car", "person . dog")
+        output_folder: Directory to save the generated mask video
+        modality: Control modality name (e.g., "depth", "seg", "edge")
+
+    Returns:
+        Path to the generated mask video file, or None if no objects detected
+    """
+    log.info(f"Generating control weight mask from prompt: '{prompt}' for modality: {modality}")
+
+    segment = VideoSegmentationModel()
+
+    os.makedirs(output_folder, exist_ok=True)
+    mask_name = os.path.splitext(os.path.basename(video_path))[0]
+    output_mask_path = os.path.join(output_folder, f"{mask_name}_{modality}_mask.mp4")
+
+    try:
+        segment(
+            input_video=video_path,
+            prompt=prompt,
+            output_video=output_mask_path,
+            weight_scaler=1.0,
+            binarize_video=True,
+        )
+        return output_mask_path
+    except (IndexError, ValueError):
+        log.warning(f"No mask generated for prompt '{prompt}'. No objects detected.")
         return None
 
 
@@ -708,6 +739,18 @@ def read_and_process_control_input(
                     control_input_dict[control_key] = None
 
         control_mask_path = input_control_paths.get(f"{modality}_mask")
+        mask_prompt = input_control_paths.get(f"{modality}_mask_prompt")
+
+        if control_mask_path is not None and mask_prompt is not None:
+            log.warning(f"{modality}: Both mask path and mask prompt provided. Using mask path.")
+
+        if control_mask_path is None and mask_prompt is not None:
+            control_mask_path = generate_control_weight_mask_from_prompt(
+                video_path=video_path, prompt=mask_prompt, output_folder=tempfile.gettempdir(), modality=modality
+            )
+            if control_mask_path is None:
+                log.warning(f"{modality}: No mask generated from prompt '{mask_prompt}', continuing without mask.")
+
         if control_mask_path:
             control_mask_attr, fps, _, _ = read_and_resize_input(
                 control_mask_path,
@@ -914,7 +957,7 @@ def get_unique_seed(
     return seed
 
 
-def color_message(message: str, color: str = "white") -> None:
+def color_message(message: str, color: str = "white") -> str:
     """Log a message with color formatting.
 
     Args:
@@ -945,3 +988,56 @@ def color_message(message: str, color: str = "white") -> None:
     reset_code = "\033[0m" if color_code else ""
     colored_message = f"{color_code}{message}{reset_code}"
     return colored_message
+
+
+def compile_tokenizer_if_enabled(pipeline: Any, compilation_mode: str) -> None:
+    """
+    Optionally compiles the tokenizer's encode and decode methods using torch.compile.
+
+    Args:
+        pipeline: The inference pipeline object containing the tokenizer. This can be either
+            TransferControl2WorldPipeline or MultiviewControl2WorldPipeline.
+        compilation_mode: String describing the compilation type. Must be one of
+            "none", "moderate", or "aggressive". "moderate" compiles only the encode method,
+            "aggressive" compiles both encode and decode methods, and "none" disables compilation.
+    """
+    compile_tokenizer = compilation_mode != "none"
+
+    if not compile_tokenizer or compilation_mode not in ["moderate", "aggressive", "none"]:
+        log.info("Tokenizer compilation disabled")
+        return
+
+    if not hasattr(torch, "compile"):
+        log.warning("torch.compile not available (requires PyTorch 2.0+), skipping tokenizer compilation")
+        return
+
+    if isinstance(pipeline.model.tokenizer.encode, torch.jit.ScriptModule) and isinstance(
+        pipeline.model.tokenizer.decode, torch.jit.ScriptModule
+    ):
+        log.warning("Tokenizer is already JIT compiled, skipping torch.compile")
+        return
+
+    # Configure Dynamo settings
+    try:
+        # PyTorch >= 2.7
+        torch._dynamo.config.recompile_limit = 32
+    except AttributeError:
+        try:
+            torch._dynamo.config.cache_size_limit = 32
+        except AttributeError:
+            log.warning("Torch Dynamo configuration not available")
+
+    def compile_method(method: Callable, method_name: str, **kwargs: Any) -> Callable:
+        """Helper function to compile a method if not already compiled."""
+        if hasattr(method, "_orig_mod"):
+            log.info(f"Tokenizer {method_name} method already compiled")
+            return method
+        else:
+            log.info(f"Compiling tokenizer {method_name} method")
+            return torch.compile(method, dynamic=False, **kwargs)
+
+    if compilation_mode in ["moderate", "aggressive"]:
+        pipeline.model.tokenizer.encode = compile_method(pipeline.model.tokenizer.encode, "encode")
+        log.info("Tokenizer compilation active. Expect some overhead on the first use.")
+    if compilation_mode == "aggressive":
+        pipeline.model.tokenizer.decode = compile_method(pipeline.model.tokenizer.decode, "decode")

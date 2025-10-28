@@ -123,6 +123,7 @@ def main(input_root: Path, save_root: Path, cameras: str):
                     if file.name.endswith(suffix):
                         return file.name.replace(suffix, "")
             return default_clip_id
+
         clip_id = get_clip_id(parquet_files, clip_id)
 
     logger.info(f"Processing clip: {clip_id}")

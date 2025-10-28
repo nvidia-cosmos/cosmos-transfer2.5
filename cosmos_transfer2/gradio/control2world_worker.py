@@ -27,18 +27,15 @@ class Control2World_Worker:
     def __init__(self, num_gpus=1, model="edge", batch_hint_keys=None):
         if num_gpus > 1:
             distributed.init()
-        
+
         setup_args = SetupArguments(
             context_parallel_size=num_gpus,
             output_dir=Path("outputs"),  # dummy parameter, we want to save videos in per inference folders
             model=model,
             keep_going=True,
         )
-        
-        self.pipe = Control2WorldInference(
-            setup_args, 
-            batch_hint_keys=batch_hint_keys or [model]
-        )
+
+        self.pipe = Control2WorldInference(setup_args, batch_hint_keys=batch_hint_keys or [model])
 
     def infer(self, args: dict):
         """

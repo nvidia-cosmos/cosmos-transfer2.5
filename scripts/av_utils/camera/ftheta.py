@@ -272,7 +272,7 @@ class FThetaCamera(CameraBase):
         assert linear_cde is not None
         assert len(poly) in [5, 6], f"poly must have 5 or 6 coefficients, got {len(poly)}"
         assert len(linear_cde) == 3, f"linear_cde must have 3 coefficients, got {len(linear_cde)}"
-        
+
         # Normalize to 6 coefficients by appending 0 for power 5 because parts of the code assume 6 coefficients
         if len(poly) == 5:
             poly = np.append(poly, 0.0)

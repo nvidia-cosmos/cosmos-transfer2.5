@@ -54,6 +54,8 @@ class ControlVideo2WorldInference:
         cache_dir: Optional[str] = None,
         skip_load_model: bool = False,
         base_load_from: Optional[str] = None,
+        use_cp_wan: bool = False,
+        wan_cp_grid: tuple[int, int] = (-1, -1),
     ):
         """
         Initializes the ControlVideo2WorldInference class.
@@ -69,6 +71,8 @@ class ControlVideo2WorldInference:
             process_group (torch.distributed.ProcessGroup): Process group for distributed training.
             cache_dir (str): Cache directory for storing pre-computed embeddings.
             skip_load_model (bool): Whether to skip loading model from checkpoint for multi-control models.
+            use_cp_wan (bool, optional): Whether to use parallel tokenizer. Defaults to False.
+            wan_cp_grid (tuple[int, int], optional): The grid for parallel tokenizer. Used only when use_cp_wan is True. Defaults to (1, cp_size).
         """
         self.registered_exp_name = registered_exp_name
         self.checkpoint_path = checkpoint_paths if isinstance(checkpoint_paths, str) else checkpoint_paths[0]
@@ -132,6 +136,17 @@ class ControlVideo2WorldInference:
             log.info("Enabling CP in base model\n")
             model.net.enable_context_parallel(process_group)
 
+            cp_size = process_group.size()
+
+            if use_cp_wan:
+                wan_cp_grid = wan_cp_grid if wan_cp_grid != (-1, -1) else (1, cp_size)
+                assert wan_cp_grid[0] * wan_cp_grid[1] == cp_size, (
+                    "Parallel Tokenizer grid needs to multiply to CP size."
+                )
+
+                model.tokenizer.model.model = model.tokenizer.model.model.to("cuda")
+                model.tokenizer.initialize_context_parallel(process_group, wan_cp_grid)
+
         self.model = model
         self.config = config
         self.batch_size = 1
@@ -170,7 +185,9 @@ class ControlVideo2WorldInference:
             input_key: prev_output.squeeze(2),
             "t5_text_embeddings": text_embedding,  # positive prompt embedding. Name has t5 but also supports Reason1.
             "fps": torch.randint(16, 32, (self.batch_size,)).cuda(),  # Random FPS (might be used by model)
-            "padding_mask": torch.zeros(self.batch_size, 1, H, W).cuda(),  # Padding mask (assumed no padding here)
+            "padding_mask": torch.zeros(
+                self.batch_size, 1, H, W, device="cuda"
+            ),  # Padding mask (assumed no padding here)
             "num_conditional_frames": 1,  # Specify that the first frame is conditional
             "control_weight": [float(w) for w in control_weight.split(",")],
             "input_video": video,
@@ -179,11 +196,13 @@ class ControlVideo2WorldInference:
         # Move tensors to GPU and convert to bfloat16 if they are floating point
         for k, v in data_batch.items():
             if isinstance(v, torch.Tensor) and torch.is_floating_point(data_batch[k]):
-                data_batch[k] = v.cuda().to(dtype=torch.bfloat16)
+                data_batch[k] = v.to(dtype=torch.bfloat16, device="cuda", non_blocking=True)
 
         # Add image context
         if image_context is not None:
-            data_batch["image_context"] = image_context.cuda().to(dtype=torch.bfloat16).contiguous()
+            data_batch["image_context"] = image_context.to(
+                dtype=torch.bfloat16, device="cuda", non_blocking=True
+            ).contiguous()
 
         # Handle negative prompts for classifier-free guidance
         if negative_prompt is not None:
@@ -369,7 +388,7 @@ class ControlVideo2WorldInference:
                     cur_input_frames, cur_input_frames.shape[1], num_video_frames_per_chunk
                 )
                 if sigma_max is not None:
-                    x0 = uint8_to_normalized_float(cur_input_frames, dtype=torch.bfloat16)[None].cuda()
+                    x0 = uint8_to_normalized_float(cur_input_frames, dtype=torch.bfloat16)[None].cuda(non_blocking=True)
                     x0 = self.model.encode(x0).contiguous()
                     x_sigma_max = self.model.get_x_from_clean(x0, sigma_max, seed=(seed + chunk_id))
 

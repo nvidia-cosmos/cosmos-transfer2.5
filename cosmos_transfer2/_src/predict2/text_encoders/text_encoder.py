@@ -25,10 +25,10 @@ from cosmos_transfer2._src.common.types.embedding_concat_strategy import (
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
 from cosmos_transfer2._src.imaginaire.lazy_config import instantiate as lazy_instantiate
 from cosmos_transfer2._src.imaginaire.utils import log
+from cosmos_transfer2._src.predict2.models.utils import load_state_dict, load_state_dict_from_folder
 from cosmos_transfer2._src.predict2.text_encoders.reason1 import QwenVLBaseModel
 from cosmos_transfer2._src.reason1.configs.default.model_config_qwen import QwenModelConfig, QwenVisionConfig
 from cosmos_transfer2._src.reason1.tokenizer.processor import build_tokenizer
-from cosmos_transfer2._src.transfer2.models.utils import load_state_dict, load_state_dict_from_folder
 
 NUM_EMBEDDING_PADDING_TOKENS = 512
 

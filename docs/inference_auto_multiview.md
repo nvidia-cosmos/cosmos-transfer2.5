@@ -5,7 +5,7 @@
 1. Follow the [Setup guide](setup.md) for environment setup, checkpoint download and hardware requirements.
 
 ## Examples
-Multiview requires **8 GPUs**.
+Multiview requires 8 GPUs
 
 Run multiview2world:
 

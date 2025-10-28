@@ -162,7 +162,6 @@ def buttercup_transfer2_2b_mv_7views_res720_fps10_t8_frompred25k_edge_control_la
                 ),
                 tokenizer=dict(
                     temporal_window=16,
-                    compile_encode=False,
                 ),
             ),
         ),
@@ -333,7 +332,6 @@ def buttercup_transfer2_2b_mv_7views_res720_fps10_t8_frompred25k_hdmap_bbox_olds
                 ),
                 tokenizer=dict(
                     temporal_window=16,
-                    compile_encode=False,
                 ),
             ),
         ),

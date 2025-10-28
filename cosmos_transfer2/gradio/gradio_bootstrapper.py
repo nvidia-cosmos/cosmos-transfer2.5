@@ -28,7 +28,7 @@ def create_control2world():
 
     global_env = DeploymentEnv()
     log.info(f"Creating control2world pipeline with {global_env=}")
-    
+
     is_multicontrol = global_env.model_name == "multicontrol"
     pipeline = Control2World_Worker(
         model="edge" if is_multicontrol else global_env.model_name,

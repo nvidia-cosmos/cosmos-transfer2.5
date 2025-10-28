@@ -130,6 +130,12 @@ class ModelVariant(str, enum.Enum):
     ROBOT_MULTIVIEW_AGIBOT = "robot/multiview-agibot"
 
 
+class CompileMode(str, enum.Enum):
+    NONE = "none"
+    MODERATE = "moderate"
+    AGGRESSIVE = "aggressive"
+
+
 @dataclass(frozen=True, kw_only=True)
 class ModelKey:
     variant: ModelVariant = ModelVariant.EDGE
@@ -196,11 +202,24 @@ class CommonSetupArguments(pydantic.BaseModel):
     """Disable guardrails if this is set to True."""
     offload_guardrail_models: bool = True
     """Offload guardrail models to CPU to save GPU memory."""
-    keep_going: bool = False
+    keep_going: bool = True
     """Keep going if an error occurs."""
     profile: bool = False
     """Run profiler and save report to output directory."""
+    benchmark: bool = False
+    """Enable benchmarking mode. Runs the single video processing 4 times and reports average of last 3 runs."""
+    compile_tokenizer: CompileMode = CompileMode.NONE
+    """Set tokenizer compilation mode: 'none' (default), 'moderate', or 'aggressive'. 'moderate' and 'aggresive' cause a significant overhead on the first use (use if you want to generate 30+ videos in one run). Aggressive compilation can cause OOM on some systems."""
+    enable_parallel_tokenizer: bool = False
+    """Enable Context Parallelism for Wan Tokenizer for multi-GPU encoding/decoding."""
+    parallel_tokenizer_grid: tuple[int, int] = (-1, -1)
+    """
+    Specify the grid to use for Parallel Wan Tokenizer. First number represents the splitting factor in height dimension.
+    The second number represents the splitting factor in width dimension.
+    The latent dimensions of the image or video need to be divisible by these values.
+    """
 
+    @cached_property
     def enable_guardrails(self) -> bool:
         return not self.disable_guardrails
 
@@ -356,34 +375,22 @@ Threshold = Literal["very_low", "low", "medium", "high", "very_high"]
 
 
 class ControlConfig(pydantic.BaseModel):
-    # Control path is required so no default value
-    control_path: ResolvedFilePath | None
+    control_path: ResolvedFilePath | None = None
     mask_path: ResolvedFilePath | None = None
     control_weight: ControlWeight = 1.0
+    mask_prompt: str | None = None
 
 
 class BlurConfig(ControlConfig):
     preset_blur_strength: Threshold = "medium"
-    # Override the control path to be not required
-    control_path: ResolvedFilePath | None = None
 
 
 class EdgeConfig(ControlConfig):
     preset_edge_threshold: Threshold = "medium"
-    # Override the control path to not be required
-    control_path: ResolvedFilePath | None = None
 
 
 class SegConfig(ControlConfig):
     control_prompt: str | None = None
-    # Override the control path to be not required
-    control_path: ResolvedFilePath | None = None
-
-
-class DepthConfig(ControlConfig):
-    # Override the control path to not be required (can be computed automatically)
-    # pyrefly: ignore  # bad-override
-    control_path: ResolvedFilePath | None = None
 
 
 CONTROL_KEYS = ["edge", "vis", "depth", "seg"]
@@ -405,7 +412,7 @@ class InferenceArguments(CommonInferenceArguments):
     not_keep_input_resolution: bool = False
 
     edge: EdgeConfig | None = None
-    depth: DepthConfig | None = None
+    depth: ControlConfig | None = None
     vis: BlurConfig | None = None
     seg: SegConfig | None = None
 
@@ -440,6 +447,7 @@ class InferenceArguments(CommonInferenceArguments):
         for key in self.hint_keys:
             control_modalities[key] = path_to_str(getattr(self, key).control_path)
             control_modalities[f"{key}_mask"] = path_to_str(getattr(self, key).mask_path)
+            control_modalities[f"{key}_mask_prompt"] = getattr(self, key).mask_prompt
         return control_modalities
 
     @cached_property

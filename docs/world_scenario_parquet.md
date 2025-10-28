@@ -108,7 +108,7 @@ Contains 3D bounding box annotations for dynamic objects (vehicles, pedestrians,
 
 **Category Mapping:**
 - `automobile`, `other_vehicle`, `vehicle` → `Car`
-- `person` → `Pedestrian`  
+- `person` → `Pedestrian`
 - `rider` → `Cyclist`
 - `bus`, `heavy_truck`, `train_or_tram_car`, `trolley_bus`, `trailer` → `Truck`
 - All other categories (including `stroller`, `protruding_object`, `animal`) → `Others`
@@ -141,7 +141,7 @@ The `rig_json` field contains a serialized JSON with complete sensor configurati
 
 The system uses the **FTheta camera model**, which maps pixel distance from the optical center to ray angle. Each camera's intrinsics are stored in the `properties` field:
 
-```json
+```jsonc
 {
   "Model": "ftheta",                    // Camera model type
   "cx": "1919.420",                     // Principal point X (pixels)
@@ -162,7 +162,7 @@ The system uses the **FTheta camera model**, which maps pixel distance from the 
 - **polynomial**: Up to 6 coefficients [k0, k1, k2, k3, k4, k5] for the distortion model
   - For "pixeldistance-to-angle": θ = k0 + k1*r + k2*r² + k3*r³ + k4*r⁴ + k5*r⁵
   - Where r is the pixel distance from (cx, cy) and θ is the ray angle in radians
-- **polynomial-type**: 
+- **polynomial-type**:
   - `"pixeldistance-to-angle"`: Maps pixel radius to viewing angle (backward polynomial)
   - `"angle-to-pixeldistance"`: Maps viewing angle to pixel radius (forward polynomial)
 - **linear-c, linear-d, linear-e**: Additional linear correction factors
@@ -172,7 +172,7 @@ The system uses the **FTheta camera model**, which maps pixel distance from the 
 
 Each camera's pose relative to the vehicle is defined by the `nominalSensor2Rig_FLU` field:
 
-```json
+```jsonc
 {
   "nominalSensor2Rig_FLU": {
     "t": [1.697, -0.010, 1.443],        // Translation [x, y, z] in meters
@@ -194,7 +194,7 @@ Each camera's pose relative to the vehicle is defined by the `nominalSensor2Rig_
 
 The system may also include dynamic corrections applied during calibration:
 
-```json
+```jsonc
 {
   "correction_sensor_R_FLU": {
     "roll-pitch-yaw": [-0.150, -0.014, 0.231]   // Additional rotation correction
@@ -244,13 +244,13 @@ with open('my_rig.json', 'w') as f:
 
 Within the rig JSON, find your target camera in the `sensors` array. Each camera entry contains:
 
-```json
+```jsonc
 {
   "name": "camera:front:wide:120fov",
   "properties": {                    // Camera intrinsics go here
     "Model": "ftheta",
     "cx": "1919.420",
-    "cy": "1078.106", 
+    "cy": "1078.106",
     "width": "3848",
     "height": "2168",
     "polynomial": "0 0.000538 ...",
@@ -285,7 +285,7 @@ Within the rig JSON, find your target camera in the `sensors` array. Each camera
 - Update `roll-pitch-yaw` with your camera rotation in degrees
 
 **To remove calibration corrections** (if starting fresh):
-```json
+```jsonc
 "correction_sensor_R_FLU": {"roll-pitch-yaw": [0.0, 0.0, 0.0]},
 "correction_rig_T": [0.0, 0.0, 0.0]
 ```
@@ -364,7 +364,7 @@ Lane boundaries for driving lanes.
     "lane": {
         "left_rail": [{"x": float, "y": float, "z": float}, ...],   # Polyline points
         "right_rail": [{"x": float, "y": float, "z": float}, ...],  # Polyline points
-        "left_edge_styles": [str, ...],   # Style per segment: "VIRTUAL", "SOLID", "DASHED", "ROAD_BOUNDARY", etc. 
+        "left_edge_styles": [str, ...],   # Style per segment: "VIRTUAL", "SOLID", "DASHED", "ROAD_BOUNDARY", etc.
         "right_edge_styles": [str, ...],
         "left_edge_colors": [str, ...],   # Color per segment: "WHITE", "YELLOW", "MIXED", etc.
         "right_edge_colors": [str, ...],
@@ -532,4 +532,3 @@ Road signs and information boards.
     "version": uint64    # Data version number (not used by rendering pipeline)
 }
 ```
-

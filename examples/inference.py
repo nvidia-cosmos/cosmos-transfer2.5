@@ -18,6 +18,7 @@ from typing import Annotated
 
 import pydantic
 import tyro
+from cosmos_oss.init import cleanup_environment, init_environment, init_output_dir
 
 from cosmos_transfer2.config import (
     InferenceArguments,
@@ -26,7 +27,6 @@ from cosmos_transfer2.config import (
     handle_tyro_exception,
     is_rank0,
 )
-from cosmos_transfer2.init import cleanup_environment, init_environment, init_output_dir
 
 
 class Args(pydantic.BaseModel):
@@ -44,6 +44,8 @@ def main(
     args: Args,
 ):
     inference_samples, batch_hint_keys = InferenceArguments.from_files(args.input_files, overrides=args.overrides)
+    if args.setup.benchmark:
+        assert len(inference_samples) > 1, "Benchmarking must be run for more than 1 sample."
     init_output_dir(args.setup.output_dir, profile=args.setup.profile)
 
     from cosmos_transfer2.inference import Control2WorldInference

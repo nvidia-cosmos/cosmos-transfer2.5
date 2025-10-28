@@ -29,6 +29,11 @@ This tool generates control videos from 3D scene annotations for Cosmos Transfer
   - [Lanelines](#lanelines)
   - [Traffic Lights](#traffic-lights)
   - [Map Elements](#map-elements)
+- [Pipeline Overview](#pipeline-overview)
+  - [Frame Rate Configuration](#frame-rate-configuration)
+  - [1. Interpolation](#1-interpolation)
+  - [2. Coordinate Systems](#2-coordinate-systems)
+  - [3. Rendering Process](#3-rendering-process)
 
 <!--TOC-->
 

@@ -115,11 +115,12 @@ class MultiviewInference:
                 log.info("Running guardrail check on prompt...")
                 assert sample.prompt is not None
                 if not guardrail_presets.run_text_guardrail(sample.prompt, self.text_guardrail_runner):
-                    log.critical("Guardrail blocked control2world generation. Prompt: {prompt}")
+                    message = f"Guardrail blocked generation. Prompt: {sample.prompt}"
+                    log.critical(message)
                     if self.setup_args.keep_going:
                         return None
                     else:
-                        exit(1)
+                        raise Exception(message)
                 else:
                     log.success("Passed guardrail on prompt")
             elif self.text_guardrail_runner is None:
@@ -170,11 +171,12 @@ class MultiviewInference:
                     frames = frames.permute(1, 2, 3, 0).cpu().numpy().astype(np.uint8)  # (T, H, W, C)
                     processed_frames = guardrail_presets.run_video_guardrail(frames, self.video_guardrail_runner)
                     if processed_frames is None:
-                        log.critical("Guardrail blocked video2world generation.")
+                        message = "Guardrail blocked generation. Video"
+                        log.critical(message)
                         if self.setup_args.keep_going:
                             return None
                         else:
-                            exit(1)
+                            raise Exception(message)
                     else:
                         log.success("Passed guardrail on generated video")
 

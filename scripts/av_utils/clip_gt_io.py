@@ -263,7 +263,7 @@ def load_camera_from_calibration_estimate(
         if camera_dict is None:
             raise ValueError(f"Camera {camera_name} not found in calibration data. Available cameras: {found_cameras}")
 
-        # Use the existing FThetaCamera factory method to parse calibration
+        # Use the existing FThetaCamera factory method to parse calibration data
         camera = FThetaCamera.from_dict(camera_dict)
 
         resize_w, resize_h = resize_hw

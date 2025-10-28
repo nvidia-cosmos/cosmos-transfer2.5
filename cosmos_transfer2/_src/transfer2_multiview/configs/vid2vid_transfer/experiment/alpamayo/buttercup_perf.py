@@ -167,7 +167,6 @@ def perf_buttercup_baseline_layer14_sacpred2_b1():
                 ),
                 tokenizer=dict(
                     temporal_window=16,
-                    compile_encode=False,
                 ),
             ),
         ),
