@@ -90,13 +90,11 @@ class CheckpointFileHf(_CheckpointHf):
     @override
     def _download(self) -> str:
         """Download checkpoint and return the local path."""
-        download_kwargs = dict(
-            repo_id=self.repository, repo_type="model", revision=self.revision, filename=self.filename
+        raise RuntimeError(
+            f"Hugging Face downloads are disabled. "
+            f"Cannot download {self.filename} from {self.repository}@{self.revision}. "
+            f"Please ensure all required checkpoints are available in NGC workspace."
         )
-        log.info(f"Downloading checkpoint file from Hugging Face with {download_kwargs}")
-        path = hf_hub_download(**download_kwargs)
-        assert os.path.exists(path), path
-        return path
 
 
 class CheckpointDirHf(_CheckpointHf):
@@ -118,22 +116,12 @@ class CheckpointDirHf(_CheckpointHf):
     @override
     def _download(self) -> str:
         """Download checkpoint and return the local path."""
-        patterns: dict[str, list[str]] = {}
-        if self.include:
-            patterns["allow_patterns"] = list(self.include)
-        else:
-            patterns["allow_patterns"] = ["*"]
-        if self.exclude:
-            patterns["ignore_patterns"] = list(self.exclude)
-        if self.subdirectory:
-            patterns = {key: [os.path.join(self.subdirectory, x) for x in val] for key, val in patterns.items()}
-        download_kwargs = dict(repo_id=self.repository, repo_type="model", revision=self.revision) | patterns
-        log.info(f"Downloading checkpoint from Hugging Face with {download_kwargs}")
-        path = snapshot_download(**download_kwargs)
-        if self.subdirectory:
-            path = os.path.join(path, self.subdirectory)
-        assert os.path.exists(path), path
-        return path
+        raise RuntimeError(
+            f"Hugging Face downloads are disabled. "
+            f"Cannot download directory from {self.repository}@{self.revision}"
+            f"{f' (subdirectory: {self.subdirectory})' if self.subdirectory else ''}. "
+            f"Please ensure all required checkpoints are available in NGC workspace."
+        )
 
 
 class CheckpointConfig(pydantic.BaseModel):
@@ -166,10 +154,44 @@ class CheckpointConfig(pydantic.BaseModel):
         """Return S3 URI or local path."""
         if INTERNAL and self.s3 is not None:
             return self.s3.uri
-        if self.hf is None:
-            raise ValueError(f"Checkpoint {self.name}({self.uuid}) is not available on Hugging Face.")
-        log.info(f"Downloading checkpoint {self.name}({self.uuid})")
-        return self.hf.path
+        
+        # Check NGC workspace first (for NIM deployments)
+        ngc_workspace = os.environ.get("NIM_WORKSPACE", "/opt/nim/workspace")
+        
+        # Check if there's a checkpoint mapping via environment variable first
+        # Format: CHECKPOINT_{UUID}=/path/to/checkpoint
+        env_var_name = f"CHECKPOINT_{self.uuid.replace('-', '_').upper()}"
+        env_path = os.environ.get(env_var_name)
+        if env_path and os.path.exists(env_path):
+            return env_path
+        
+        # List of candidate paths to check (in priority order)
+        candidate_paths = [
+            # 1. UUID subdirectory in workspace root
+            os.path.join(ngc_workspace, self.uuid),
+            # 2. UUID subdirectory in checkpoints/
+            os.path.join(ngc_workspace, "checkpoints", self.uuid),
+            # 3. Workspace root (if config.json exists)
+            ngc_workspace,
+        ]
+        
+        # Check each candidate path
+        for path in candidate_paths:
+            if os.path.exists(path):
+                # For workspace root, verify it has checkpoint files
+                if path == ngc_workspace:
+                    config_path = os.path.join(path, "config.json")
+                    if not os.path.exists(config_path):
+                        continue  # Skip if no config.json in root
+                return path
+        
+        # Checkpoint not found - raise error
+        raise RuntimeError(
+            f"Checkpoint {self.name}({self.uuid}) not found in NGC workspace. "
+            f"Hugging Face downloads are disabled. "
+            f"Please ensure the checkpoint is available locally or set environment variable "
+            f"{env_var_name} to point to the checkpoint location."
+        )
 
 
 _CHECKPOINTS_BY_UUID: dict[str, CheckpointConfig] = {}
@@ -235,10 +257,7 @@ _register_checkpoint(
             subdirectory="7219c6c7-f878-4137-bbdb-76842ea85e70",
         )
         if EXPERIMENTAL_CHECKPOINTS
-        else CheckpointDirHf(
-            repository="nvidia/Cosmos-Reason1-7B",
-            revision="3210bec0495fdc7a8d3dbb8d58da5711eab4b423",
-        ),
+        else None,  # Disable HF downloads - use NGC only
     ),
 )
 
@@ -300,13 +319,13 @@ _register_checkpoint(
         ),
         hf=CheckpointFileHf(
             repository="nvidia/Cosmos-Experimental",
-            revision="9a02ed8daa8c6c7718ac09da06488bfd1d363cb6",
+            revision="main",
             filename="d20b7120-df3e-4911-919d-db6e08bad31c/model_ema_bf16.pt",
         )
         if EXPERIMENTAL_CHECKPOINTS
         else CheckpointFileHf(
             repository="nvidia/Cosmos-Predict2.5-2B",
-            revision="15a82a2ec231bc318692aa0456a36537c806e7d4",
+            revision="main",
             filename="base/pre-trained/d20b7120-df3e-4911-919d-db6e08bad31c_ema_bf16.pt",
         ),
     ),
@@ -326,13 +345,13 @@ _register_checkpoint(
         ),
         hf=CheckpointFileHf(
             repository="nvidia/Cosmos-Experimental",
-            revision="9a02ed8daa8c6c7718ac09da06488bfd1d363cb6",
+            revision="main",
             filename="81edfebe-bd6a-4039-8c1d-737df1a790bf/model_ema_bf16.pt",
         )
         if EXPERIMENTAL_CHECKPOINTS
         else CheckpointFileHf(
             repository="nvidia/Cosmos-Predict2.5-2B",
-            revision="15a82a2ec231bc318692aa0456a36537c806e7d4",
+            revision="main",
             filename="base/post-trained/81edfebe-bd6a-4039-8c1d-737df1a790bf_ema_bf16.pt",
         ),
     ),
@@ -354,13 +373,13 @@ _register_checkpoint(
         ),
         hf=CheckpointFileHf(
             repository="nvidia/Cosmos-Experimental",
-            revision="9a02ed8daa8c6c7718ac09da06488bfd1d363cb6",
+            revision="main",
             filename="6b9d7548-33bb-4517-b5e8-60caf47edba7/model_ema_bf16.pt",
         )
         if EXPERIMENTAL_CHECKPOINTS
         else CheckpointFileHf(
             repository="nvidia/Cosmos-Predict2.5-2B",
-            revision="15a82a2ec231bc318692aa0456a36537c806e7d4",
+            revision="main",
             filename="auto/multiview/6b9d7548-33bb-4517-b5e8-60caf47edba7_ema_bf16.pt",
         ),
     ),
@@ -380,7 +399,7 @@ _register_checkpoint(
         ),
         hf=CheckpointFileHf(
             repository="nvidia/Cosmos-Experimental",
-            revision="9a02ed8daa8c6c7718ac09da06488bfd1d363cb6",
+            revision="main",
             filename="0e8177cc-0db5-4cfd-a8a4-b820c772f4fc/model_ema_bf16.pt",
         )
         if EXPERIMENTAL_CHECKPOINTS

@@ -23,11 +23,7 @@ import nltk
 from better_profanity import profanity
 
 from cosmos_transfer2._src.imaginaire.auxiliary.guardrail.blocklist.utils import read_keyword_list_from_dir, to_ascii
-from cosmos_transfer2._src.imaginaire.auxiliary.guardrail.common.core import (
-    GUARDRAIL1_CHECKPOINT_DIR,
-    ContentSafetyGuardrail,
-    GuardrailRunner,
-)
+from cosmos_transfer2._src.imaginaire.auxiliary.guardrail.common.core import ContentSafetyGuardrail, GuardrailRunner, _get_guardrail1_checkpoint_dir_lazy
 from cosmos_transfer2._src.imaginaire.utils import log, misc
 
 CENSOR = misc.Color.red("*")
@@ -36,6 +32,7 @@ CENSOR = misc.Color.red("*")
 class Blocklist(ContentSafetyGuardrail):
     def __init__(
         self,
+        checkpoint_dir: str | None = None,
         guardrail_partial_match_min_chars: int = 6,
         guardrail_partial_match_letter_count: float = 0.4,
     ) -> None:
@@ -46,7 +43,12 @@ class Blocklist(ContentSafetyGuardrail):
             guardrail_partial_match_min_chars (int, optional): Minimum number of characters in a word to check for partial match. Defaults to 6.
             guardrail_partial_match_letter_count (float, optional): Maximum allowed difference in characters for partial match. Defaults to 0.4.
         """
-        self.checkpoint_dir = os.path.join(GUARDRAIL1_CHECKPOINT_DIR, "blocklist")
+        if checkpoint_dir is None:
+            # Fallback to old behavior using checkpoint_db (lazy-loaded to avoid HF download at import time)
+            self.checkpoint_dir = os.path.join(_get_guardrail1_checkpoint_dir_lazy(), "blocklist")
+        else:
+            # Use NGC manifest downloaded checkpoints
+            self.checkpoint_dir = os.path.join(checkpoint_dir, "nvidia/Cosmos-Guardrail1/blocklist")
         nltk.data.path.append(os.path.join(self.checkpoint_dir, "nltk_data"))
         self.lemmatizer = nltk.WordNetLemmatizer()
         self.profanity = profanity

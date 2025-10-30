@@ -18,10 +18,22 @@ from typing import Any
 import numpy as np
 
 from cosmos_transfer2._src.imaginaire.utils import log
-from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_by_uuid
+# NOTE: Commented out to avoid HF download at module import time
+# We now pass checkpoint_dir explicitly to Blocklist() so this is not needed
+# from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_by_uuid
 
 GUARDRAIL1_UUID = "9c7b7da4-2d95-45bb-9cb8-2eed954e9736"
-GUARDRAIL1_CHECKPOINT_DIR = get_checkpoint_by_uuid(GUARDRAIL1_UUID).path
+# GUARDRAIL1_CHECKPOINT_DIR = get_checkpoint_by_uuid(GUARDRAIL1_UUID).path
+# Lazy-load only if needed (when checkpoint_dir is None in Blocklist)
+GUARDRAIL1_CHECKPOINT_DIR = None  # Will be loaded lazily if needed
+
+def _get_guardrail1_checkpoint_dir_lazy():
+    """Lazy load GUARDRAIL1_CHECKPOINT_DIR only when actually needed (fallback mode)."""
+    global GUARDRAIL1_CHECKPOINT_DIR
+    if GUARDRAIL1_CHECKPOINT_DIR is None:
+        from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_by_uuid
+        GUARDRAIL1_CHECKPOINT_DIR = get_checkpoint_by_uuid(GUARDRAIL1_UUID).path
+    return GUARDRAIL1_CHECKPOINT_DIR
 
 
 class ContentSafetyGuardrail:
