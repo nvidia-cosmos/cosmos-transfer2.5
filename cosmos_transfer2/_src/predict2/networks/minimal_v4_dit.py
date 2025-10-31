@@ -38,7 +38,7 @@ except ImportError:
     CheckpointPolicy = None
 
 from torchvision import transforms
-from transformer_engine.pytorch.attention.rope import apply_rotary_pos_emb
+from transformer_engine.pytorch.attention import apply_rotary_pos_emb
 
 from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.predict2.conditioner import DataType
