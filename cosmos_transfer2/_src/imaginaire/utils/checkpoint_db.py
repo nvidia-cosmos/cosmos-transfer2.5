@@ -165,15 +165,27 @@ class CheckpointConfig(pydantic.BaseModel):
         if env_path and os.path.exists(env_path):
             return env_path
         
+        # Determine if this is a file or directory checkpoint
+        is_file_checkpoint = isinstance(self.s3, CheckpointFileS3) if self.s3 else False
+        
         # List of candidate paths to check (in priority order)
         candidate_paths = [
-            # 1. UUID subdirectory in workspace root
+            # 1. UUID subdirectory/file in workspace root
             os.path.join(ngc_workspace, self.uuid),
-            # 2. UUID subdirectory in checkpoints/
+            # 2. UUID subdirectory/file in checkpoints/
             os.path.join(ngc_workspace, "checkpoints", self.uuid),
-            # 3. Workspace root (if config.json exists)
-            ngc_workspace,
         ]
+        
+        # For file checkpoints, also check with common extensions
+        if is_file_checkpoint:
+            for ext in ['.pth', '.pt', '.ckpt']:
+                candidate_paths.extend([
+                    os.path.join(ngc_workspace, f"{self.uuid}{ext}"),
+                    os.path.join(ngc_workspace, "checkpoints", f"{self.uuid}{ext}"),
+                ])
+        else:
+            # For directory checkpoints, also check workspace root
+            candidate_paths.append(ngc_workspace)
         
         # Check each candidate path
         for path in candidate_paths:
