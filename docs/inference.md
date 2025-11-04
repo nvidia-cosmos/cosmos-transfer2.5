@@ -53,22 +53,31 @@ Parameters can be specified as json:
 
 ```jsonc
 {
-    // Path to the prompt file, use "prompt" to directly specify the prompt
-    "prompt_path": "assets/robot_example/robot_prompt.json",
+    // REQUIRED: Name for the generation task. Outputs will include this name.
+    "name": "robot_multicontrol_generation",
 
-    // Directory to save the generated video
-    "output_dir": "outputs/robot_multicontrol",
+    // Path to the prompt file, use "prompt" to directly specify the prompt
+    "prompt_path": "assets/robot_example/robot_prompt.txt",
+
+    // Optional: Negative prompt to guide what to avoid in the generation
+    "negative_prompt": "unrealistic, cartoonish, poor quality",
 
     // Path to the input video
     "video_path": "assets/robot_example/robot_input.mp4",
 
     // Inference settings
-    "guidance": 3,
+    "guidance": 3,              // Guidance scale (range: 0-7, default: 3)
+    "seed": 2025,              // Random seed for reproducibility (default: 2025)
+    "num_steps": 35,           // Number of denoising steps (default: 35)
+    
+    // Optional advanced settings
+    "sigma_max": "70",         // Maximum sigma value for noise schedule. Max is 200.
+    "show_control_condition": false, // Add controls (depth, edge, seg, vis) to the output video.
 
     // Depth control settings
     "depth": {
         // Path to the control video
-        // For "vis" and "edge", if a control is not provided, it will be computed on the fly.
+        // Path to the control video (computed on the fly if not provided)
         "control_path": "assets/robot_example/depth/robot_depth.mp4",
 
         // Control weight for the depth control
@@ -77,36 +86,65 @@ Parameters can be specified as json:
 
     // Edge control settings
     "edge": {
-        // Path to the control video
+        // Path to the control video (computed on the fly if not provided)
         "control_path": "assets/robot_example/edge/robot_edge.mp4",
-        // Default control weight of 1.0 for edge control
+
+        // Control weight for the edge control
+        "control_weight": 1.0,
+
+        // Optional: Preset Canny edge detection threshold
+        // Options: "very_low", "low", "medium", "high", "very_high" (default: "medium")
+        "preset_edge_threshold": "medium"
     },
 
-    // Seg control settings
+    // Segmentation control settings
     "seg": {
         // Path to the control video
         "control_path": "assets/robot_example/seg/robot_seg.mp4",
 
-        // Control weight for the seg control
-        "control_weight": 1.0
+        // Control weight for the segmentation control
+        "control_weight": 1.0,
+
+        // Optional: Text prompt to control what objects are tracked by on the fly segmentation
+        "control_prompt": "robot"
     },
 
-    // Blur control settings
-    "vis":{
-        // Control video computed on the fly
-        "control_weight": 0.5
+    // Blur/Visibility control settings
+    "vis": {
+        // Path to the control video (computed on the fly if not provided)
+        "control_path": null,
+
+        // Control weight for the blur control
+        "control_weight": 0.5,
+
+        // Optional: Preset blur strength
+        // Options: "very_low", "low", "medium", "high", "very_high" (default: "medium")
+        "preset_blur_strength": "medium"
     }
 }
 ```
 
-If you would like the control inputs to only be used for some regions, you can define binary spatiotemporal masks with the corresponding control input modality in mp4 format. White pixels means the control will be used in that region, whereas black pixels will not. Example below:
+If you would like the control inputs to only be used for some regions, you can define binary spatiotemporal masks with the corresponding control input modality in mp4 format. White pixels means the control will be used in that region, whereas black pixels will not. You can provide masks in two ways:
 
+1. **Video mask file** - Provide a binary video via `mask_path`:
 
 ```jsonc
 {
     "depth": {
         "control_path": "assets/robot_example/depth/robot_depth.mp4",
         "mask_path": "/path/to/depth/mask.mp4",
+        "control_weight": 0.5
+    }
+}
+```
+
+2. **Text-based mask** - Generate a mask dynamically via `mask_prompt`:
+
+```jsonc
+{
+    "depth": {
+        "control_path": "assets/robot_example/depth/robot_depth.mp4",
+        "mask_prompt": "robot . table",
         "control_weight": 0.5
     }
 }
