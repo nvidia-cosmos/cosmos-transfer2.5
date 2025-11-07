@@ -11,7 +11,7 @@ NVIDIA Cosmos™ is a platform purpose-built for physical AI, featuring state-of
 Cosmos World Foundation Models come in three model types which can all be customized in post-training: [cosmos-predict](https://github.com/nvidia-cosmos/cosmos-predict2.5), [cosmos-transfer](https://github.com/nvidia-cosmos/cosmos-transfer2.5), and [cosmos-reason](https://github.com/nvidia-cosmos/cosmos-reason1).
 
 ## News
-* [November 7, 2025] We added autoregressive sliding window generation mode for generating longer videos. We also added a new multiview cross-attention module and updated inference examples and documentation.
+* [November 7, 2025] We added autoregressive sliding window generation mode for generating longer videos. We also added a new multiview cross-attention module, upgraded dependencies to improve support for Blackwell, and updated inference examples and documentation.
 
 * [October 28, 2025] We added the autogeneration of spatiotemporal masking for control inputs when prompt is given, added cosmos-oss, new pyrefly annotations, introduced multi-storage backend in easyio, reorganized internal packages, and boosted Transfer2 speed with Torch Compile tokenizer optimizations.
 
