@@ -24,11 +24,18 @@ from cosmos_transfer2.multiview_config import MultiviewInferenceArguments, Multi
 class Multiview_Worker:
     def __init__(
         self,
-        num_gpus,  # todo not sure if anything else is supported
+        num_gpus,
+        disable_guardrails=False,
     ):
+        # we loop num_gpus through for validation: model will only work if num_gpus is 8
+        # and 8 processes are started (happens upstream)
         assert num_gpus == 8, "Multiview currently requires 8 GPUs"
         setup_args = MultiviewSetupArguments(
-            model="auto/multiview", context_parallel_size=num_gpus, output_dir=Path("outputs"), keep_going=True
+            model="auto/multiview",
+            context_parallel_size=num_gpus,
+            output_dir=Path("outputs"),
+            keep_going=True,
+            disable_guardrails=disable_guardrails,
         )
         self.pipe = MultiviewInference(setup_args)
 

@@ -27,6 +27,7 @@ from cosmos_transfer2.multiview_config import (
     MultiviewInferenceArguments,
     MultiviewInferenceOverrides,
     MultiviewSetupArguments,
+    ViewConfig,
 )
 
 
@@ -34,11 +35,16 @@ class Args(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
     input_files: Annotated[list[Path], tyro.conf.arg(aliases=("-i",))]
-    """Path to the inference parameter files."""
+    """Path to the inference parameter file(s).
+    If multiple files are provided, the model will be loaded once and all the samples will be run sequentially.
+    """
     setup: MultiviewSetupArguments
-    """Setup arguments."""
+    """Setup arguments. These can only be provided via CLI."""
     overrides: MultiviewInferenceOverrides
-    """Inference parameter overrides."""
+    """Inference parameter overrides. These can either be provided in the input json file or via CLI. CLI overrides will overwrite the values in the input file."""
+    control: ViewConfig | None = None
+    """Run control:view-config --help for more information about view controls for each view in { front_wide, rear, rear_left, rear_right, cross_left, cross_right, front_tele}. 
+    These can only be provided via the json input file."""
 
 
 def main(

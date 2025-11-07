@@ -17,8 +17,8 @@ import math
 
 from hydra.core.config_store import ConfigStore
 
-from cosmos_transfer2._src.common.types.embedding_concat_strategy import EmbeddingConcatStrategy
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
+from cosmos_transfer2._src.imaginaire.utils.embedding_concat_strategy import EmbeddingConcatStrategy
 from cosmos_transfer2._src.predict2_multiview.callbacks.every_n_draw_sample_multiviewvideo import (
     EveryNDrawSampleMultiviewVideo,
 )

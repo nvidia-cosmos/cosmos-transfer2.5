@@ -44,24 +44,31 @@ def get_multi_video_text_transform(
 ):
     """Create a multi-video text transform by composing the existing get_video_text_transform function."""
 
+    camera_to_view_id = driving_dataloader_config.camera_to_view_id
+    video_id_to_camera_key = driving_dataloader_config.video_id_to_camera_key
+    video_ids = [str(i) for i in range(num_videos)]  # also the caption index in metas
+    view_ids = [str(camera_to_view_id[video_id_to_camera_key[i]]) for i in video_ids]
+
     # Get the base text transform
     augmentation = {}
-    for id in range(num_videos):
+    for video_id, view_id in zip(video_ids, view_ids):
         if caption_type == "vila_caption":
             video_text_transform = L(TextTransformForVideoCustomizedKey)(
                 input_keys=[],
                 args={
                     "captions_key": "metas",
-                    "embeddings_key": embedding_type + f"_{id}" if embedding_type is not None else None,
-                    "original_embeddings_key": f"t5_xxl_{id}",
+                    "embeddings_key": embedding_type + f"_{view_id}" if embedding_type is not None else None,
+                    "original_embeddings_key": f"t5_xxl_{view_id}",
                     "caption_windows_key": "windows",
                     "caption_type": "vila_caption",
                     "embedding_caption_type": "vila_caption",
                     "t5_tokens": {"num": 512},
                     "is_mask_all_ones": True,
                     "driving_dataloader_config": driving_dataloader_config,
+                    "video_id": video_id,
+                    "view_id": view_id,
                 },
-                return_embedding_key=f"t5_text_embeddings_{id}",
+                return_embedding_key=f"t5_text_embeddings_{view_id}",
             )
         elif caption_type == "t2w_qwen2p5_7b":
             log.info(
@@ -71,8 +78,8 @@ def get_multi_video_text_transform(
                 input_keys=[],
                 args={
                     "captions_key": "metas",
-                    "embeddings_key": embedding_type + f"_{id}" if embedding_type is not None else None,
-                    "original_embeddings_key": f"t5_xxl_{id}",
+                    "embeddings_key": embedding_type + f"_{view_id}" if embedding_type is not None else None,
+                    "original_embeddings_key": f"t5_xxl_{view_id}",
                     "caption_windows_key": "t2w_windows",
                     "caption_type": "qwen2p5_7b_caption",
                     "embedding_caption_type": "t2w_qwen2p5_7b",
@@ -85,16 +92,18 @@ def get_multi_video_text_transform(
                         "user": user_caption_ratio,
                     },
                     "driving_dataloader_config": driving_dataloader_config,
+                    "video_id": video_id,
+                    "view_id": view_id,
                 },
-                return_embedding_key=f"t5_text_embeddings_{id}",
+                return_embedding_key=f"t5_text_embeddings_{view_id}",
             )
         elif caption_type == "i2w_qwen2p5_7b_later_frames":
             video_text_transform = L(TextTransformForVideoCustomizedKey)(
                 input_keys=[],
                 args={
                     "captions_key": "metas",
-                    "embeddings_key": embedding_type + f"_{id}" if embedding_type is not None else None,
-                    "original_embeddings_key": f"t5_xxl_{id}",
+                    "embeddings_key": embedding_type + f"_{view_id}" if embedding_type is not None else None,
+                    "original_embeddings_key": f"t5_xxl_{view_id}",
                     "caption_windows_key": "i2w_windows_later_frames",
                     "caption_type": "qwen2p5_7b_caption",
                     "embedding_caption_type": "i2w_qwen2p5_7b_later_frames",
@@ -107,13 +116,15 @@ def get_multi_video_text_transform(
                         "user": user_caption_ratio,
                     },
                     "driving_dataloader_config": driving_dataloader_config,
+                    "video_id": video_id,
+                    "view_id": view_id,
                 },
-                return_embedding_key=f"t5_text_embeddings_{id}",
+                return_embedding_key=f"t5_text_embeddings_{view_id}",
             )
         else:
             raise ValueError(f"Unsupported caption type ({caption_type}) for video data")
 
-        augmentation[f"text_transform_{id}"] = video_text_transform
+        augmentation[f"text_transform_{view_id}"] = video_text_transform
 
     return augmentation
 
@@ -134,6 +145,7 @@ def get_video_augmentor_v2_multiview_with_control(
     use_native_fps: bool = False,
     use_control_mask_prob: float = 0.0,
     num_control_inputs_prob: list[float] = [1.0, 0.0, 0.0, 0.0],
+    select_views: list[str] | None = None,
     **kwargs,
 ):
     """Multi-video augmentor that processes video_0 through video_6, t5_xxl_0 through t5_xxl_6,
@@ -271,5 +283,16 @@ def get_video_augmentor_v2_multiview_with_control(
             "embedding_type": None,
         },
     )
+
+    ##### Select only some views #####
+    if select_views is not None:
+        # (fferroni) Do last so that we don't break existing code, which is a !@£$% pile of hot mess. Can't wait to nuke into into oblivion.
+        augmentor_config["select_views"] = L(merge_datadict_multiview_with_control.SelectViews)(
+            input_keys=[],
+            args={
+                "views": select_views,
+                "driving_dataloader_config": driving_dataloader_config,
+            },
+        )
 
     return augmentor_config

@@ -16,6 +16,7 @@
 
 from hydra.core.config_store import ConfigStore
 
+from cosmos_transfer2._src.imaginaire.flags import SMOKE
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
 from cosmos_transfer2._src.predict2.datasets.local_datasets.dataset_video import get_generic_dataloader, get_sampler
 from cosmos_transfer2._src.transfer2.datasets.local_datasets.multiview_dataset import MultiviewTransferDataset
@@ -31,6 +32,8 @@ def get_hdmap_multiview_dataset(is_train=True):
         "ftheta_camera_rear_tele_30fov",
         "ftheta_camera_front_tele_30fov",
     ]
+    if SMOKE:
+        camera_keys = camera_keys[:1]
     camera_to_view_id = {
         "ftheta_camera_front_wide_120fov": 0,
         "ftheta_camera_cross_left_120fov": 1,

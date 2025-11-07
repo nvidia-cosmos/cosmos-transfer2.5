@@ -90,6 +90,7 @@ def get_transfer2_multiview_dataset(
     use_native_fps: bool = False,
     use_control_mask_prob: float = 0.0,
     num_control_inputs_prob: list[float] = [1.0, 0.0, 0.0, 0.0],
+    select_views: list[str] | None = None,
     # Not passed to get_video_dataset, but used in MadsWebdataset
     dataset_loading_keys=MULTI_VIEW_LOADING_KEYS,
     **kwargs,
@@ -142,6 +143,7 @@ def get_transfer2_multiview_dataset(
         use_native_fps=use_native_fps,
         use_control_mask_prob=use_control_mask_prob,
         num_control_inputs_prob=num_control_inputs_prob,
+        select_views=select_views,
     )
 
     if parallel_state.is_initialized() and (

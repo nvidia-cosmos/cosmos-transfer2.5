@@ -77,7 +77,7 @@ def make_config() -> Config:
     )
 
     # Specifying values through instances of attrs
-    c.job.project = "cosmos_transfer2"  # this decides the wandb project name
+    c.job.project = "cosmos_transfer2_multiview"  # this decides the wandb project name
     c.job.group = "debug"
     c.job.name = "delete_${now:%Y-%m-%d}_${now:%H-%M-%S}"
 
@@ -88,7 +88,6 @@ def make_config() -> Config:
     c.trainer.validation_iter = 100
     c.trainer.run_validation = False
     c.trainer.callbacks = None
-    c.job.project = "cosmos_transfer2_multiview"
     register_checkpoint()
     register_ckpt_type()
     register_ema()

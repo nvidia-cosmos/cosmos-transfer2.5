@@ -155,6 +155,7 @@ class SingleViewVideoParsing(VideoParsing):
                 assert end_frame in (100, 128), f"MADS end_frame should be 100 or 128, got {end_frame}"
                 start_frame = self.minimum_start_index
                 end_frame = self.minimum_start_index + self.num_video_frames_loaded_per_view
+
                 frame_indices = np.arange(start_frame, end_frame).tolist()
                 video = self._decode_view(
                     cam_key=self.video_key,

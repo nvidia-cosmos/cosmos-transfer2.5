@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import random
 from typing import Optional
 
 import torch
@@ -243,4 +244,160 @@ class OptionalKeyRenamer(Augmentor):
         for i, in_key in enumerate(self.input_keys):
             if in_key in original_values:
                 data_dict[self.output_keys[i]] = original_values[in_key]
+        return data_dict
+
+
+class SelectViews(Augmentor):
+    def __init__(self, input_keys: list, output_keys: Optional[list] = None, args: Optional[dict] = None) -> None:
+        super().__init__(input_keys, output_keys, args)
+        self.views = args["views"]
+        self.driving_dataloader_config = args["driving_dataloader_config"]
+
+    def __call__(self, data_dict: dict) -> dict:
+        r"""Select only some views from the data_dict."""
+        return self.select_views(data_dict, self.views, self.driving_dataloader_config.camera_to_view_id)
+
+    @staticmethod
+    def select_views(data_batch: dict, views_to_keep: list[str], camera_to_view_id: dict[str, int]) -> dict:
+        view_ids_to_keep = [camera_to_view_id[cam] for cam in views_to_keep]
+        view_mask = [view_id in view_ids_to_keep for view_id in data_batch["view_indices_selection"]]
+        assert sum(view_mask) == len(view_ids_to_keep), "Could not mask all requested views!"
+
+        def filter_with_mask(lst):
+            return [value for value, keep in zip(lst, view_mask, strict=True) if keep]
+
+        # process dict elements
+        for key in ["view_indices_selection", "camera_keys_selection", "n_orig_video_frames_per_view"]:
+            data_batch[key] = filter_with_mask(data_batch[key])
+        data_batch["sample_n_views"] = torch.tensor([len(views_to_keep)], dtype=torch.int64)
+        captions = data_batch["ai_caption"]
+        if isinstance(captions, (tuple, list)) and len(captions) > 1:
+            data_batch["ai_caption"] = filter_with_mask(captions)
+        elif isinstance(captions, str):
+            maybe_multiple_captions = captions.split(" -- ")
+            if len(maybe_multiple_captions) > 1:
+                data_batch["ai_caption"] = " -- ".join(filter_with_mask(maybe_multiple_captions))
+
+        view_index_mask = (data_batch["view_indices"].unsqueeze(0) == torch.tensor(view_ids_to_keep).unsqueeze(1)).any(
+            dim=0
+        )
+        data_batch["view_indices"] = data_batch["view_indices"][view_index_mask]
+
+        for key in ["video", "control_input_hdmap_bbox"]:
+            if key in data_batch:
+                arr = data_batch[key]
+                data_batch[key] = arr[:, view_index_mask]
+
+        return data_batch
+
+
+class CaptionMerger(Augmentor):
+    def __init__(self, input_keys: list, output_keys: Optional[list] = None, args: Optional[dict] = None) -> None:
+        super().__init__(input_keys, output_keys, args)
+        self.driving_dataloader_config = args["driving_dataloader_config"]
+        self.camera_to_view_id = self.driving_dataloader_config.camera_to_view_id
+        self.view_id_to_camera_key = {v: k for k, v in self.camera_to_view_id.items()}
+        self.camera_to_caption_prefix = self.driving_dataloader_config.camera_to_caption_prefix
+        self.no_view_prefix = self.driving_dataloader_config.no_view_prefix
+        self.single_caption_only = self.driving_dataloader_config.single_caption_only
+
+    def __call__(self, data_dict: dict) -> dict:
+        r"""Merge the captions from multiple input keys into a single output key."""
+        # make front tele's caption the same as front wide's caption, align with alpamayo's convention
+        # now the ai_caption_0 means the view id, not video id in webdataset
+        front_tele_camera_key = "camera_front_tele_30fov"
+        front_wide_camera_key = "camera_front_wide_120fov"
+        camera_to_view_id = self.driving_dataloader_config.camera_to_view_id
+        front_tele_view_id = camera_to_view_id[front_tele_camera_key]
+        front_wide_view_id = camera_to_view_id[front_wide_camera_key]
+        if f"ai_caption_{front_tele_view_id}" in data_dict and f"ai_caption_{front_wide_view_id}" in data_dict:
+            data_dict[f"ai_caption_{front_tele_view_id}"] = data_dict[f"ai_caption_{front_wide_view_id}"]
+
+        if self.single_caption_only:
+            assert "ai_caption_0" in data_dict, "ai_caption_0 must be in data_dict"
+            for i in range(1, len(self.input_keys)):
+                data_dict[f"ai_caption_{i}"] = data_dict["ai_caption_0"]
+
+        if not self.no_view_prefix:
+            for view_id in range(len(self.input_keys)):
+                data_dict[f"ai_caption_{view_id}"] = (
+                    self.camera_to_caption_prefix[self.view_id_to_camera_key[view_id]]
+                    + " "
+                    + data_dict[f"ai_caption_{view_id}"]
+                )
+
+        data_dict["ai_caption"] = " -- ".join([data_dict[f"ai_caption_{i}"] for i in range(len(self.input_keys))])
+
+        for i in range(len(self.input_keys)):
+            del data_dict[f"ai_caption_{i}"]
+
+        return data_dict
+
+
+class RotateViewIndices(Augmentor):
+    def __init__(self, input_keys: list, output_keys: Optional[list] = None, args: Optional[dict] = None) -> None:
+        super().__init__(input_keys, output_keys, args)
+        self.driving_dataloader_config = args["driving_dataloader_config"]
+
+    def __call__(self, data_dict: dict) -> dict:
+        r"""rotate the already concatenated tensors to difference view indices"""
+        original_sample_n_views = data_dict["sample_n_views"]
+
+        rotate_index = random.randint(0, original_sample_n_views - 1)  # inclusive 0 and original_sample_n_views - 1
+
+        # ai caption
+        ai_captions = data_dict["ai_caption"].split(" -- ")
+        ai_captions = ai_captions[rotate_index:] + ai_captions[:rotate_index]
+        data_dict["ai_caption"] = " -- ".join(ai_captions)
+
+        # control_input_hdmap_bbox
+        frame_num_per_view = data_dict["num_video_frames_per_view"]
+        control_input_hdmap_bbox_new = torch.cat(
+            [
+                data_dict["control_input_hdmap_bbox"][:, rotate_index * frame_num_per_view :],
+                data_dict["control_input_hdmap_bbox"][:, : rotate_index * frame_num_per_view],
+            ],
+            dim=1,
+        )
+        data_dict["control_input_hdmap_bbox"] = control_input_hdmap_bbox_new
+
+        # video
+        video_new = torch.cat(
+            [
+                data_dict["video"][:, rotate_index * frame_num_per_view :],
+                data_dict["video"][:, : rotate_index * frame_num_per_view],
+            ],
+            dim=1,
+        )
+        data_dict["video"] = video_new
+
+        # view_indices
+        view_indices_new = torch.cat(
+            [
+                data_dict["view_indices"][rotate_index * frame_num_per_view :],
+                data_dict["view_indices"][: rotate_index * frame_num_per_view],
+            ],
+            dim=0,
+        )
+        data_dict["view_indices"] = view_indices_new
+
+        # view_indices_selection
+        view_indices_selection_new = (
+            data_dict["view_indices_selection"][rotate_index:] + data_dict["view_indices_selection"][:rotate_index]
+        )
+        data_dict["view_indices_selection"] = view_indices_selection_new
+
+        # camera_keys_selection
+        camera_keys_selection_new = (
+            data_dict["camera_keys_selection"][rotate_index:] + data_dict["camera_keys_selection"][:rotate_index]
+        )
+        data_dict["camera_keys_selection"] = camera_keys_selection_new
+
+        # front_cam_view_idx_sample_position
+        data_dict["front_cam_view_idx_sample_position"] = data_dict["view_indices_selection"].index(0)
+
+        # t5_text_embeddings
+        if "t5_text_embeddings" in data_dict:
+            raise NotImplementedError("need to rotate t5_text_embeddings")
+
         return data_dict

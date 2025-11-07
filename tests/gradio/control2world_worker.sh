@@ -16,11 +16,10 @@
 
 set -e
 
-echo -e "\e[95mRunning predict worker...\e[0m"
-# WAR
-ln -s packages/cosmos-gradio/cosmos_gradio cosmos_gradio
+echo -e "\e[95mRunning transfer worker...\e[0m"
 
-export MODEL_NAME="edge"
+
+export MODEL_NAME="multicontrol"
 export COSMOS_INTERNAL="0"
 
 if PYTHONPATH=. python tests/gradio/test_worker.py; then
