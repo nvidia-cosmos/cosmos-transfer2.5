@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 from hydra.core.config_store import ConfigStore
 
 from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_path
@@ -79,7 +81,7 @@ transfer2_auto_multiview_post_train_example = dict(
         ),
     ),
     model_parallel=dict(
-        context_parallel_size=8,
+        context_parallel_size=int(os.environ.get("WORLD_SIZE", "1")),
     ),
 )
 

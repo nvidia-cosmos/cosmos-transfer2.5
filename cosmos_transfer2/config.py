@@ -25,8 +25,10 @@ from typing import Annotated, Any, Literal, NoReturn, Optional, TypeVar
 
 import pydantic
 import tyro
+from pydantic_core import PydanticUndefined
 from typing_extensions import Self
 
+from cosmos_transfer2._src.imaginaire.flags import EXPERIMENTAL_CHECKPOINTS, SMOKE
 from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_by_uuid
 
@@ -60,13 +62,18 @@ _PydanticModelT = TypeVar("_PydanticModelT", bound=pydantic.BaseModel)
 def get_overrides_cls(cls: type[_PydanticModelT], *, exclude: list[str] | None = None) -> type[pydantic.BaseModel]:
     """Get overrides class for a given pydantic model."""
     # pyrefly: ignore  # no-matching-overload
-    names = set(cls.model_fields.keys())
-    if exclude is not None:
-        invalid = set(exclude) - names
-        if invalid:
-            raise ValueError(f"Invalid exclude: {invalid}")
-        names -= set(exclude)
-    fields = {name: (Optional[cls.model_fields[name].rebuild_annotation()], None) for name in names}  # type: ignore
+    names = [name for name in cls.model_fields.keys() if exclude is None or name not in exclude]
+    fields = {}
+    for name in names:
+        # pyrefly: ignore  # no-matching-overload
+        model_field = cls.model_fields[name]
+        behavior_hint = (
+            f"(default: {model_field.default})"
+            if model_field.default is not PydanticUndefined
+            else "(default: None) (required)"
+        )
+        annotation = Annotated[Optional[model_field.annotation], tyro.conf.arg(help_behavior_hint=behavior_hint)]
+        fields[name] = (annotation, pydantic.Field(default=None, description=model_field.description))
     # pyrefly: ignore  # no-matching-overload, bad-argument-type, bad-argument-count
     return pydantic.create_model(f"{cls.__name__}Overrides", **fields)
 
@@ -153,7 +160,9 @@ MODEL_CHECKPOINTS = {
     ModelKey(variant=ModelVariant.EDGE): get_checkpoint_by_uuid("ecd0ba00-d598-4f94-aa09-e8627899c431"),
     ModelKey(variant=ModelVariant.SEG): get_checkpoint_by_uuid("fcab44fe-6fe7-492e-b9c6-67ef8c1a52ab"),
     ModelKey(variant=ModelVariant.VIS): get_checkpoint_by_uuid("20d9fd0b-af4c-4cca-ad0b-f9b45f0805f1"),
-    ModelKey(variant=ModelVariant.AUTO_MULTIVIEW): get_checkpoint_by_uuid("b5ab002d-a120-4fbf-a7f9-04af8615710b"),
+    ModelKey(variant=ModelVariant.AUTO_MULTIVIEW): get_checkpoint_by_uuid("b5ab002d-a120-4fbf-a7f9-04af8615710b")
+    if not EXPERIMENTAL_CHECKPOINTS
+    else get_checkpoint_by_uuid("4ecc66e9-df19-4aed-9802-0d11e057287a"),
 }
 
 MODEL_KEYS = {k.name: k for k in MODEL_CHECKPOINTS.keys()}
@@ -189,25 +198,25 @@ class CommonSetupArguments(pydantic.BaseModel):
     # Optional parameters
     # pyrefly: ignore  # invalid-annotation
     model: get_model_literal() = DEFAULT_MODEL_KEY.name
-    """Model name."""
+    """Model name. You shouldn't override this for most cases."""
     checkpoint_path: CheckpointPath | None = None
-    """Path to the checkpoint."""
+    """Path to the checkpoint. Override this if you have a post-training checkpoint"""
     experiment: str | None = None
-    """Experiment name."""
+    """Experiment name. Override this with your custom experiment when post-training"""
     config_file: str = "cosmos_transfer2/_src/predict2/configs/video2world/config.py"
     """Configuration file for the model."""
     context_parallel_size: pydantic.PositiveInt | None = None
-    """Context parallel size. Default to all nodes."""
-    disable_guardrails: bool = False
-    """Disable guardrails if this is set to True."""
+    """Context parallel size. Defaults to WORLD_SIZE set by torchrun."""
+    disable_guardrails: bool = True if SMOKE else False
+    """Option to enable or disable guardrails."""
     offload_guardrail_models: bool = True
     """Offload guardrail models to CPU to save GPU memory."""
     keep_going: bool = True
-    """Keep going if an error occurs."""
+    """When running batch inference, keep going if an error occurs. If set to False, the batch will stop on the first error."""
     profile: bool = False
     """Run profiler and save report to output directory."""
     benchmark: bool = False
-    """Enable benchmarking mode. Runs the single video processing 4 times and reports average of last 3 runs."""
+    """Enable benchmarking mode - only works for batch processing. Runs the first sample as warmup and reports the average run times of all other samples."""
     compile_tokenizer: CompileMode = CompileMode.NONE
     """Set tokenizer compilation mode: 'none' (default), 'moderate', or 'aggressive'. 'moderate' and 'aggresive' cause a significant overhead on the first use (use if you want to generate 30+ videos in one run). Aggressive compilation can cause OOM on some systems."""
     enable_parallel_tokenizer: bool = False
@@ -260,25 +269,25 @@ Guidance = Annotated[int, pydantic.Field(ge=0, le=7)]
 class CommonInferenceArguments(pydantic.BaseModel):
     """Common inference arguments."""
 
-    model_config = pydantic.ConfigDict(extra="forbid")
+    model_config = pydantic.ConfigDict(extra="forbid", use_attribute_docstrings=True)
 
     # Required parameters
     name: str
     """Name of the sample."""
     prompt_path: ResolvedFilePath | None = pydantic.Field(None, init_var=True)
-    """Path to file containing the prompt."""
+    """Path to a .txt file containing the prompt. Only one of {prompt} or {prompt_path} should be provided."""
     prompt: str | None = None
-    """Text prompt for generation."""
+    """Text prompt for generation. Only one of {prompt} or {prompt_path} should be provided."""
 
     # Optional parameters
     negative_prompt: str | None = None
-    """Negative prompt."""
+    """Negative prompt - describing what you don't want in the generated video."""
 
     # Advanced parameters
     seed: int = 0
-    """Seed value."""
+    "Seed for generation randomness."
     guidance: Guidance = 3
-    """Guidance value."""
+    """Range from 0 to 7: the higher the value, the closer the generated video adheres to the prompt."""
 
     @pydantic.model_validator(mode="before")
     @classmethod
@@ -375,54 +384,96 @@ Threshold = Literal["very_low", "low", "medium", "high", "very_high"]
 
 
 class ControlConfig(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(use_attribute_docstrings=True)
+
     control_path: ResolvedFilePath | None = None
-    mask_path: ResolvedFilePath | None = None
+    """Path to pre-computed control video. If None, control is generated on-the-fly from input video."""
     control_weight: ControlWeight = 1.0
+    """Range from 0.0 to 1.0 per control, how strongly the output adheres to the control. For multicontrol, the weights are automaticallynormalized to sum to <=1.0."""
+    mask_path: ResolvedFilePath | None = None
+    """Path to a pre-computed binary spatiotemporal mask. White pixels are where the control is applied, black pixels are ignored. Only one of {mask_path} or {mask_prompt} should be provided."""
     mask_prompt: str | None = None
+    """Prompt for generating a mask on the fly (eg "car building tree"). Passed to the SAM2 model to segment the objects in the prompt and create masks."""
+
+
+class DepthConfig(ControlConfig):
+    """Arguments for depth control. These can only be provided via the json input file."""
+
+    control_path: ResolvedFilePath | None = None
+    """Path to pre-computed depth map. If None, depth is generated on-the-fly from input video using VideoDepthAnything."""
 
 
 class BlurConfig(ControlConfig):
+    """Arguments for vis control. These can only be provided via the json input file."""
+
+    control_path: ResolvedFilePath | None = None
+    """Path to pre-computed blur map. If None, blur is generated on-the-fly from input video using Bilateral Gaussian Blur."""
     preset_blur_strength: Threshold = "medium"
+    """Options: 'very_low', 'low', 'medium', 'high', 'very_high'. Controls the strength of blur when generating blur maps on-the-fly."""
 
 
 class EdgeConfig(ControlConfig):
+    """Arguments for edge control. These can only be provided via the json input file."""
+
+    control_path: ResolvedFilePath | None = None
+    """Path to pre-computed edge map. If None, edge is generated on-the-fly from input video using CannyEdge Model."""
+
     preset_edge_threshold: Threshold = "medium"
+    """Options: 'very_low', 'low', 'medium', 'high', 'very_high'. Lower thresholds detect more edges (including noise), higher thresholds detect fewer edges."""
 
 
 class SegConfig(ControlConfig):
+    """Arguments for seg control. These can only be provided via the json input file."""
+
+    control_path: ResolvedFilePath | None = None
+    """Path to pre-computed segmentation map. If None, segmentation is generated on-the-fly from input video using GroundDino(base) + SAM2."""
     control_prompt: str | None = None
+    """Prompt for on-the-fly segmentation. Describes what should be segmented in the input video (eg "car building tree").
+    Default: first 128 words of the input prompt."""
 
 
 CONTROL_KEYS = ["edge", "vis", "depth", "seg"]
 
 
 class InferenceArguments(CommonInferenceArguments):
-    # pyrefly: ignore  # bad-assignment
-    video_path: ResolvedFilePath = None
+    video_path: ResolvedFilePath
+    """Requied. Path to input video. {num_conditional_frames} random frames from this are used a style reference for the output.
+    Control videos and masks computed on-the-fly are based on this video .
+    """
     image_context_path: ResolvedFilePath | None = None
+    """Path to an image file. If provided, this image is used as a style reference for the output instead of {video_path}"""
+    num_conditional_frames: Literal[0, 1, 2] = 1
+    """Number of input frames from {video_path} to condition generation on. 0 means we condition on prompt only"""
 
     resolution: str = "720"
+    """Output video resolution (e.g., '720', '480')"""
     sigma_max: str | None = None
-    num_conditional_frames: Literal[0, 1, 2] = 1
+    """Range from 0 to 200 for how much noise is added to the input video/image. 200 means pure noise and the output will be completely random."""
     num_video_frames_per_chunk: pydantic.PositiveInt = 93
-    num_steps: pydantic.PositiveInt = 35
+    """Number of video frames per chunk in the chunk-wise long video generation."""
+    num_steps: pydantic.PositiveInt = 1 if SMOKE else 35
+    """Number of sampling steps in the diffusion process. Higher values produce better quality but require more time."""
 
     show_control_condition: bool = False
+    """Concatenate control videos and masks to the output video. Controls are stored separately in the output directory, regardless of this setting."""
     show_input: bool = False
-    not_keep_input_resolution: bool = False
+    """Concatenate the input video to the output video."""
+    keep_input_resolution: bool = True
+    """Whether to resize the output video to the input resolution. If True, output will be resized to input resolution. Otherwise, output will use the model's native resolution."""
 
     edge: EdgeConfig | None = None
-    depth: ControlConfig | None = None
+    depth: DepthConfig | None = None
     vis: BlurConfig | None = None
     seg: SegConfig | None = None
 
-    # Override defaults
-    guidance: Guidance = 3
     seed: int = 2025
+    "Seed for generation randomness."
     # pyrefly: ignore  # bad-override
     negative_prompt: str = DEFAULT_NEGATIVE_PROMPT
+    """Negative prompt - describing what you don't want in the generated video."""
     # pyrefly: ignore  # bad-override
     prompt: str
+    """Text prompt describing generation. Only one of {prompt} or {prompt_path} should be provided. """
 
     @cached_property
     def hint_keys(self) -> list[str]:
@@ -473,6 +524,10 @@ class InferenceArguments(CommonInferenceArguments):
             f'No "control_prompt" provided for on-the-fly segmentation, using the first 128 words of the input prompt'
         )
         return default_prompt
+
+    @cached_property
+    def not_keep_input_resolution(self) -> bool:
+        return not self.keep_input_resolution
 
 
 InferenceOverrides = get_overrides_cls(

@@ -19,7 +19,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cosmos-transfer2"
-version = "1.2.0"
+dynamic = ["version"]
 authors = [
     {name = "NVIDIA Corporation"},
 ]
@@ -38,29 +38,24 @@ classifiers = [
 dependencies = [
   "cosmos-oss==0.1.0",
   "cattrs>=25.2.0",
-  "click>=8.1.7",
   "easydict>=1.9",
   "moderngl>=5.11.1",
   "natsort>=8.4.0",
   "OpenEXR>=3.3.1",
   "pyarrow>=21.0.0",
   "sam2>=1.1.0",
-  "scipy>=1.14.1",
   "shapely>=2.0.5",
   "video-depth-anything @ git+https://github.com/jeanachoi/Video-Depth-Anything.git",
-  "xformers>=0.0.23",
 ]
 
 [project.optional-dependencies]
-cu128_torch271 = ["cosmos-oss[cu128_torch271]"]
 gradio = ["cosmos-oss[gradio]"]
-profile = ["cosmos-oss[profile]"]
+cu128 = ["cosmos-oss[cu128_torch27]"]
+cu129 = ["cosmos-oss[cu129_torch28]"]
+cu130 = ["cosmos-oss[cu130_torch29]"]
 
 [dependency-groups]
-dev = ["cosmos-oss[dev]"]
-cu128_torch271 = ["cosmos-oss[cu128_torch271]"]
-gradio = ["cosmos-oss[gradio]"]
-profile = ["cosmos-oss[profile]"]
+dev = ["cosmos-oss[dev,gradio]"]
 
 [project.readme]
 content-type = "text/markdown"
@@ -77,32 +72,23 @@ issues = "https://github.com/nvidia-cosmos/cosmos-transfer2/issues"
 repository = "https://github.com/nvidia-cosmos/cosmos-transfer2"
 
 [tool.uv]
-default-groups = "all"
-no-build-package = [
-  "apex",
-  "flash-attn",
-  "natten",
-  "transformer-engine",
+conflicts = [
+  [{extra = "cu128"}, {extra = "cu129"}, {extra = "cu130"}],
 ]
+override-dependencies = ["numpy>=2.0.0"]
+
+[tool.uv.workspace]
+members = ["packages/*"]
 
 [tool.uv.sources]
-apex = [{ index = "cosmos" }]
-cosmos-gradio = [{ path = "./packages/cosmos-gradio" }]
-cosmos-oss = [{ path = "./packages/cosmos-oss" }]
-flash-attn = [{ url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl"}]
-natten = [{ index = "cosmos" }]
-torch = [{ index = "cosmos" }]
-torchvision = [{ index = "cosmos" }]
-transformer-engine = [{ index = "cosmos" }]
+cosmos-oss = [{ workspace = true }]
 video-depth-anything = { git = "https://github.com/jeanachoi/Video-Depth-Anything.git" }
-
-[[tool.uv.index]]
-name = "cosmos"
-url = "https://nvidia-cosmos.github.io/cosmos-dependencies/simple"
-explicit = true
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.hatch.version]
+path = "cosmos_transfer2/__about__.py"
 
 [tool.hatch.build.targets.sdist]
 packages = [

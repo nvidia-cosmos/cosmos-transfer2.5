@@ -34,7 +34,9 @@ from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.driving i
 from cosmos_transfer2._src.predict2_multiview.datasets.alpamayo_raw_webdataset import AlpamayoRawWebdataset
 from cosmos_transfer2._src.predict2_multiview.datasets.alpamayo_tar_webdataset import AlpamayoTarWebdataset
 from cosmos_transfer2._src.predict2_multiview.datasets.dataset_provider import get_multiview_raw_webdataset
-from cosmos_transfer2._src.transfer2_multiview.datasets.dataset_provider import get_transfer2_multiview_dataset
+from cosmos_transfer2._src.transfer2_multiview.datasets.dataset_provider import (
+    get_transfer2_multiview_dataset,  # pyrefly: ignore [missing-import]
+)
 
 
 def get_cached_replay_dataloader_video_only(
@@ -85,6 +87,7 @@ def get_driving_video_dataloader(
     driving_dataloader_config: Optional[DrivingVideoDataloaderConfig] = None,
     num_workers: int = 8,
     prefetch_factor: int = 2,
+    select_views: list[str] | None = None,
 ) -> omegaconf.dictconfig.DictConfig:
     return L(get_cached_replay_dataloader_video_only)(
         dataset=L(get_multiview_raw_webdataset)(
@@ -106,6 +109,7 @@ def get_driving_video_dataloader(
             medium_caption_ratio=2,
             short_caption_ratio=1,
             user_caption_ratio=90,
+            select_views=select_views,
         ),
         batch_size=1,
         num_workers=num_workers,
@@ -120,47 +124,6 @@ def get_driving_video_dataloader(
 alpamayo_front_cam_key = "camera_front_wide_120fov"
 alpamayo_front_tele_cam_key = "camera_front_tele_30fov"
 alpamayo_front_tele_and_front_cam_keys = (alpamayo_front_tele_cam_key, alpamayo_front_cam_key)
-
-#### 3 views ####
-alpamayo_camera_to_view_id_3views = {
-    "camera_front_wide_120fov": 0,
-    "camera_cross_left_120fov": 1,
-    "camera_cross_right_120fov": 2,
-}
-
-alpamayo_view_id_to_caption_id_3views = {
-    0: 0,
-    1: 1,
-    2: 2,
-}
-
-alpamayo_camera_to_caption_prefix_3views = {
-    "camera_front_wide_120fov": "The video is captured from a camera mounted on a car. The camera is facing forward.",
-    "camera_cross_left_120fov": "The video is captured from a camera mounted on a car. The camera is facing to the left.",
-    "camera_cross_right_120fov": "The video is captured from a camera mounted on a car. The camera is facing to the right.",
-}
-
-#### 4 views ####
-alpamayo_camera_to_view_id_4views = {
-    "camera_front_wide_120fov": 0,
-    "camera_cross_left_120fov": 1,
-    "camera_cross_right_120fov": 2,
-    "camera_rear_tele_30fov": 3,
-}
-
-alpamayo_view_id_to_caption_id_4views = {
-    0: 0,
-    1: 1,
-    2: 2,
-    3: 5,
-}
-
-alpamayo_camera_to_caption_prefix_4views = {
-    "camera_front_wide_120fov": "The video is captured from a camera mounted on a car. The camera is facing forward.",
-    "camera_cross_left_120fov": "The video is captured from a camera mounted on a car. The camera is facing to the left.",
-    "camera_cross_right_120fov": "The video is captured from a camera mounted on a car. The camera is facing to the right.",
-    "camera_rear_tele_30fov": "The video is captured from a camera mounted on a car. The camera is facing backwards.",
-}
 
 #### 6 views ####
 alpamayo_camera_to_view_id_6views = {
@@ -221,24 +184,32 @@ def register_alpamayo_jointsinglemulticaption_dataloader(
     num_video_frames_per_view: int,
     num_views: int,
 ):
-    camera_to_view_id_config = {
-        7: alpamayo_camera_to_view_id_7views,
-        6: alpamayo_camera_to_view_id_6views,
-        4: alpamayo_camera_to_view_id_4views,
-        3: alpamayo_camera_to_view_id_3views,
-    }
-    view_id_to_caption_id_config = {
-        7: alpamayo_view_id_to_caption_id_7views,
-        6: alpamayo_view_id_to_caption_id_6views,
-        4: alpamayo_view_id_to_caption_id_4views,
-        3: alpamayo_view_id_to_caption_id_3views,
-    }
-    camera_to_caption_prefix_config = {
-        7: alpamayo_camera_to_caption_prefix_7views,
-        6: alpamayo_camera_to_caption_prefix_6views,
-        4: alpamayo_camera_to_caption_prefix_4views,
-        3: alpamayo_camera_to_caption_prefix_3views,
-    }
+    if num_views == 7:
+        select_views = None
+    elif num_views == 6:
+        select_views = [
+            "camera_front_wide_120fov",
+            "camera_cross_left_120fov",
+            "camera_cross_right_120fov",
+            "camera_rear_left_70fov",
+            "camera_rear_right_70fov",
+            "camera_rear_tele_30fov",
+        ]
+    elif num_views == 4:
+        select_views = [
+            "camera_front_wide_120fov",
+            "camera_cross_left_120fov",
+            "camera_cross_right_120fov",
+            "camera_rear_tele_30fov",
+        ]
+    elif num_views == 3:
+        select_views = [
+            "camera_front_wide_120fov",
+            "camera_cross_left_120fov",
+            "camera_cross_right_120fov",
+        ]
+    else:
+        raise ValueError(f"Unsupported number of views: {num_views}")
 
     for resolution in ["720p", "480p"]:
         resolution_str = "" if resolution == "720" else f"_{resolution}"
@@ -246,15 +217,15 @@ def register_alpamayo_jointsinglemulticaption_dataloader(
         for hybrid in [True]:
             hybrid_str = "_hybrid_captions" if hybrid else ""
             alpamayo_config_single_caption_no_view_prefix = DrivingVideoDataloaderConfig(
-                sample_n_views=num_views,
+                sample_n_views=7,
                 num_video_frames_per_view=num_video_frames_per_view,
                 num_video_frames_loaded_per_view=num_video_frames_loaded_per_view,
                 sample_noncontiguous_views=False,
                 ref_cam_view_idx=-1,
                 overfit_firstn=-1,
-                camera_to_view_id=camera_to_view_id_config[num_views],
-                view_id_to_caption_id=view_id_to_caption_id_config[num_views],
-                camera_to_caption_prefix=camera_to_caption_prefix_config[num_views],
+                camera_to_view_id=alpamayo_camera_to_view_id_7views,
+                view_id_to_caption_id=alpamayo_view_id_to_caption_id_7views,
+                camera_to_caption_prefix=alpamayo_camera_to_caption_prefix_7views,
                 front_tele_and_front_cam_keys=alpamayo_front_tele_and_front_cam_keys,
                 concat_viewt5=False,
                 no_view_prefix=True,
@@ -284,6 +255,7 @@ def register_alpamayo_jointsinglemulticaption_dataloader(
                 driving_dataloader_config=alpamayo_config_single_caption_no_view_prefix,
                 num_workers=4,
                 prefetch_factor=4,
+                select_views=select_views,
             )
 
             alpamayo_loader_single_caption_view_prefix = L(get_driving_video_dataloader)(
@@ -294,6 +266,7 @@ def register_alpamayo_jointsinglemulticaption_dataloader(
                 driving_dataloader_config=alpamayo_config_single_caption_view_prefix,
                 num_workers=4,
                 prefetch_factor=4,
+                select_views=select_views,
             )
 
             alpamayo_loader_multiple_captions_view_prefix = L(get_driving_video_dataloader)(
@@ -304,6 +277,7 @@ def register_alpamayo_jointsinglemulticaption_dataloader(
                 driving_dataloader_config=alpamayo_config_multiple_captions_view_prefix,
                 num_workers=4,
                 prefetch_factor=4,
+                select_views=select_views,
             )
 
             if num_video_frames_loaded_per_view == num_video_frames_per_view:

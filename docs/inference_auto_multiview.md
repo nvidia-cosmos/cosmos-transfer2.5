@@ -10,7 +10,20 @@ Multiview requires 8 GPUs
 Run multiview2world:
 
 ```bash
-torchrun --nproc_per_node=8 --master_port=12341 -m examples.multiview -i assets/multiview_example/multiview_spec.json -o outputs/multiview/
+torchrun --nproc_per_node=8 --master_port=12341 examples/multiview.py -i assets/multiview_example/multiview_spec.json -o outputs/multiview/
+```
+
+For an explanation of all the available parameters run:
+```bash
+python examples/multiview.py --help
+
+python examples/multiview.py control:view-config --help # for information specific to view configuration
+```
+
+Run autoregressive multiview (for generating longer videos):
+
+```bash
+torchrun --nproc_per_node=8 --master_port=12341 -m examples.multiview -i assets/multiview_example/multiview_autoregressive_spec.json -o outputs/multiview_autoregressive
 ```
 
 ## End to End Multiview Example

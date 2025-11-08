@@ -25,19 +25,19 @@ from cosmos_transfer2._src.imaginaire.flags import INTERNAL
 
 if not INTERNAL:
     from sam2.sam2_video_predictor import SAM2VideoPredictor
+
+    from cosmos_transfer2._src.transfer2.auxiliary.sam2.sam2_utils import (
+        capture_fps,
+        convert_masks_to_frames,
+        generate_tensor_from_images,
+        video_to_frames,
+        write_video,
+    )
+
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 
 SAM2_MODEL_CHECKPOINT = "facebook/sam2-hiera-large"
 GROUNDING_DINO_MODEL_CHECKPOINT = "IDEA-Research/grounding-dino-base"
-
-
-from cosmos_transfer2._src.transfer2.auxiliary.sam2.sam2_utils import (
-    capture_fps,
-    convert_masks_to_frames,
-    generate_tensor_from_images,
-    video_to_frames,
-    write_video,
-)
 
 
 def rle_encode(mask: np.ndarray) -> dict:
@@ -85,7 +85,7 @@ class VideoSegmentationModel:
         results = self.processor.post_process_grounded_object_detection(
             outputs,
             inputs.input_ids,
-            box_threshold=0.15,
+            threshold=0.15,
             text_threshold=0.25,
             target_sizes=[image.size[::-1]],
         )
@@ -98,7 +98,7 @@ class VideoSegmentationModel:
             results = self.processor.post_process_grounded_object_detection(
                 outputs,
                 inputs.input_ids,
-                box_threshold=0.1,
+                threshold=0.1,
                 text_threshold=0.1,
                 target_sizes=[image.size[::-1]],
             )

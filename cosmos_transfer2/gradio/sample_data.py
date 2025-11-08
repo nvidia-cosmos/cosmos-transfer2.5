@@ -19,48 +19,53 @@ NEGATIVE_PROMPT = "The video captures a game playing, with bad crappy graphics a
 
 asset_dir = os.getenv("ASSET_DIR", "assets/")
 sample_request_edge = {
-    "prompt_path": os.path.join(asset_dir, "robot_example/robot_prompt.txt"),
     "name": "robot_edge",
+    "prompt_path": os.path.join(asset_dir, "robot_example/robot_prompt.txt"),
     "video_path": os.path.join(asset_dir, "robot_example/robot_input.mp4"),
+    "guidance": 3,
     "edge": {"control_path": os.path.join(asset_dir, "robot_example/edge/robot_edge.mp4"), "control_weight": 1.0},
 }
 
 sample_request_vis = {
-    "prompt_path": os.path.join(asset_dir, "robot_example/robot_prompt.txt"),
     "name": "robot_vis",
+    "prompt_path": os.path.join(asset_dir, "robot_example/robot_prompt.txt"),
     "video_path": os.path.join(asset_dir, "robot_example/robot_input.mp4"),
+    "guidance": 3,
     "vis": {"control_path": os.path.join(asset_dir, "robot_example/vis/robot_vis.mp4"), "control_weight": 1.0},
 }
 
 sample_request_depth = {
-    "prompt_path": os.path.join(asset_dir, "robot_example/robot_prompt.txt"),
     "name": "robot_depth",
+    "prompt_path": os.path.join(asset_dir, "robot_example/robot_prompt.txt"),
     "video_path": os.path.join(asset_dir, "robot_example/robot_input.mp4"),
+    "guidance": 3,
     "depth": {"control_path": os.path.join(asset_dir, "robot_example/depth/robot_depth.mp4"), "control_weight": 1.0},
 }
 
 
 sample_request_seg = {
-    "prompt_path": os.path.join(asset_dir, "robot_example/robot_prompt.txt"),
     "name": "robot_seg",
+    "prompt_path": os.path.join(asset_dir, "robot_example/robot_prompt.txt"),
     "video_path": os.path.join(asset_dir, "robot_example/robot_input.mp4"),
+    "guidance": 3,
     "seg": {"control_path": os.path.join(asset_dir, "robot_example/seg/robot_seg.mp4"), "control_weight": 1.0},
 }
 
 sample_request_multicontrol = {
     "prompt_path": os.path.join(asset_dir, "robot_example/robot_prompt.txt"),
     "name": "robot_multicontrol",
+    "guidance": 3,
     "video_path": os.path.join(asset_dir, "robot_example/robot_input.mp4"),
-    "depth": {"control_path": os.path.join(asset_dir, "robot_example/depth/robot_depth.mp4"), "control_weight": 0.3},
-    "edge": {"control_path": os.path.join(asset_dir, "robot_example/edge/robot_edge.mp4"), "control_weight": 0.2},
-    "seg": {"control_path": os.path.join(asset_dir, "robot_example/seg/robot_seg.mp4"), "control_weight": 0.3},
-    "vis": {"control_path": os.path.join(asset_dir, "robot_example/vis/robot_vis.mp4"), "control_weight": 0.2},
+    "depth": {"control_path": os.path.join(asset_dir, "robot_example/depth/robot_depth.mp4"), "control_weight": 1.0},
+    "edge": {"control_path": os.path.join(asset_dir, "robot_example/edge/robot_edge.mp4"), "control_weight": 1.0},
+    "seg": {"control_path": os.path.join(asset_dir, "robot_example/seg/robot_seg.mp4"), "control_weight": 1.0},
+    "vis": {"control_weight": 1.0},
 }
 
 
 sample_request_mv = {
-    "prompt_path": os.path.join(asset_dir, "multiview_example/prompt.txt"),
     "name": "multiview_control2world",
+    "prompt_path": os.path.join(asset_dir, "multiview_example/prompt.txt"),
     "front_wide": {
         "input_path": os.path.join(
             asset_dir,

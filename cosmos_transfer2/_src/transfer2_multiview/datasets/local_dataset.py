@@ -14,7 +14,16 @@ from cosmos_transfer2._src.transfer2_multiview.datasets.augmentor_provider impor
     get_video_augmentor_v2_multiview_with_control,
 )
 from cosmos_transfer2._src.transfer2_multiview.datasets.dataset_provider import MADSDrivingVideoDataloaderConfig
-from cosmos_transfer2.multiview_config import VIEW_INDEX_DICT
+
+VIEW_INDEX_DICT = {
+    "front_wide": 0,
+    "cross_left": 1,
+    "cross_right": 2,
+    "rear_left": 3,
+    "rear_right": 4,
+    "rear": 5,
+    "front_tele": 6,
+}
 
 
 class MultiviewInput(TypedDict):

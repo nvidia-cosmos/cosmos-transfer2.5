@@ -37,6 +37,7 @@ sample_request = {
     "vis": sample_request_vis,
     "depth": sample_request_depth,
     "seg": sample_request_seg,
+    "multicontrol": sample_request_edge,
     "multiview": sample_request_mv,
 }
 
@@ -49,13 +50,14 @@ def test_transfer_args():
 
 
 def test_transfer(model_name):
-    params = sample_request[model_name]
     from cosmos_transfer2.gradio.control2world_worker import Control2World_Worker
 
+    params = sample_request[model_name]
+    # pyrefly: ignore [bad-unpacking]
     params = InferenceArguments(**params)
     log.info(f"params: {json.dumps(params.model_dump(mode='json'), indent=4)}")
 
-    pipeline = Control2World_Worker(num_gpus=1)
+    pipeline = Control2World_Worker(num_gpus=1, model=model_name, disable_guardrails=True)
 
     params = params.model_dump(mode="json")
     params["output_dir"] = f"outputs/transfer2/{model_name}"

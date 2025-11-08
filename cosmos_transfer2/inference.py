@@ -20,8 +20,9 @@ import numpy as np
 import torch
 
 from cosmos_transfer2._src.imaginaire.auxiliary.guardrail.common import presets as guardrail_presets
+from cosmos_transfer2._src.imaginaire.flags import SMOKE
 from cosmos_transfer2._src.imaginaire.lazy_config.lazy import LazyConfig
-from cosmos_transfer2._src.imaginaire.utils import log
+from cosmos_transfer2._src.imaginaire.utils import distributed, log
 from cosmos_transfer2._src.imaginaire.visualize.video import save_img_or_video
 from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.experiment.experiment_list import EXPERIMENTS
 from cosmos_transfer2._src.transfer2.inference.inference_pipeline import ControlVideo2WorldInference
@@ -42,6 +43,7 @@ class Control2WorldInference:
         args: SetupArguments,
         batch_hint_keys: list[str],
     ) -> None:
+        log.debug(f"{args.__class__.__name__}({args})({batch_hint_keys})")
         self.setup_args = args
         self.batch_hint_keys = batch_hint_keys
         if len(self.batch_hint_keys) == 1:
@@ -63,6 +65,8 @@ class Control2WorldInference:
         # pyrefly: ignore  # unsupported-operation
         if args.context_parallel_size > 1:
             from megatron.core import parallel_state
+
+            distributed.init()
 
             # pyrefly: ignore  # bad-argument-type
             parallel_state.initialize_model_parallel(context_parallel_size=args.context_parallel_size)
@@ -109,6 +113,9 @@ class Control2WorldInference:
         self.benchmark_times = []
 
     def generate(self, samples: list[InferenceArguments], output_dir: Path) -> list[str]:
+        if SMOKE:
+            samples = samples[:1]
+
         sample_names = [sample.name for sample in samples]
         log.info(f"Generating {len(samples)} samples: {sample_names}")
 
@@ -140,7 +147,7 @@ class Control2WorldInference:
         negative_prompt: str = sample.negative_prompt
 
         if self.device_rank == 0:
-            output_path.mkdir(parents=True, exist_ok=True)
+            output_dir.mkdir(parents=True, exist_ok=True)
             open(f"{output_path}.json", "w").write(sample.model_dump_json())
             log.info(f"Saved arguments to {output_path}.json")
 
