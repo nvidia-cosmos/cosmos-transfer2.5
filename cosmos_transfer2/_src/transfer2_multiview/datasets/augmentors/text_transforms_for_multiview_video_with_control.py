@@ -14,10 +14,8 @@
 # limitations under the License.
 
 import copy
-import random
 from typing import Optional
 
-from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.predict2.datasets.augmentors.text_transforms_for_video import TextTransformForVideo
 
 
@@ -33,6 +31,8 @@ class TextTransformForVideoCustomizedKey(TextTransformForVideo):
         self.return_embedding_key = return_embedding_key
         self.original_embeddings_key = args["original_embeddings_key"]
         self.driving_dataloader_config = args["driving_dataloader_config"]
+        self.video_id = args["video_id"]
+        self.view_id = args["view_id"]
 
     def __call__(self, data_dict: dict) -> dict:
         r"""Performs text transformation.
@@ -43,18 +43,17 @@ class TextTransformForVideoCustomizedKey(TextTransformForVideo):
             data_dict (dict): Output dict with captions and t5 embeddings added
         """
         meta = copy.deepcopy(
-            data_dict[self.captions_key]
+            data_dict[self.captions_key]  # self.captions_key is metas
         )  # Metadata for all views. We only pass the metadata for one view to the text transform augmentor
-        caption_id = 0
-        if self.driving_dataloader_config.use_random_view_caption:
-            caption_id = random.randint(0, self.driving_dataloader_config.n_views - 1)
-            log.info(f"TextTransformForVideoCustomizedKey: Using random view caption id: {caption_id}")
+        caption_id = int(self.video_id)
         data_dict[self.captions_key] = {self.caption_windows_key: meta[caption_id][self.caption_windows_key]}
         data_dict = super().__call__(data_dict)
         data_dict[self.captions_key] = meta  # restore meta
         # Remove new lines from captions
-        data_dict["ai_caption"] = data_dict["ai_caption"].replace("\n\n", " ")
-        data_dict["ai_caption"] = data_dict["ai_caption"].replace("\n", " ")
+        data_dict[f"ai_caption_{self.view_id}"] = data_dict["ai_caption"].replace("\n\n", " ").replace("\n", " ")
+
+        del data_dict["ai_caption"]
+
         if self._load_embeddings:
             data_dict[self.return_embedding_key] = data_dict["t5_text_embeddings"]
             del data_dict["t5_text_embeddings"]

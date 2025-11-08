@@ -22,13 +22,17 @@ import numpy as np
 import torch
 
 from cosmos_transfer2._src.imaginaire.auxiliary.guardrail.common import presets as guardrail_presets
+from cosmos_transfer2._src.imaginaire.flags import SMOKE
 from cosmos_transfer2._src.imaginaire.lazy_config.lazy import LazyConfig
 from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.imaginaire.visualize.video import save_img_or_video
-from cosmos_transfer2._src.transfer2_multiview.configs.vid2vid_transfer.defaults.driving import (
-    MADS_DRIVING_DATALOADER_CONFIG_PER_RESOLUTION,
+from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.conditioner import (
+    ConditionLocation,
+    ConditionLocationList,
 )
+from cosmos_transfer2._src.transfer2_multiview.configs.vid2vid_transfer.defaults.driving import setup_config
 from cosmos_transfer2._src.transfer2_multiview.datasets.local_dataset import (
+    VIEW_INDEX_DICT,
     LocalMultiviewAugmentorConfig,
     LocalMultiviewDatasetBuilder,
 )
@@ -84,6 +88,9 @@ class MultiviewInference:
             self.video_guardrail_runner = None
 
     def generate(self, samples: list[MultiviewInferenceArguments], output_dir: Path) -> list[str]:
+        if SMOKE:
+            samples = samples[:1]
+
         sample_names = [sample.name for sample in samples]
         log.info(f"Generating {len(samples)} samples: {sample_names}")
 
@@ -104,9 +111,20 @@ class MultiviewInference:
             open(f"{output_path}.json", "w").write(sample.model_dump_json())
             log.info(f"Saved arguments to {output_path}.json")
 
-        driving_dataloader_config = MADS_DRIVING_DATALOADER_CONFIG_PER_RESOLUTION[
-            self.pipe.config.model.config.resolution
-        ]
+        # Choose appropriate dataloader config based on model configuration
+        driving_dataloader_config = setup_config(
+            self.pipe.config.model.config.resolution,
+            sample.enable_autoregressive,
+            sample.num_video_frames_per_view,
+            sample.minimum_start_index,
+            sample.num_video_frames_loaded_per_view,
+            sample.n_views,
+        )
+        if sample.enable_autoregressive:
+            self.pipe.config.model.config.condition_locations = ConditionLocationList(
+                [ConditionLocation.FIRST_RANDOM_N]
+            )
+
         driving_dataloader_config.n_views = sample.n_views
 
         # run text guardrail on the prompt
@@ -159,13 +177,49 @@ class MultiviewInference:
         for _, batch in enumerate(dataloader):
             batch["ai_caption"] = [sample.prompt]
             batch["control_weight"] = sample.control_weight
-            batch["num_conditional_frames"] = sample.num_conditional_frames
-            log.info(f"------ Generating video ------")
-            video = self.pipe.generate_from_batch(batch, guidance=sample.guidance, seed=sample.seed)
+            if sample.enable_autoregressive:
+                index_view_dict = {}
+                for k, v in list(VIEW_INDEX_DICT.items())[: sample.n_views]:
+                    index_view_dict[v] = k
+                num_conditional_frames_per_view = [
+                    getattr(sample, k).num_conditional_frames_per_view for k in index_view_dict.values()
+                ]
+                if all(frames == 0 for frames in num_conditional_frames_per_view):
+                    log.info(f"Using single conditional frames value: {sample.num_conditional_frames}")
+                    batch["num_conditional_frames"] = sample.num_conditional_frames
+                else:
+                    log.info(f"Using per-view conditional frames: {num_conditional_frames_per_view}")
+                    batch["num_conditional_frames"] = num_conditional_frames_per_view
+            else:
+                batch["num_conditional_frames"] = sample.num_conditional_frames
+
+            if sample.enable_autoregressive:
+                log.info(f"------ Generating video with autoregressive mode ------")
+                video, control = self.pipe.generate_autoregressive_from_batch(
+                    batch,
+                    n_views=sample.n_views,
+                    chunk_overlap=sample.chunk_overlap,
+                    chunk_size=29,
+                    guidance=sample.guidance,
+                    seed=sample.seed,
+                    num_conditional_frames=batch["num_conditional_frames"],
+                    num_steps=sample.num_steps,
+                )
+            else:
+                log.info(f"------ Generating video ------")
+                video = self.pipe.generate_from_batch(
+                    batch, guidance=sample.guidance, seed=sample.seed, num_steps=sample.num_steps
+                )
+                control = None
+
             if self.rank0:
-                video = (1.0 + video[0]) / 2
-                # run video guardrail on the video
-                if self.rank0 and self.video_guardrail_runner is not None:
+                if not sample.enable_autoregressive:
+                    video = video[0]
+                # Normalize video from [-1, 1] to [0, 1]
+                video = video.clamp(-1, 1) / 2 + 0.5
+
+                # Run video guardrail on the normalized video
+                if self.video_guardrail_runner is not None:
                     log.info("Running guardrail check on video...")
                     frames = (video * 255.0).clamp(0.0, 255.0).to(torch.uint8)
                     frames = frames.permute(1, 2, 3, 0).cpu().numpy().astype(np.uint8)  # (T, H, W, C)
@@ -182,10 +236,12 @@ class MultiviewInference:
 
                     # Convert processed frames back to tensor format
                     processed_video = torch.from_numpy(processed_frames).float().permute(3, 0, 1, 2) / 255.0
+
                     video = processed_video.to(video.device, dtype=video.dtype)
                 else:
                     log.warning("Guardrail checks on video are disabled")
 
                 save_img_or_video(video, str(output_path), fps=sample.fps)
                 log.success(f"Generated video saved to {output_path}.mp4")
+
         return f"{output_path}.mp4"

@@ -40,7 +40,7 @@ class Config:
             "depth": "Cosmos-Transfer2.5 Depth Transfer",
             "edge": "Cosmos-Transfer2.5 Edge Transfer",
             "seg": "Cosmos-Transfer2.5 Segmentation Transfer",
-            "multicontrol": "Cosmos-Transfer2.5 Multi-Control Transfer",
+            "multicontrol": "Cosmos-Transfer2.5 Multi-control Transfer",
             "multiview": "Cosmos-Transfer2.5 Multiview",
         }
     )

@@ -50,9 +50,11 @@ TRAIN_SAMPLE_N_VIEWS_KEY = "train_sample_n_views"
 TRAIN_SAMPLING_APPLIED_KEY = "train_sampling_applied"
 CONTROL_WEIGHT_KEY = "control_weight"
 
+_base_classes = (ControlVideo2WorldRectifiedFlowConfig,)
+
 
 @attrs.define(slots=False)
-class MultiviewControlVideo2WorldRectifiedFlowConfig(ControlVideo2WorldRectifiedFlowConfig):
+class MultiviewControlVideo2WorldRectifiedFlowConfig(*_base_classes):
     train_base_model: bool = False
     min_num_conditional_frames_per_view: int = 1
     max_num_conditional_frames_per_view: int = 2
@@ -91,7 +93,7 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
     @torch.no_grad()
     def encode(self, state: torch.Tensor) -> torch.Tensor:
         n_views = state.shape[2] // self.tokenizer.get_pixel_num_frames(self.state_t)
-        if n_views > 4:
+        if n_views > 1:
             return self.encode_cp(state)
         state = rearrange(state, "B C (V T) H W -> (B V) C T H W", V=n_views)
         encoded_state = super().encode(state)
@@ -101,7 +103,7 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
     @torch.no_grad()
     def decode(self, latent: torch.Tensor) -> torch.Tensor:
         n_views = latent.shape[2] // self.state_t
-        if n_views > 4:
+        if n_views > 1:
             return self.decode_cp(latent)
         latent = rearrange(latent, "B C (V T) H W -> (B V) C T H W", V=n_views)
         decoded_state = super().decode(latent)
@@ -184,7 +186,6 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
         return x0_B_C_T_H_W, condition, epsilon_B_C_T_H_W, sigma_B_T
 
     def get_data_batch_with_latent_view_indices(self, data_batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        data_batch = self._preprocess_databatch(data_batch)
         if "latent_view_indices_B_T" in data_batch:
             log.debug("latent_view_indices_B_T already in data_batch")
             return data_batch
@@ -214,6 +215,7 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
         new_data_batch["sample_n_views"] = 0 * data_batch["sample_n_views"] + n_views
         new_data_batch["fps"] = data_batch["fps"]
         new_data_batch["t5_text_embeddings"] = data_batch["t5_text_embeddings"][:, 0:new_total_t5_dim]
+        new_data_batch["neg_t5_text_embeddings"] = data_batch["neg_t5_text_embeddings"][:, 0:new_total_t5_dim]
         new_data_batch["t5_text_mask"] = data_batch["t5_text_mask"][:, 0:new_total_t5_dim]
         split_captions = data_batch["ai_caption"][0].split(" -- ")
         assert len(split_captions) == 7, f"Expected 7 view captions, got {len(split_captions)}"
@@ -224,7 +226,16 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
         )
         new_data_batch["ref_cam_view_idx_sample_position"] = data_batch["ref_cam_view_idx_sample_position"]
         new_data_batch["camera_keys_selection"] = data_batch["camera_keys_selection"][0:n_views]
-        new_data_batch["view_indices_selection"] = data_batch["view_indices_selection"]
+        new_data_batch["view_indices_selection"] = data_batch["view_indices_selection"][0:n_views]
+
+        if data_batch["front_cam_view_idx_sample_position"].item() > n_views:
+            # front cam view idx is not selected
+            new_data_batch["front_cam_view_idx_sample_position"] = None
+        else:
+            new_data_batch["front_cam_view_idx_sample_position"] = data_batch["front_cam_view_idx_sample_position"]
+
+        if "all_view_selected_frame_ranges" in data_batch:
+            new_data_batch["all_view_selected_frame_ranges"] = data_batch["all_view_selected_frame_ranges"][0:n_views]
         for key in [
             "__url__",
             "__key__",
@@ -233,10 +244,18 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
             "num_video_frames_per_view",
             "aspect_ratio",
             "padding_mask",
+            "dataset_name",
+            "use_apg",
+            # only in mads
+            "frame_start",
+            "frame_end",
+            "sampled_caption_style",
+            "n_orig_video_frames",
+            "frame_indices",
+            "chunk_index",
+            "control_weight",
+            NUM_CONDITIONAL_FRAMES_KEY,
         ]:
-            new_data_batch[key] = data_batch[key]
-
-        for key in [NUM_CONDITIONAL_FRAMES_KEY, CONTROL_WEIGHT_KEY]:
             if key in data_batch:
                 new_data_batch[key] = data_batch[key]
 
@@ -282,7 +301,6 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
         return data_batch
 
     def _normalize_video_databatch_inplace(self, data_batch: dict[str, Tensor], input_key: str = None) -> None:
-        data_batch = self._preprocess_databatch(data_batch)
         input_key = self.input_data_key if input_key is None else input_key
         is_preprocessed = IS_PREPROCESSED_KEY in data_batch and data_batch[IS_PREPROCESSED_KEY] is True
 
@@ -409,6 +427,108 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
 
         data_batch_with_latent_view_indices = self.get_data_batch_with_latent_view_indices(data_batch)
         if NUM_CONDITIONAL_FRAMES_KEY in data_batch_with_latent_view_indices:
+            num_conditional_frames: int | list[int] = data_batch_with_latent_view_indices[NUM_CONDITIONAL_FRAMES_KEY]
+            log.debug(f"Using {num_conditional_frames=} from data batch")
+        else:
+            num_conditional_frames: int = 1
+
+        if is_negative_prompt:
+            condition, uncondition = self.conditioner.get_condition_with_negative_prompt(
+                data_batch_with_latent_view_indices
+            )
+        else:
+            condition, uncondition = self.conditioner.get_condition_uncondition(data_batch_with_latent_view_indices)
+
+        is_image_batch = self.is_image_batch(data_batch_with_latent_view_indices)
+        condition = condition.edit_data_type(DataType.IMAGE if is_image_batch else DataType.VIDEO)
+        uncondition = uncondition.edit_data_type(DataType.IMAGE if is_image_batch else DataType.VIDEO)
+        _, x0, data_batch_condition = self.get_data_and_condition(data_batch_with_latent_view_indices)
+        # override condition with inference mode; num_conditional_frames used Here!
+        condition = condition.set_video_condition(
+            state_t=self.config.state_t,
+            gt_frames=x0,
+            condition_locations=self.config.condition_locations,
+            random_min_num_conditional_frames_per_view=self.config.min_num_conditional_frames_per_view,
+            random_max_num_conditional_frames_per_view=self.config.max_num_conditional_frames_per_view,
+            num_conditional_frames_per_view=num_conditional_frames,
+            view_condition_dropout_max=0,
+            conditional_frames_probs=self.config.conditional_frames_probs,
+        )
+        uncondition = uncondition.set_video_condition(
+            state_t=self.config.state_t,
+            gt_frames=x0,
+            condition_locations=self.config.condition_locations,
+            random_min_num_conditional_frames_per_view=self.config.min_num_conditional_frames_per_view,
+            random_max_num_conditional_frames_per_view=self.config.max_num_conditional_frames_per_view,
+            num_conditional_frames_per_view=num_conditional_frames,
+            view_condition_dropout_max=0,
+            conditional_frames_probs=self.config.conditional_frames_probs,
+        )
+
+        condition = condition.edit_for_inference(
+            is_cfg_conditional=True,
+            condition_locations=self.config.condition_locations,
+            num_conditional_frames_per_view=num_conditional_frames,
+        )
+        uncondition = uncondition.edit_for_inference(
+            is_cfg_conditional=False,
+            condition_locations=self.config.condition_locations,
+            num_conditional_frames_per_view=num_conditional_frames,
+        )
+
+        assert data_batch_condition.latent_control_input is not None, "No control input found"
+
+        condition = condition.set_control_condition(
+            latent_control_input=data_batch_condition.latent_control_input.to(self.tensor_kwargs["device"]),
+            control_weight=data_batch.get(CONTROL_WEIGHT_KEY, 1.0),
+        )
+        uncondition = uncondition.set_control_condition(
+            latent_control_input=data_batch_condition.latent_control_input.to(self.tensor_kwargs["device"]),
+            control_weight=data_batch.get(CONTROL_WEIGHT_KEY, 1.0),
+        )
+
+        _, condition, _, _ = self.broadcast_split_for_model_parallelsim(x0, condition, None, None)
+        _, uncondition, _, _ = self.broadcast_split_for_model_parallelsim(x0, uncondition, None, None)
+        if parallel_state.is_initialized():
+            pass
+        else:
+            assert not self.net.is_context_parallel_enabled, (
+                "parallel_state is not initialized, context parallel should be turned off."
+            )
+
+        def velocity_fn(noise: torch.Tensor, noise_x: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
+            cond_v = self.denoise(noise, noise_x, timestep, condition)
+            uncond_v = self.denoise(noise, noise_x, timestep, uncondition)
+
+            velocity_pred = cond_v + guidance * (cond_v - uncond_v)
+            return velocity_pred
+
+        return velocity_fn
+
+    def get_x0_fn_from_batch(
+        self,
+        data_batch: Dict,
+        guidance: float = 1.5,
+        is_negative_prompt: bool = False,
+    ) -> Callable:
+        """
+        Generates a callable function `x0_fn` based on the provided data batch and guidance factor.
+
+        This function first processes the input data batch through a conditioning workflow (`conditioner`) to obtain conditioned and unconditioned states. It then defines a nested function `x0_fn` which applies a denoising operation on an input using both the conditioned and unconditioned states for edm.
+
+        Args:
+        - data_batch (Dict): A batch of data used for conditioning. The format and content of this dictionary should align with the expectations of the `self.conditioner`
+        - guidance (float, optional): A scalar value that modulates the influence of the conditioned state relative to the unconditioned state in the output. Defaults to 1.5.
+        - is_negative_prompt (bool): use negative prompt t5 in uncondition if true
+
+        Returns:
+        - Callable: A function `x0_fn(noise_x, time)` that takes two arguments and returns x0 prediction
+
+        The returned function is suitable for use in edm scenarios where a x0 is required based on both conditioned and unconditioned inputs, with an adjustable level of guidance influence.
+        """
+
+        data_batch_with_latent_view_indices = self.get_data_batch_with_latent_view_indices(data_batch)
+        if NUM_CONDITIONAL_FRAMES_KEY in data_batch_with_latent_view_indices:
             num_conditional_frames = data_batch_with_latent_view_indices[NUM_CONDITIONAL_FRAMES_KEY]
             log.debug(f"Using {num_conditional_frames=} from data batch")
         else:
@@ -478,13 +598,12 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
                 "parallel_state is not initialized, context parallel should be turned off."
             )
 
-        def velocity_fn(noise: torch.Tensor, noise_x: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
-            cond_v = self.denoise(noise, noise_x, timestep, condition)
-            uncond_v = self.denoise(noise, noise_x, timestep, uncondition)
-            velocity_pred = cond_v + guidance * (cond_v - uncond_v)
-            return velocity_pred
+        @torch.no_grad()
+        def x0_fn(noise_x: torch.Tensor, time: torch.Tensor) -> torch.Tensor:
+            raw_x0 = self.denoise_edm(noise_x, time, condition, net_type="student").x0
+            return raw_x0
 
-        return velocity_fn
+        return x0_fn
 
     @torch.no_grad()
     def generate_samples_from_batch(
@@ -497,24 +616,54 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
         is_negative_prompt: bool = False,
         num_steps: int = 35,
         shift: float = 5.0,
+        distillation: str = "",
         **kwargs,
     ) -> torch.Tensor:
         data_batch_with_latent_view_indices = self.get_data_batch_with_latent_view_indices(data_batch)
         process_group = parallel_state.get_context_parallel_group()
         cp_size = len(get_process_group_ranks(process_group))
-        samples_B_C_T_H_W = super().generate_samples_from_batch(
-            data_batch_with_latent_view_indices,
-            guidance,
-            seed,
-            state_shape,
-            n_sample,
-            is_negative_prompt,
-            num_steps,
-            shift,
-            **kwargs,
-        )
+        if distillation == "":
+            samples_B_C_T_H_W = super().generate_samples_from_batch(
+                data_batch_with_latent_view_indices,
+                guidance,
+                seed,
+                state_shape,
+                n_sample,
+                is_negative_prompt,
+                num_steps,
+                shift,
+                **kwargs,
+            )
+        elif distillation == "dmd2":
+            self.net.timestep_scale = 1.0
+            samples_B_C_T_H_W = super().generate_samples_from_batch_dmd2(
+                data_batch=data_batch_with_latent_view_indices,
+                guidance=guidance,
+                seed=seed,
+                state_shape=state_shape,
+                n_sample=n_sample,
+                is_negative_prompt=False,
+                num_steps=num_steps,
+                init_noise=None,
+                **kwargs,
+            )
         if cp_size > 1:
             samples_B_C_T_H_W = rearrange(
                 samples_B_C_T_H_W, "B C (c V T) H W -> B C (V c T) H W", c=cp_size, T=self.state_t // cp_size
             )
         return samples_B_C_T_H_W
+
+    def denoise(
+        self,
+        noise: torch.Tensor,
+        xt_B_C_T_H_W: torch.Tensor,
+        timesteps_B_T: torch.Tensor,
+        condition,
+    ):
+        # Handle control conditioning
+        if hasattr(condition, "latent_control_input"):
+            # The control conditioning is already set in the condition object
+            pass
+
+        # Call parent's denoise method
+        return super().denoise(noise, xt_B_C_T_H_W, timesteps_B_T, condition)

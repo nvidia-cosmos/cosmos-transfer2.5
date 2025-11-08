@@ -36,7 +36,7 @@ python examples/inference.py -i assets/robot_example/depth/robot_depth_spec.json
 
 For multi-GPU inference on a single control or to run multiple control variants, use [torchrun](https://docs.pytorch.org/docs/stable/elastic/run.html):
 ```bash
-torchrun --nproc_per_node=8 --master_port=12341 -m examples.inference -i assets/multicontrol.jsonl -o outputs/multicontrol
+torchrun --nproc_per_node=8 --master_port=12341 examples/inference.py -i assets/robot_example/depth/robot_depth_spec.json -o outputs/depth
 ```
 
 We provide example parameter files for each individual control variant along with a multi-control variant:
@@ -48,6 +48,13 @@ We provide example parameter files for each individual control variant along wit
 | Segmentation | `assets/robot_example/seg/robot_seg_spec.json` |
 | Blur | `assets/robot_example/vis/robot_vis_spec.json` |
 | Multi-control | `assets/robot_example/multicontrol/robot_multicontrol_spec.json` |
+
+For an explanation of all the available parameters run:
+```bash
+python examples/inference.py --help
+
+python examples/inference.py control:edge --help # for information specific to edge control
+```
 
 Parameters can be specified as json:
 
@@ -62,13 +69,13 @@ Parameters can be specified as json:
     // Path to the input video
     "video_path": "assets/robot_example/robot_input.mp4",
 
-    // Inference settings
+    // Inference settings:
     "guidance": 3,
 
     // Depth control settings
     "depth": {
         // Path to the control video
-        // For "vis" and "edge", if a control is not provided, it will be computed on the fly.
+        // If a control is not provided, it will be computed on the fly.
         "control_path": "assets/robot_example/depth/robot_depth.mp4",
 
         // Control weight for the depth control

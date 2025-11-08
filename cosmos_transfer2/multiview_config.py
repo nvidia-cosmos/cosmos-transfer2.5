@@ -17,6 +17,7 @@ from typing import Annotated
 
 import pydantic
 
+from cosmos_transfer2._src.imaginaire.flags import SMOKE
 from cosmos_transfer2.config import (
     MODEL_CHECKPOINTS,
     CommonInferenceArguments,
@@ -30,16 +31,6 @@ from cosmos_transfer2.config import (
 
 DEFAULT_MODEL_KEY = ModelKey(variant=ModelVariant.AUTO_MULTIVIEW)
 DEFAULT_CHECKPOINT = MODEL_CHECKPOINTS[DEFAULT_MODEL_KEY]
-
-VIEW_INDEX_DICT = {
-    "front_wide": 0,
-    "cross_left": 1,
-    "cross_right": 2,
-    "rear_left": 3,
-    "rear_right": 4,
-    "rear": 5,
-    "front_tele": 6,
-}
 
 
 class MultiviewSetupArguments(CommonSetupArguments):
@@ -59,11 +50,19 @@ class ViewConfig(pydantic.BaseModel):
     control_path: ResolvedFilePath
     """Path to the control video for this view, required for every view"""
 
+    # Autoregressive inference mode
+    num_conditional_frames_per_view: int = pydantic.Field(
+        default=0,
+        description="Number of frames to condition on per view. Must be one of [0, 1, 5].",
+        ge=0,
+        le=5,
+    )
+
 
 class MultiviewInferenceArguments(CommonInferenceArguments):
     """All the required values to generate image from text at a given resolution."""
 
-    n_views: int = pydantic.Field(default=7, description="Number of views to generate")
+    n_views: int = pydantic.Field(default=1 if SMOKE else 7, description="Number of views to generate")
 
     num_conditional_frames: int = pydantic.Field(default=1)
     """Number of frames to condition on."""
@@ -86,11 +85,35 @@ class MultiviewInferenceArguments(CommonInferenceArguments):
 
     fps: pydantic.PositiveInt = 10
     """Frames per second for output video."""
+    num_steps: int = pydantic.Field(
+        default=1 if SMOKE else 35, description="Number of diffusion denoising steps for generation"
+    )
+    """Number of diffusion sampling steps (higher values = better quality but slower generation)."""
+
+    # Autoregressive inference mode
+    enable_autoregressive: bool = False
+    """Enable autoregressive mode to generate videos longer than the model's native temporal capacity."""
+    num_video_frames_loaded_per_view: int = pydantic.Field(
+        default=85, description="Total number of frames to load from input video per camera view"
+    )
+    """Total number of frames to load from input video per view (determines final output length)."""
+    num_video_frames_per_view: int = pydantic.Field(
+        default=85, description="Number of frames to generate per view per chunk (model's native capacity)"
+    )
+    """Number of frames the model generates per view in a single forward pass (chunk size, typically 29 or 61)."""
+    minimum_start_index: int = pydantic.Field(
+        default=0, description="Frame index to start loading video from (skips first N frames)"
+    )
+    """Frame index to start loading video from, used to skip potentially corrupted initial frames."""
+    chunk_overlap: int = pydantic.Field(
+        default=1, description="Number of overlapping frames between consecutive chunks"
+    )
+    """Number of overlapping frames between consecutive chunks for temporal consistency."""
 
     @pydantic.model_validator(mode="after")
     def validate_input_paths(self):
         """Validate that input_path is provided when num_conditional_frames > 0."""
-        if self.num_conditional_frames > 0:
+        if self.num_conditional_frames > 0 or self.enable_autoregressive:
             view_configs = [
                 ("front_wide", self.front_wide),
                 ("rear", self.rear),
@@ -107,6 +130,23 @@ class MultiviewInferenceArguments(CommonInferenceArguments):
                 raise ValueError(
                     f"input_path is required for all views when num_conditional_frames > 0. "
                     f"Missing input_path for views: {', '.join(missing_input_paths)}"
+                )
+            # check if all view_configs has the num_conditional_frames_per_view otherwise throw error, for autoregressive mode,
+            # all views must have the num_conditional_frames_per_view, if defined for one then all must be defined
+            view_names = [view_name for view_name, _ in view_configs]
+            num_conditional_frames_per_view = [
+                getattr(self, view_name).num_conditional_frames_per_view for view_name in view_names
+            ]
+            # check if any view has num_conditional_frames_per_view not in (0, 1, 5)
+            if any(frames not in (0, 1, 5) for frames in num_conditional_frames_per_view):
+                raise ValueError(f"num_conditional_frames_per_view must be one of [0, 1, 5] for views: {view_names}")
+            # Check if some (but not all) views have non-zero values
+            if any(frames == 0 for frames in num_conditional_frames_per_view) and not all(
+                frames == 0 for frames in num_conditional_frames_per_view
+            ):
+                raise ValueError(
+                    f"num_conditional_frames_per_view must be consistent across all views in autoregressive mode. "
+                    f"Either set it for all views or leave all at default (0). "
                 )
         return self
 

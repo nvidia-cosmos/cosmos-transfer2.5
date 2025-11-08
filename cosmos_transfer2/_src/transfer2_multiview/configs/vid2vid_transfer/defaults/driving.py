@@ -20,3 +20,23 @@ from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.driving i
 from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.driving import (
     MADSDrivingVideoDataloaderConfig as MADSDrivingVideoDataloaderConfig,
 )
+
+
+def setup_config(
+    resolution: str,
+    enable_autoregressive: bool,
+    num_video_frames_per_view: int,
+    minimum_start_index: int,
+    num_video_frames_loaded_per_view: int,
+    n_views: int,
+):
+    config = MADS_DRIVING_DATALOADER_CONFIG_PER_RESOLUTION[resolution]
+    if enable_autoregressive:
+        config.num_video_frames_per_view = num_video_frames_per_view
+        config.minimum_start_index = minimum_start_index
+        config.num_video_frames_loaded_per_view = num_video_frames_loaded_per_view
+        config.n_views = n_views
+        return config
+    else:
+        config.n_views = n_views
+        return config
