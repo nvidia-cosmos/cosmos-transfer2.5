@@ -1,4 +1,20 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
+
 import cv2
 import numpy as np
 
@@ -8,10 +24,12 @@ def ensure_gray(img):
         return img
     return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
+
 def make_kernel(px):
     """Return an odd-sized elliptical kernel roughly px radius."""
     k = max(1, int(px) * 2 + 1)  # ensure odd
     return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+
 
 def grow_and_feather_mask(mask_frame, threshold, grow_px=0, close_px=0, feather_px=0):
     """
@@ -51,6 +69,7 @@ def grow_and_feather_mask(mask_frame, threshold, grow_px=0, close_px=0, feather_
 
     return mask_bin
 
+
 def apply_mask(edge_frame_bgr, mask_frame, threshold, grow_px=0, close_px=0, feather_px=0):
     """
     Apply a grown/feathered mask to edge_frame_bgr.
@@ -77,8 +96,8 @@ def apply_mask(edge_frame_bgr, mask_frame, threshold, grow_px=0, close_px=0, fea
 
     return out_bgr, out_rgba
 
-def filter_out_edges(edges_p, mask_p, out_p, threshold=0, mask_grow_px=0, mask_close_px=0, feather_px=0):
 
+def filter_out_edges(edges_p, mask_p, out_p, threshold=0, mask_grow_px=0, mask_close_px=0, feather_px=0):
     edge_cap = cv2.VideoCapture(str(edges_p))
     mask_cap = cv2.VideoCapture(str(mask_p))
 
@@ -88,7 +107,7 @@ def filter_out_edges(edges_p, mask_p, out_p, threshold=0, mask_grow_px=0, mask_c
         raise RuntimeError(f"Failed to open mask video: {mask_p}")
 
     fps = edge_cap.get(cv2.CAP_PROP_FPS) or 30.0
-    width  = int(edge_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    width = int(edge_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(edge_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -122,11 +141,9 @@ def filter_out_edges(edges_p, mask_p, out_p, threshold=0, mask_grow_px=0, mask_c
         )
         writer.write(out_bgr)
 
-
     edge_cap.release()
     mask_cap.release()
     writer.release()
-
 
 
 import argparse
@@ -136,35 +153,14 @@ if __name__ == "__main__":
         description="Filter edges using a mask video with optional mask processing parameters."
     )
 
-
     parser.add_argument("edges_video", help="Path to the edge control modality video")
     parser.add_argument("mask_video", help="Path to the mask video")
     parser.add_argument("output", help="Path to the output filtered video")
 
-    parser.add_argument(
-        "--threshold",
-        type=int,
-        default=0,
-        help="Mask threshold (0–255). Default: 0"
-    )
-    parser.add_argument(
-        "--grow_px",
-        type=int,
-        default=0,
-        help="Grow mask radius in pixels. Default: 0"
-    )
-    parser.add_argument(
-        "--close_px",
-        type=int,
-        default=0,
-        help="Morphological closing radius in pixels. Default: 0"
-    )
-    parser.add_argument(
-        "--feather_px",
-        type=int,
-        default=0,
-        help="Feather (blur) radius in pixels. Default: 0"
-    )
+    parser.add_argument("--threshold", type=int, default=0, help="Mask threshold (0–255). Default: 0")
+    parser.add_argument("--grow_px", type=int, default=0, help="Grow mask radius in pixels. Default: 0")
+    parser.add_argument("--close_px", type=int, default=0, help="Morphological closing radius in pixels. Default: 0")
+    parser.add_argument("--feather_px", type=int, default=0, help="Feather (blur) radius in pixels. Default: 0")
 
     args = parser.parse_args()
 
@@ -194,5 +190,3 @@ Usage (MP4 output):
 Optional: PNG sequence (RGBA):
   python apply_mask.py --png_dir out_pngs
 """
-
-

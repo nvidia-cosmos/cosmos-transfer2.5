@@ -1,6 +1,22 @@
-import cv2
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
-import os
+
+import cv2
+
 
 def generate_edges(in_path, out_path, bright=50, contrast=1.0):
     cap = cv2.VideoCapture(in_path)
@@ -29,28 +45,17 @@ def generate_edges(in_path, out_path, bright=50, contrast=1.0):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate edge video from input.")
-    
+
     parser.add_argument("input_video", help="Path to input video")
     parser.add_argument("output_video", help="Path to save generated edge video")
 
     parser.add_argument(
-        "--bright",
-        type=float,
-        default=50,
-        help="Brightness offset applied before edge detection (default: 50)"
+        "--bright", type=float, default=50, help="Brightness offset applied before edge detection (default: 50)"
     )
     parser.add_argument(
-        "--contrast",
-        type=float,
-        default=1.0,
-        help="Contrast multiplier applied before edge detection (default: 1.0)"
+        "--contrast", type=float, default=1.0, help="Contrast multiplier applied before edge detection (default: 1.0)"
     )
 
     args = parser.parse_args()
 
-    generate_edges(
-        args.input_video,
-        args.output_video,
-        bright=args.bright,
-        contrast=args.contrast
-    )
+    generate_edges(args.input_video, args.output_video, bright=args.bright, contrast=args.contrast)
