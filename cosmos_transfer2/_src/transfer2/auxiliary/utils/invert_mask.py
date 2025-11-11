@@ -38,7 +38,9 @@ def invert_video(input_binary_mask, output_video_path):
         inverted_frames.append(inverted)
 
     # Save as a new MP4 video
-    iio.imwrite(output_video_path, inverted_frames, fps=30)
+    meta = iio.immeta(input_binary_mask)
+    fps = int(meta.get("fps", 30))  # Default to 30
+    iio.imwrite(output_video_path, inverted_frames, fps=fps)
 
 
 if __name__ == "__main__":

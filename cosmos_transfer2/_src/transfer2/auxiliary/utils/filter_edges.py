@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import argparse
-
 import cv2
 import numpy as np
 
@@ -145,8 +144,6 @@ def filter_out_edges(edges_p, mask_p, out_p, threshold=0, mask_grow_px=0, mask_c
     mask_cap.release()
     writer.release()
 
-
-import argparse
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
