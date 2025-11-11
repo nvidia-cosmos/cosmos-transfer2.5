@@ -14,17 +14,31 @@
 # limitations under the License.
 
 import argparse
-import shlex
-import subprocess
+import numpy as np
+import imageio.v3 as iio
 
 
 def invert_video(input_binary_mask, output_video_path):
-    ffmpeg_cmd = f'''
-    ffmpeg -y -i "{input_binary_mask}" \
-        -vf "format=gray,lut='if(gt(val\,0)\,255\,0)'" \
-        -c:v libx264 -pix_fmt yuv420p "{output_video_path}"
-    '''
-    process = subprocess.run(shlex.split(ffmpeg_cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    frames = list(iio.imiter(input_binary_mask))
+
+    inverted_frames = []
+
+    for frame in frames:
+        # Convert to grayscale if needed
+        if frame.ndim == 3:
+            frame = frame[..., 0]
+        
+        # Ensure it's binary (0/255)
+        frame = (frame > 127).astype(np.uint8) * 255
+
+        # Invert
+        inverted = 255 - frame
+
+        inverted_frames.append(inverted)
+
+    # Save as a new MP4 video
+    iio.imwrite(output_video_path, inverted_frames, fps=30)
 
 
 if __name__ == "__main__":
