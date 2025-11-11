@@ -110,7 +110,7 @@ def filter_out_edges(edges_p, mask_p, out_p, threshold=0, mask_grow_px=0, mask_c
     width = int(edge_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(edge_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    fourcc = cv2.VideoWriter_fourcc(*"avc1")
     writer = cv2.VideoWriter(str(out_p), fourcc, fps, (width, height), True)
     if not writer.isOpened():
         raise RuntimeError("Failed to open VideoWriter. Try a different --fourcc (e.g., avc1, XVID, MJPG).")
@@ -176,17 +176,13 @@ if __name__ == "__main__":
 
 
 """
-Apply a (grown/feathered) mask video to an edge video:
-- Keep edge pixels only where (expanded) mask passes threshold.
-- Optional: fill tiny holes (closing), expand (dilate), and feather.
-
 Usage (MP4 output):
-  python apply_mask.py \
+  python cosmos_transfer2/_src/transfer2/auxiliary/utils/filter_edges.py \
+    edge.mp4 \
+    mask.mp4 \
+    output.mp4 \
     --threshold 0 \
-    --mask_grow_px 3 \
-    --mask_close_px 3 \
+    --grow_px 3 \
+    --close_px 3 \
     --feather_px 2
-
-Optional: PNG sequence (RGBA):
-  python apply_mask.py --png_dir out_pngs
 """

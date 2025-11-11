@@ -14,8 +14,23 @@
 # limitations under the License.
 
 import argparse
-
 import cv2
+
+def ranged_float(min_val, max_val):
+    def checker(x):
+        x = float(x)
+        if not (min_val <= x <= max_val):
+            raise argparse.ArgumentTypeError(f"Value must be between {min_val} and {max_val}")
+        return x
+    return checker
+
+def ranged_int(min_val, max_val):
+    def checker(x):
+        x = int(x)
+        if not (min_val <= x <= max_val):
+            raise argparse.ArgumentTypeError(f"Value must be between {min_val} and {max_val}")
+        return x
+    return checker
 
 
 def generate_edges(in_path, out_path, bright=50, contrast=1.0):
@@ -25,7 +40,7 @@ def generate_edges(in_path, out_path, bright=50, contrast=1.0):
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # or "avc1"
+    fourcc = cv2.VideoWriter_fourcc(*"avc1")
     out = cv2.VideoWriter(out_path, fourcc, fps, (w, h), isColor=False)
 
     while True:
@@ -50,12 +65,29 @@ if __name__ == "__main__":
     parser.add_argument("output_video", help="Path to save generated edge video")
 
     parser.add_argument(
-        "--bright", type=float, default=50, help="Brightness offset applied before edge detection (default: 50)"
+        "--bright",
+        type=ranged_int(-255, 255),
+        default=50,
+        help="Brightness offset (-255 to 255). Default: 50",
     )
     parser.add_argument(
-        "--contrast", type=float, default=1.0, help="Contrast multiplier applied before edge detection (default: 1.0)"
+        "--contrast",
+        type=ranged_float(0.0, 5.0),
+        default=1.0,
+        help="Contrast multiplier (0.0 to 5.0). Default: 1.0",
     )
 
     args = parser.parse_args()
 
     generate_edges(args.input_video, args.output_video, bright=args.bright, contrast=args.contrast)
+
+
+"""
+Usage (MP4 output):
+  
+python cosmos_transfer2/_src/transfer2/auxiliary/utils/generate_edges.py \
+input_video.mp4 \
+edge.mp4 \
+--bright 50 \
+--contrast 1
+"""

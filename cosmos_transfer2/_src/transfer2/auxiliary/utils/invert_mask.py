@@ -35,3 +35,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     invert_video(args.input_video, args.output_video)
+
+
+"""
+Usage (MP4 output):
+  
+python cosmos_transfer2/_src/transfer2/auxiliary/utils/invert_mask.py \
+input_video.mp4 \
+inverted_mask.mp4
+"""
+
