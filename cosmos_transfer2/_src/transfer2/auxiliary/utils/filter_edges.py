@@ -109,7 +109,7 @@ def filter_out_edges(edges_p, mask_p, out_p, threshold=0, mask_grow_px=0, mask_c
     width = int(edge_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(edge_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    fourcc = cv2.VideoWriter_fourcc(*"avc1")
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(str(out_p), fourcc, fps, (width, height), True)
     if not writer.isOpened():
         raise RuntimeError("Failed to open VideoWriter. Try a different --fourcc (e.g., avc1, XVID, MJPG).")
