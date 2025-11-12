@@ -96,7 +96,7 @@ def apply_mask(edge_frame_bgr, mask_frame, threshold, grow_px=0, close_px=0, fea
     return out_bgr, out_rgba
 
 
-def filter_out_edges(edges_p, mask_p, out_p, threshold=0, mask_grow_px=0, mask_close_px=0, feather_px=0):
+def filter_out_edges(edges_p, mask_p, out_p, threshold=0, grow_px=0, close_px=0, feather_px=0):
     edge_cap = cv2.VideoCapture(str(edges_p))
     mask_cap = cv2.VideoCapture(str(mask_p))
 
@@ -134,8 +134,8 @@ def filter_out_edges(edges_p, mask_p, out_p, threshold=0, mask_grow_px=0, mask_c
             edge_frame,
             mask_frame,
             threshold=threshold,
-            grow_px=mask_grow_px,
-            close_px=mask_close_px,
+            grow_px=grow_px,
+            close_px=close_px,
             feather_px=feather_px,
         )
         writer.write(out_bgr)
