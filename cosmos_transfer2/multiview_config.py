@@ -62,8 +62,6 @@ class ViewConfig(pydantic.BaseModel):
 class MultiviewInferenceArguments(CommonInferenceArguments):
     """All the required values to generate image from text at a given resolution."""
 
-    n_views: int = pydantic.Field(default=1 if SMOKE else 7, description="Number of views to generate")
-
     num_conditional_frames: int = pydantic.Field(default=1)
     """Number of frames to condition on."""
     control_weight: Annotated[float, pydantic.Field(ge=0.0, le=1.0)] = 1.0
@@ -93,18 +91,12 @@ class MultiviewInferenceArguments(CommonInferenceArguments):
     # Autoregressive inference mode
     enable_autoregressive: bool = False
     """Enable autoregressive mode to generate videos longer than the model's native temporal capacity."""
-    num_video_frames_loaded_per_view: int = pydantic.Field(
-        default=85, description="Total number of frames to load from input video per camera view"
-    )
-    """Total number of frames to load from input video per view (determines final output length)."""
-    num_video_frames_per_view: int = pydantic.Field(
-        default=85, description="Number of frames to generate per view per chunk (model's native capacity)"
+    num_chunks: int = pydantic.Field(
+        default=2,
+        ge=1,
+        description="Number of chunks to process auto-regressively",
     )
     """Number of frames the model generates per view in a single forward pass (chunk size, typically 29 or 61)."""
-    minimum_start_index: int = pydantic.Field(
-        default=0, description="Frame index to start loading video from (skips first N frames)"
-    )
-    """Frame index to start loading video from, used to skip potentially corrupted initial frames."""
     chunk_overlap: int = pydantic.Field(
         default=1, description="Number of overlapping frames between consecutive chunks"
     )

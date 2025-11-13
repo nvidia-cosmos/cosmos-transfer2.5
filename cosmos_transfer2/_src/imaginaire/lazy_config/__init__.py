@@ -10,7 +10,12 @@ from cosmos_transfer2._src.imaginaire.lazy_config.omegaconf_patch import to_obje
 OmegaConf.to_object = to_object
 
 PLACEHOLDER = None
-LazyDict = DictConfig
+
+
+class LazyDict(DictConfig):  # NOTE: to differentiate between LazyDict & DictConfig
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
 
 __all__ = ["instantiate", "LazyCall", "LazyConfig", "PLACEHOLDER", "LazyDict"]
 

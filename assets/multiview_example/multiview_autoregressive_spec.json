@@ -1,41 +1,42 @@
 {
     "name": "multiview_autoregressive",
-    "prompt": "A realistic autonomous driving scene through city streets at night with consistent lighting and style across all camera views",
+    "prompt": "The video captures a nighttime urban driving scene viewed from inside a vehicle. The street is wet, reflecting the lights from the surrounding buildings and street lamps, creating a moody and atmospheric setting. The camera, positioned inside the vehicle, provides a first-person perspective as the car moves forward. The road is lined with tall, multi-story buildings, their windows illuminated, suggesting it's either late evening or early morning. As the vehicle progresses, the camera passes by parked cars on both sides of the street, including a white SUV and a black Jeep. The street is relatively quiet, with minimal pedestrian activity, and the occasional passing car can be seen in the distance. The traffic lights ahead are green, allowing the vehicle to continue moving smoothly. The wet pavement reflects the lights, adding a shimmering effect to the scene. The environment is characterized by a mix of residential and commercial buildings, with some shops visible along the sidewalk. The overall ambiance is calm and serene, with the soft glow of the streetlights and building lights providing a sense of safety and order. The camera remains steady throughout, capturing the continuous forward motion of the vehicle as it navigates through this urban landscape.",
     "fps": 15,
     "enable_autoregressive": true,
+    "num_chunks": 2,
     "front_wide":{
         "input_path": "input_videos/night_front_wide_120fov.mp4",
         "control_path": "world_scenario_videos/ws_front_wide_120fov.mp4",
-        "num_conditional_frames_per_view": 5
+        "num_conditional_frames_per_view": 1
     },
     "cross_left":{
         "input_path": "input_videos/night_cross_left_120fov.mp4",
         "control_path": "world_scenario_videos/ws_cross_left_120fov.mp4",
-        "num_conditional_frames_per_view": 5
+        "num_conditional_frames_per_view": 1
     },
     "cross_right":{
         "input_path": "input_videos/night_cross_right_120fov.mp4",
         "control_path": "world_scenario_videos/ws_cross_right_120fov.mp4",
-        "num_conditional_frames_per_view": 5
+        "num_conditional_frames_per_view": 1
     },
     "rear_left":{
         "input_path": "input_videos/night_rear_left_70fov.mp4",
         "control_path": "world_scenario_videos/ws_rear_left_70fov.mp4",
-        "num_conditional_frames_per_view": 5
+        "num_conditional_frames_per_view": 1
     },
     "rear_right":{
         "input_path": "input_videos/night_rear_right_70fov.mp4",
         "control_path": "world_scenario_videos/ws_rear_right_70fov.mp4",
-        "num_conditional_frames_per_view": 5
+        "num_conditional_frames_per_view": 1
     },
     "rear":{
         "input_path": "input_videos/night_rear_30fov.mp4",
         "control_path": "world_scenario_videos/ws_rear_30fov.mp4",
-        "num_conditional_frames_per_view": 5
+        "num_conditional_frames_per_view": 1
     },
     "front_tele":{
         "input_path": "input_videos/night_front_tele_30fov.mp4",
         "control_path": "world_scenario_videos/ws_front_tele_30fov.mp4",
-        "num_conditional_frames_per_view": 5
+        "num_conditional_frames_per_view": 1
     }
 }

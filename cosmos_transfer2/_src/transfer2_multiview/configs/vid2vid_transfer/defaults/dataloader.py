@@ -13,75 +13,77 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from copy import deepcopy
+
+from typing import Final
 
 from hydra.core.config_store import ConfigStore
 
-# DO NOT REMOVE THIS LINE. Ensures that AV dataset is registered before creating the dataloader. During training, cosmos dataset registration occurs via imports, not direct function calls
-import cosmos_transfer2._src.transfer2_multiview.datasets.data_sources.data_registration  # noqa: F401
+from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
 from cosmos_transfer2._src.predict2.configs.common.mock_data import (
-    MOCK_DATA_IMAGE_ONLY_CONFIG,
-    MOCK_DATA_INTERLEAVE_CONFIG,
     MOCK_DATA_VIDEO_ONLY_CONFIG,
 )
-from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.dataloader import get_video_dataloader_multiview
-from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.driving import (
-    MADS_DRIVING_DATALOADER_CONFIG_PER_RESOLUTION,
-    camera_to_view_id_config,
-    video_id_to_camera_key_config,
-)
+from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.dataloader import DEFAULT_CAMERA_VIEW_CONFIGS
+from cosmos_transfer2._src.predict2_multiview.datasets.multiview import AugmentationConfig, get_multiview_video_loader
+from cosmos_transfer2._src.predict2_multiview.datasets.wdinfo_utils import DEFAULT_CATALOG
+
+INDEX_TO_CAMERA_MAPPING: Final = {
+    0: "camera_front_wide_120fov",
+    1: "camera_cross_left_120fov",
+    2: "camera_cross_right_120fov",
+    3: "camera_rear_left_70fov",
+    4: "camera_rear_right_70fov",
+    5: "camera_rear_tele_30fov",
+    6: "camera_front_tele_30fov",
+}
+
+DEFAULT_VIDEO_KEY_MAPPING: Final = {camera_name: f"video_{i}" for i, camera_name in INDEX_TO_CAMERA_MAPPING.items()}
+DEFAULT_CONTROL_KEY_MAPPING: Final = {
+    camera_name: f"world_scenario_{i}" for i, camera_name in INDEX_TO_CAMERA_MAPPING.items()
+}
+# this is unpacked from metas dict
+DEFAULT_CAMERA_CAPTION_KEY_MAPPING: Final = {
+    camera_name: f"metas_{camera_name}" for _, camera_name in INDEX_TO_CAMERA_MAPPING.items()
+}
 
 
-def register_training_and_val_data():
-    cs = ConfigStore()
-    cs.store(group="data_train", package="dataloader_train", name="mock", node=MOCK_DATA_INTERLEAVE_CONFIG)
-    cs.store(group="data_train", package="dataloader_train", name="mock_image", node=MOCK_DATA_IMAGE_ONLY_CONFIG)
-    cs.store(group="data_train", package="dataloader_train", name="mock_video", node=MOCK_DATA_VIDEO_ONLY_CONFIG)
-    cs.store(group="data_val", package="dataloader_val", name="mock", node=MOCK_DATA_INTERLEAVE_CONFIG)
-    for training_type in ["train", "val"]:  # register datasets for both training and validation
-        for object_store in ["s3", "swiftstack"]:
-            for video_version_by_date in ["transfer2_av_mads_mv_20250710", "transfer2_av_mads_mv_20250823"]:
-                for resolution in ["720", "720p", "480p"]:
-                    for num_video_frames_loaded_per_view in [121, 85, 61, 29]:
-                        for num_video_frames_per_view in [29, 61]:
-                            for sample_n_views in [4, 7]:
-                                mads_driving_dataloader_config = deepcopy(
-                                    MADS_DRIVING_DATALOADER_CONFIG_PER_RESOLUTION[resolution]
-                                )
-                                mads_driving_dataloader_config.num_video_frames_loaded_per_view = (
-                                    num_video_frames_loaded_per_view
-                                )
-                                mads_driving_dataloader_config.n_views = sample_n_views
-                                if sample_n_views == 7:
-                                    view_str = ""
-                                else:
-                                    mads_driving_dataloader_config.camera_to_view_id = camera_to_view_id_config[
-                                        sample_n_views
-                                    ]
-                                    mads_driving_dataloader_config.video_id_to_camera_key = (
-                                        video_id_to_camera_key_config[sample_n_views]
-                                    )
-                                    view_str = f"_{sample_n_views}views"
-                                if video_version_by_date == "transfer2_av_mads_mv_20250823":
-                                    mads_driving_dataloader_config.override_original_fps = 30.0
-                                mads_driving_dataloader_config.num_video_frames_per_view = num_video_frames_per_view
-                                resolution_str = "" if resolution == "720" else f"_{resolution}"
-                                if num_video_frames_loaded_per_view == 85 and num_video_frames_per_view == 29:
-                                    frames_str = ""  # default 10fps dataset
-                                elif num_video_frames_loaded_per_view == num_video_frames_per_view:
-                                    frames_str = f"_{num_video_frames_per_view}frames"
-                                else:
-                                    frames_str = (
-                                        f"_{num_video_frames_loaded_per_view}framesto{num_video_frames_per_view}"
-                                    )
-                                cs.store(
-                                    group=f"data_{training_type}",
-                                    package=f"dataloader_{training_type}",
-                                    name=f"video_only_cosmos_{video_version_by_date}{resolution_str}{frames_str}{view_str}_{object_store}",
-                                    node=get_video_dataloader_multiview(
-                                        dataset_name=f"cosmos_{video_version_by_date}_video_whole",
-                                        object_store=object_store,
-                                        resolution=resolution,
-                                        driving_dataloader_config=mads_driving_dataloader_config,
+def register_dataloaders() -> None:
+    cs = ConfigStore.instance()
+    cs.store(group="data_train", package="dataloader_train", name="mock", node=MOCK_DATA_VIDEO_ONLY_CONFIG)
+    cs.store(group="data_val", package="dataloader_val", name="mock", node=MOCK_DATA_VIDEO_ONLY_CONFIG)
+
+    for object_store in ["s3", "gcs"]:
+        for dataset_name in ["mads_multiview_0823"]:
+            assert dataset_name in DEFAULT_CATALOG, (
+                f"Dataset {dataset_name} not found in catalog [{DEFAULT_CATALOG.keys()}]"
+            )
+            for resolution_str, resolution_hw in [("480p", (480, 832)), ("720p", (720, 1280))]:
+                for fps_str, fps_downsample_factor in [
+                    ("10fps", 1)
+                ]:  # N.B. mads_multiview_0823 dataset has videos at 10Hz, not 30Hz!
+                    for num_video_frames_str, num_video_frames in [
+                        ("29frames", 29),
+                        ("61frames", 61),
+                        ("93frames", 93),
+                    ]:
+                        for views_str, camera_keys in DEFAULT_CAMERA_VIEW_CONFIGS.items():
+                            name = f"video_control_{dataset_name}_{object_store}_{resolution_str}_{fps_str}_{num_video_frames_str}_{views_str}"
+                            cs.store(
+                                group=f"data_train",
+                                package=f"dataloader_train",
+                                name=name,
+                                node=L(get_multiview_video_loader)(
+                                    is_train=True,
+                                    dataset_name=dataset_name,
+                                    object_store=object_store,
+                                    augmentation_config=L(AugmentationConfig)(
+                                        resolution_hw=resolution_hw,
+                                        fps_downsample_factor=fps_downsample_factor,
+                                        num_video_frames=num_video_frames,
+                                        camera_keys=camera_keys,
+                                        camera_video_key_mapping=DEFAULT_VIDEO_KEY_MAPPING,
+                                        camera_caption_key_mapping=DEFAULT_CAMERA_CAPTION_KEY_MAPPING,
+                                        camera_control_key_mapping=DEFAULT_CONTROL_KEY_MAPPING,
+                                        position_to_camera_mapping=INDEX_TO_CAMERA_MAPPING,
                                     ),
-                                )
+                                ),
+                            )

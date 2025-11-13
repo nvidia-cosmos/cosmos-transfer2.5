@@ -14,26 +14,31 @@
 # limitations under the License.
 
 import argparse
+
 import cv2
 
-def ranged_float(min_val, max_val):
-    def checker(x):
-        x = float(x)
-        if not (min_val <= x <= max_val):
-            raise argparse.ArgumentTypeError(f"Value must be between {min_val} and {max_val}")
-        return x
-    return checker
 
-def ranged_int(min_val, max_val):
-    def checker(x):
-        x = int(x)
-        if not (min_val <= x <= max_val):
+def ranged_float(min_val: float, max_val: float):
+    def checker(x: str) -> float:
+        x_float = float(x)
+        if not (min_val <= x_float <= max_val):
             raise argparse.ArgumentTypeError(f"Value must be between {min_val} and {max_val}")
-        return x
+        return x_float
+
     return checker
 
 
-def generate_edges(in_path, out_path, bright=50, contrast=1.0):
+def ranged_int(min_val: int, max_val: int):
+    def checker(x: str) -> int:
+        x_int = int(x)
+        if not (min_val <= x_int <= max_val):
+            raise argparse.ArgumentTypeError(f"Value must be between {min_val} and {max_val}")
+        return x_int
+
+    return checker
+
+
+def generate_edges(in_path: str, out_path: str, bright: int = 50, contrast: float = 1.0) -> None:
     cap = cv2.VideoCapture(in_path)
     assert cap.isOpened(), "Could not open input video."
     fps = cap.get(cv2.CAP_PROP_FPS)

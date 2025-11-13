@@ -14,12 +14,12 @@
 # limitations under the License.
 
 import argparse
-import numpy as np
+
 import imageio.v3 as iio
+import numpy as np
 
 
-def invert_video(input_binary_mask, output_video_path):
-
+def invert_video(input_binary_mask: str, output_video_path: str) -> None:
     frames = list(iio.imiter(input_binary_mask))
 
     inverted_frames = []
@@ -28,7 +28,7 @@ def invert_video(input_binary_mask, output_video_path):
         # Convert to grayscale if needed
         if frame.ndim == 3:
             frame = frame[..., 0]
-        
+
         # Ensure it's binary (0/255)
         frame = (frame > 127).astype(np.uint8) * 255
 
@@ -60,4 +60,3 @@ python cosmos_transfer2/_src/transfer2/auxiliary/utils/invert_mask.py \
 input_video.mp4 \
 inverted_mask.mp4
 """
-

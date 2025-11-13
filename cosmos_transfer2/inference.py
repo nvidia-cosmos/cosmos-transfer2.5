@@ -200,7 +200,7 @@ class Control2WorldInference:
             start_time = None
 
         # Run model inference
-        output_video, control_video_dict, fps, _ = self.inference_pipeline.generate_img2world(
+        output_video, control_video_dict, mask_video_dict, fps, _ = self.inference_pipeline.generate_img2world(
             # pyrefly: ignore  # bad-argument-type
             video_path=path_to_str(sample.video_path),
             prompt=prompt,
@@ -236,6 +236,10 @@ class Control2WorldInference:
                 control_video_dict[key] = (1.0 + control_video_dict[key][0]) / 2
                 save_img_or_video(control_video_dict[key], f"{output_path}_control_{key}", fps=fps)
                 log.info(f"{key} control video saved to {output_path}_control_{key}.mp4")
+
+            for key in mask_video_dict:
+                save_img_or_video(mask_video_dict[key], f"{output_path}_mask_{key}", fps=fps)
+                log.info(f"Mask for {key} saved to {output_path}_mask_{key}.mp4")
 
             # run video guardrail on the video
             if self.video_guardrail_runner is not None:

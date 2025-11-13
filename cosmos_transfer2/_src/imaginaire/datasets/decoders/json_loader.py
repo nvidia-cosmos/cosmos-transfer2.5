@@ -13,4 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-__version__ = "1.3.2"
+import json
+import re
+from typing import Optional
+
+
+def json_decoder(key: str, data: bytes) -> Optional[dict]:
+    r"""
+    Function to decode a json file.
+    Args:
+        key: Data key.
+        data: Data dict.
+    """
+    extension = re.sub(r".*[.]", "", key)
+    if extension == "json":
+        data_dict = json.loads(data)
+        return data_dict
+    else:
+        return None

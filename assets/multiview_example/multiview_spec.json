@@ -1,6 +1,7 @@
 {
     "name": "auto_multiview",
     "prompt_path": "prompt.txt",
+    "fps": 10,
     "front_wide":{
         "input_path": "input_videos/night_front_wide_120fov.mp4",
         "control_path": "world_scenario_videos/ws_front_wide_120fov.mp4"

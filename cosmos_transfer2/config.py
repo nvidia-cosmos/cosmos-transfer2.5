@@ -28,7 +28,7 @@ import tyro
 from pydantic_core import PydanticUndefined
 from typing_extensions import Self
 
-from cosmos_transfer2._src.imaginaire.flags import EXPERIMENTAL_CHECKPOINTS, SMOKE
+from cosmos_transfer2._src.imaginaire.flags import SMOKE
 from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_by_uuid
 
@@ -160,9 +160,7 @@ MODEL_CHECKPOINTS = {
     ModelKey(variant=ModelVariant.EDGE): get_checkpoint_by_uuid("ecd0ba00-d598-4f94-aa09-e8627899c431"),
     ModelKey(variant=ModelVariant.SEG): get_checkpoint_by_uuid("fcab44fe-6fe7-492e-b9c6-67ef8c1a52ab"),
     ModelKey(variant=ModelVariant.VIS): get_checkpoint_by_uuid("20d9fd0b-af4c-4cca-ad0b-f9b45f0805f1"),
-    ModelKey(variant=ModelVariant.AUTO_MULTIVIEW): get_checkpoint_by_uuid("b5ab002d-a120-4fbf-a7f9-04af8615710b")
-    if not EXPERIMENTAL_CHECKPOINTS
-    else get_checkpoint_by_uuid("4ecc66e9-df19-4aed-9802-0d11e057287a"),
+    ModelKey(variant=ModelVariant.AUTO_MULTIVIEW): get_checkpoint_by_uuid("4ecc66e9-df19-4aed-9802-0d11e057287a"),
 }
 
 MODEL_KEYS = {k.name: k for k in MODEL_CHECKPOINTS.keys()}

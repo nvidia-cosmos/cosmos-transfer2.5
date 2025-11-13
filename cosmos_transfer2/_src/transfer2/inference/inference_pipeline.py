@@ -282,7 +282,7 @@ class ControlVideo2WorldInference:
         negative_prompt: str | None = None,
         max_frames: int | None = None,
         context_frame_idx: int | None = None,
-    ) -> tuple[torch.Tensor, dict[str, torch.Tensor], int, tuple[int, int]]:
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, torch.Tensor], int, tuple[int, int]]:
         """
         Generates a video based on an input video and text prompt.
         Supports chunk-wise long video generation.
@@ -351,7 +351,7 @@ class ControlVideo2WorldInference:
         )
         # Load control inputs from paths, or optionally compute on-the-fly, and add to data batch.
         log.info("Loading control inputs...")
-        control_input_dict = read_and_process_control_input(
+        control_input_dict, mask_video_dict = read_and_process_control_input(
             video_path=video_path,
             input_control_paths=input_control_video_paths,
             hint_key=hint_key,
@@ -528,4 +528,4 @@ class ControlVideo2WorldInference:
                         control_video_dict[key], [key], False, False, original_hw
                     )
         log.info(f"Average time per chunk: {sum(time_per_chunk) / len(time_per_chunk)}")
-        return full_video, control_video_dict, fps, original_hw
+        return full_video, control_video_dict, mask_video_dict, fps, original_hw

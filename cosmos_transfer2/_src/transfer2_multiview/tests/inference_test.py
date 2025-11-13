@@ -34,7 +34,7 @@ from cosmos_transfer2._src.imaginaire.utils.easy_io import easy_io
 from cosmos_transfer2._src.imaginaire.utils.helper_test import RunIf
 
 # Experiment configuration
-EXPERIMENT_NAME = "buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase5knofps_mads720pmulticaps29frames_world_scenario_resumefrom21k"
+EXPERIMENT_NAME = "buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_fromfinetuned12knofpsuniform_mads720pmulticaps29frames_world_scenario_nofps_uniform"
 CHECKPOINT_PATH = "s3://bucket/cosmos_transfer2_multiview/cosmos2_mv/buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase5knofps_mads720pmulticaps29frames_world_scenario_resumefrom21k-0/checkpoints/iter_000005000"
 CONTEXT_PARALLEL_SIZE = 8
 MIN_GPUS = 8

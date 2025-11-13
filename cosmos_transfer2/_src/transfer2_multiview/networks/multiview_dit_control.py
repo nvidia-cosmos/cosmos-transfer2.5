@@ -609,7 +609,6 @@ class MultiViewControlDiT(MinimalV4LVGControlVaceDiT):
         n_cameras = (control_B_C_T_H_W.shape[2] * cp_size) // self.state_t
         pos_embedder = self.pos_embedder_options[f"n_cameras_{n_cameras}"]
 
-        log.debug(f"control_B_C_T_H_W shape before: {control_B_C_T_H_W.shape}")
         if self.concat_view_embedding:
             if view_indices_B_T is None:
                 view_indices = torch.arange(n_cameras).clamp(max=self.n_cameras_emb - 1)

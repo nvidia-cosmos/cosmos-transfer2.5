@@ -18,15 +18,15 @@ This script is based on projects/cosmos/diffusion/v2/inference/vid2vid.py
 
 To run inference on the training data (as visualization/debugging), use:
 ```bash
-EXP=buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase2p5_mads720pmulticaps29frames_world_scenario
-ckpt_path=s3://bucket/cosmos_transfer2_multiview/cosmos2_mv/buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_frombase2p5_mads720pmulticaps29frames_world_scenario-0/checkpoints/iter_000021000
+EXP=buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_fromfinetuned12knofpsuniform_mads720pmulticaps29frames_world_scenario_nofps_uniform
+ckpt_path=s3://bucket/cosmos_transfer2_multiview/cosmos2_mv/buttercup_transfer2p5_2b_mv_7views_res720p_fps10_t8_fromfinetuned12knofpsuniform_mads720pmulticaps29frames_world_scenario_nofps_uniform-0/checkpoints/iter_000006500/
 PYTHONPATH=. torchrun --nproc_per_node=8 --master_port=12341 -m cosmos_transfer2._src.transfer2_multiview.inference.inference --seed 0 --experiment ${EXP} --ckpt_path ${ckpt_path} --context_parallel_size 8 --max_samples 1 --save_root results/
 ```
 
 ```bash
 EXP=transfer2p5_2b_mv_7train7_res720p_fps10_t24_frombase2p5avfinetune_mads_only_allcaption_uniform_nofps_wm_condition
-ckpt_path=s3://bucket/cosmos_transfer2_multiview/cosmos2_mv2/transfer2p5_2b_mv_7train5_res720p_fps10_t24_frombase2p5avfinetune_mads_only_allcaption_uniform_nofps_wm_condition-0/checkpoints/iter_000003000
-PYTHONPATH=. torchrun --nproc_per_node=8 --master_port=12341 -m cosmos_transfer2._src.transfer2_multiview.inference.inference --seed 0 --experiment ${EXP} --ckpt_path ${ckpt_path} --context_parallel_size 8 --max_samples 30 --save_root results/transfer2_multiview/7train5_3000_single_caption --num_conditional_frames 0
+ckpt_path=s3://bucket/cosmos_transfer2_multiview/cosmos2_mv2/transfer2p5_2b_mv_7train5_res720p_fps10_t24_frombase2p5avfinetune_mads_only_allcaption_uniform_nofps_wm_condition-0/checkpoints/iter_000005500
+PYTHONPATH=. torchrun --nproc_per_node=8 --master_port=12341 -m cosmos_transfer2._src.transfer2_multiview.inference.inference --seed 0 --experiment ${EXP} --ckpt_path ${ckpt_path} --context_parallel_size 8 --max_samples 30 --save_root results/transfer2_multiview/7train5_5500 --num_conditional_frames 0
 ```
 
 """
@@ -85,8 +85,8 @@ def time_to_width_dimension(mv_video, data_batch):
     Returns:
         (B, C, T, V, H, W)
     """
-    n_views = len(data_batch["view_indices_selection"])
-    current_view_index_order = [i.item() for i in data_batch["view_indices_selection"]]
+    n_views = len(data_batch["view_indices_selection"][0])
+    current_view_index_order = [i.item() for i in data_batch["view_indices_selection"][0]]
     expected_view_index_order = visualization_view_index_order
 
     # Reorder views to match expected visualization order
@@ -99,6 +99,7 @@ def time_to_width_dimension(mv_video, data_batch):
 
         # Reshape to separate view and time dimensions
         B, C, VT, H, W = mv_video.shape
+
         T = VT // n_views
         mv_video = rearrange(mv_video, "B C (V T) H W -> B C V T H W", V=n_views)
 

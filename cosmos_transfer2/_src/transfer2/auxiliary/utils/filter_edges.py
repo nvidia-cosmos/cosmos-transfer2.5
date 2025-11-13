@@ -14,23 +14,26 @@
 # limitations under the License.
 
 import argparse
+
 import cv2
 import numpy as np
 
 
-def ensure_gray(img):
+def ensure_gray(img: np.ndarray) -> np.ndarray:
     if img.ndim == 2:
         return img
     return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
 
-def make_kernel(px):
+def make_kernel(px: int) -> np.ndarray:
     """Return an odd-sized elliptical kernel roughly px radius."""
     k = max(1, int(px) * 2 + 1)  # ensure odd
     return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
 
 
-def grow_and_feather_mask(mask_frame, threshold, grow_px=0, close_px=0, feather_px=0):
+def grow_and_feather_mask(
+    mask_frame: np.ndarray, threshold: int, grow_px: int = 0, close_px: int = 0, feather_px: int = 0
+) -> np.ndarray:
     """
     1) Binarize by threshold.
     2) Optional closing (fill small holes/gaps).
@@ -69,7 +72,14 @@ def grow_and_feather_mask(mask_frame, threshold, grow_px=0, close_px=0, feather_
     return mask_bin
 
 
-def apply_mask(edge_frame_bgr, mask_frame, threshold, grow_px=0, close_px=0, feather_px=0):
+def apply_mask(
+    edge_frame_bgr: np.ndarray,
+    mask_frame: np.ndarray,
+    threshold: int,
+    grow_px: int = 0,
+    close_px: int = 0,
+    feather_px: int = 0,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Apply a grown/feathered mask to edge_frame_bgr.
     Returns (BGR, RGBA).
@@ -96,7 +106,9 @@ def apply_mask(edge_frame_bgr, mask_frame, threshold, grow_px=0, close_px=0, fea
     return out_bgr, out_rgba
 
 
-def filter_out_edges(edges_p, mask_p, out_p, threshold=0, grow_px=0, close_px=0, feather_px=0):
+def filter_out_edges(
+    edges_p: str, mask_p: str, out_p: str, threshold: int = 0, grow_px: int = 0, close_px: int = 0, feather_px: int = 0
+) -> None:
     edge_cap = cv2.VideoCapture(str(edges_p))
     mask_cap = cv2.VideoCapture(str(mask_p))
 
@@ -114,17 +126,12 @@ def filter_out_edges(edges_p, mask_p, out_p, threshold=0, grow_px=0, close_px=0,
     if not writer.isOpened():
         raise RuntimeError("Failed to open VideoWriter. Try a different --fourcc (e.g., avc1, XVID, MJPG).")
 
-    last_edge = last_mask = None
-
     while True:
-        edge_ok, edge_frame = edge_cap.read()
-        mask_ok, mask_frame = mask_cap.read()
+        _, edge_frame = edge_cap.read()
+        _, mask_frame = mask_cap.read()
 
         if edge_frame is None or mask_frame is None:
             break
-
-        last_edge = edge_frame
-        last_mask = mask_frame
 
         # Ensure edge is BGR
         if edge_frame.ndim == 2:

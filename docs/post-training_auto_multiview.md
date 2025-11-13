@@ -79,7 +79,7 @@ Run the following command to execute an example post-training job with multiview
 torchrun --nproc_per_node=8 --master_port=12341 -m scripts.train --config=cosmos_transfer2/_src/transfer2_multiview/configs/vid2vid_transfer/config.py -- experiment=transfer2_auto_multiview_post_train_example job.wandb_mode=disabled
 ```
 
-The model will be post-trained using the multiview dataset. See the [data config](../cosmos_transfer2/_src/transfer2_multiview/configs/vid2vid_transfer/defaults/data.py) to understand how the dataloader is defined.
+The model will be post-trained using the multiview dataset. See the [data config](../cosmos_transfer2/_src/transfer2_multiview/configs/vid2vid_transfer/defaults/dataloader_local.py) to understand how the dataloader is defined.
 
 Checkpoints are saved to `${IMAGINAIRE_OUTPUT_ROOT}/PROJECT/GROUP/NAME/checkpoints`. By default, `IMAGINAIRE_OUTPUT_ROOT` is `/tmp/imaginaire4-output`. We strongly recommend setting `IMAGINAIRE_OUTPUT_ROOT` to a location with sufficient storage space for your checkpoints.
 
