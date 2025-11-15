@@ -57,6 +57,8 @@ Leveraging sensor captured RGB or ground truth augmentations.
 | --- | --- | --- |
 | <video src="https://github.com/user-attachments/assets/4705c192-b8c6-4ba3-af7f-fd968c4a3eeb" width="100%" alt="Input video" controls></video> | <video src="https://github.com/user-attachments/assets/ba92fa5d-2972-463e-af2e-a637a810a463" width="100%" alt="Control map video" controls></video> | <video src="https://github.com/user-attachments/assets/0c5151d4-968b-42ad-a517-cdc0dde37ee5" width="100%" alt="Output video" controls></video> |
 
+For example application of using augmented data in downstream task improvement see [Cosmos Transfer Sim2Real for Robotics Navigation Tasks](https://nvidia-cosmos.github.io/cosmos-cookbook/recipes/inference/transfer1/inference-x-mobility/inference.html) or [Cosmos Transfer 2.5 Sim2Real for Simulator Videos](https://nvidia-cosmos.github.io/cosmos-cookbook/recipes/inference/transfer2_5/inference-carla-sdg-augmentation/inference.html) in the [Cosmos Cookbook](https://nvidia-cosmos.github.io/cosmos-cookbook/).
+
 ## Cosmos-Transfer2.5 Model Family
 
 Cosmos-Transfer supports data generation in multiple industry verticals, outlined below. Please check back as we continue to add more specialized models to the Transfer family!
