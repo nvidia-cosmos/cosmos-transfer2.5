@@ -237,11 +237,11 @@ class ControlVideo2WorldInference:
             else:
                 raise ValueError(f"Invalid padding mode: {padding_mode}")
         return input_frames
-
+    
     @torch.no_grad()
-    def generate_img2world(
+    def generate_image2world_from_embeddings(
         self,
-        prompt: str | torch.Tensor | list[str] | dict[str, str],
+        text_embeddings: torch.Tensor,
         video_path: str,
         guidance: int = 7,
         seed: int = 1,
@@ -264,30 +264,7 @@ class ControlVideo2WorldInference:
         max_frames: int | None = None,
         context_frame_idx: int | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor], int, tuple[int, int]]:
-        """
-        Generates a video based on an input video and text prompt.
-        Supports chunk-wise long video generation.
-
-        Args:
-            prompt (str): The text prompt describing the desired video content/style.
-            video_path (str): Path to the input conditional video.
-            guidance (int, optional): Classifier-free guidance scale. Defaults to 7.
-            seed (int, optional): Random seed for reproducibility. Defaults to 1.
-            resolution (str, optional): Resolution of the video (720-default, 480, etc). Defaults to 720.
-            image_context_path (str, optional): Path to image file to use as image context. If None, uses random frame from video. Will be ignored and use input video if context_frame_idx is provided.
-            keep_input_resolution (bool, optional): Whether to keep the exact dimension of the. Defaults to True.
-            negative_prompt (str, optional): Negative prompt for classifier-free guidance. Defaults to None.
-            max_frames (int, optional): Maximum number of frames to read from the video. Defaults to None. 1 for image.
-            context_frame_idx (int, optional): Frame index of the input video to use as image context. Defaults to None. In this case, can still use image_context_path to provide image context.
-        Returns:
-            torch.Tensor: The generated video tensor (B, C, T, H, W) in the range [-1, 1].
-            dict[str, torch.Tensor]: Dictionary mapping hint key to the corresponding control input video tensor.
-            int: Frames per second of the original input video.
-            tuple[int, int]: Original height and width of the input video.
-
-        Raises:
-            ValueError: If the input video is empty or invalid.
-        """
+        assert negative_prompt is None or self.neg_t5_embeddings is not None, "Negative prompt embedding is not computed."
         # --------Input processing--------
         # Process input video and get meta info.
         log.info("Loading input video...")
@@ -298,26 +275,6 @@ class ControlVideo2WorldInference:
         )
         if input_frames.shape[1] == 0:
             raise ValueError("Input video is empty")
-
-        # Get text context embeddings
-        log.info("Computing prompt text embeddings...")
-        if self.text_encoder_class == "T5":
-            text_embeddings = get_t5_from_prompt(prompt, text_encoder_class="T5", cache_dir=self.cache_dir)
-        else:
-            text_embeddings = self.model.text_encoder.compute_text_embeddings_online(
-                {"ai_caption": [prompt], "images": None}, input_caption_key="ai_caption"
-            )
-        if negative_prompt:
-            log.info("Computing negative prompt text embeddings...")
-            if self.text_encoder_class == "T5":
-                neg_text_embeddings = get_t5_from_prompt(
-                    negative_prompt, text_encoder_class="T5", cache_dir=self.cache_dir
-                )
-            else:
-                neg_text_embeddings = self.model.text_encoder.compute_text_embeddings_online(
-                    {"ai_caption": [negative_prompt], "images": None}, input_caption_key="ai_caption"
-                )
-            self.neg_t5_embeddings = neg_text_embeddings
 
         # Process image context if provided; else will be None
         log.info("Processing image context if available...")
@@ -510,3 +467,98 @@ class ControlVideo2WorldInference:
                     )
         log.info(f"Average time per chunk: {sum(time_per_chunk) / len(time_per_chunk)}")
         return full_video, control_video_dict, fps, original_hw
+
+    @torch.no_grad()
+    def generate_img2world(
+        self,
+        prompt: str | torch.Tensor | list[str] | dict[str, str],
+        video_path: str,
+        guidance: int = 7,
+        seed: int = 1,
+        resolution: str = "720",
+        num_conditional_frames: int = 1,
+        num_video_frames_per_chunk: int = 93,
+        num_steps: int = 35,
+        control_weight: str = "1.0",
+        sigma_max: float | None = None,
+        hint_key: list[str] = ["edge"],
+        preset_edge_threshold: str = "medium",
+        preset_blur_strength: str = "medium",
+        seg_control_prompt: str | None = None,
+        input_control_video_paths: dict[str, str] | None = None,
+        show_control_condition: bool = False,
+        show_input: bool = False,
+        image_context_path: Optional[str] = None,
+        keep_input_resolution: bool = True,
+        negative_prompt: str | None = None,
+        max_frames: int | None = None,
+        context_frame_idx: int | None = None,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor], int, tuple[int, int]]:
+        """
+        Generates a video based on an input video and text prompt.
+        Supports chunk-wise long video generation.
+
+        Args:
+            prompt (str): The text prompt describing the desired video content/style.
+            video_path (str): Path to the input conditional video.
+            guidance (int, optional): Classifier-free guidance scale. Defaults to 7.
+            seed (int, optional): Random seed for reproducibility. Defaults to 1.
+            resolution (str, optional): Resolution of the video (720-default, 480, etc). Defaults to 720.
+            image_context_path (str, optional): Path to image file to use as image context. If None, uses random frame from video. Will be ignored and use input video if context_frame_idx is provided.
+            keep_input_resolution (bool, optional): Whether to keep the exact dimension of the. Defaults to True.
+            negative_prompt (str, optional): Negative prompt for classifier-free guidance. Defaults to None.
+            max_frames (int, optional): Maximum number of frames to read from the video. Defaults to None. 1 for image.
+            context_frame_idx (int, optional): Frame index of the input video to use as image context. Defaults to None. In this case, can still use image_context_path to provide image context.
+        Returns:
+            torch.Tensor: The generated video tensor (B, C, T, H, W) in the range [-1, 1].
+            dict[str, torch.Tensor]: Dictionary mapping hint key to the corresponding control input video tensor.
+            int: Frames per second of the original input video.
+            tuple[int, int]: Original height and width of the input video.
+
+        Raises:
+            ValueError: If the input video is empty or invalid.
+        """
+        # Get text context embeddings
+        log.info("Computing prompt text embeddings...")
+        if self.text_encoder_class == "T5":
+            text_embeddings = get_t5_from_prompt(prompt, text_encoder_class="T5", cache_dir=self.cache_dir)
+        else:
+            text_embeddings = self.model.text_encoder.compute_text_embeddings_online(
+                {"ai_caption": [prompt], "images": None}, input_caption_key="ai_caption"
+            )
+        if negative_prompt:
+            log.info("Computing negative prompt text embeddings...")
+            if self.text_encoder_class == "T5":
+                neg_text_embeddings = get_t5_from_prompt(
+                    negative_prompt, text_encoder_class="T5", cache_dir=self.cache_dir
+                )
+            else:
+                neg_text_embeddings = self.model.text_encoder.compute_text_embeddings_online(
+                    {"ai_caption": [negative_prompt], "images": None}, input_caption_key="ai_caption"
+                )
+            self.neg_t5_embeddings = neg_text_embeddings
+
+        return self.generate_image2world_from_embeddings(
+            text_embeddings=text_embeddings,
+            video_path=video_path,
+            guidance=guidance,
+            seed=seed,
+            resolution=resolution,
+            num_conditional_frames=num_conditional_frames,
+            num_video_frames_per_chunk=num_video_frames_per_chunk,
+            num_steps=num_steps,
+            control_weight=control_weight,
+            sigma_max=sigma_max,
+            hint_key=hint_key,
+            preset_edge_threshold=preset_edge_threshold,
+            preset_blur_strength=preset_blur_strength,
+            seg_control_prompt=seg_control_prompt,
+            input_control_video_paths=input_control_video_paths,
+            show_control_condition=show_control_condition,
+            show_input=show_input,
+            image_context_path=image_context_path,
+            keep_input_resolution=keep_input_resolution,
+            negative_prompt=negative_prompt,
+            max_frames=max_frames,
+            context_frame_idx=context_frame_idx,
+        )
