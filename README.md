@@ -33,29 +33,55 @@ Cosmos-Transfer2.5 is a multi-controlnet designed to accept structured input of 
 
 Physical AI trains upon data generated in two important data augmentation workflows.
 
-### Simulations to Photorealism
+### Simulation 2 Real Augmentation
 
 Minimizing the need for achieving high fidelity in 3D simulation.
 
 **Input prompt:**
-> The video is a demonstration of robotic manipulation, likely in a laboratory or testing environment. It features two robotic arms interacting with a piece of blue fabric. <details> <summary>Click to see more prompt</summary>
-> The setting is a room with a beige couch in the background, providing a neutral backdrop for the robotic activity. The robotic arms are positioned on either side of the fabric, which is placed on a yellow cushion. The left robotic arm is white with a black gripper, while the right arm is black with a more complex, articulated gripper. At the beginning, the fabric is laid out on the cushion. The left robotic arm approaches the fabric, its gripper opening and closing as it positions itself. The right arm remains stationary initially, poised to assist. As the video progresses, the left arm grips the fabric, lifting it slightly off the cushion. The right arm then moves in, its gripper adjusting to grasp the opposite side of the fabric. Both arms work in coordination, lifting and holding the fabric between them. The fabric is manipulated with precision, showcasing the dexterity and control of the robotic arms. The camera remains static throughout, focusing on the interaction between the robotic arms and the fabric, allowing viewers to observe the detailed movements and coordination involved in the task.</details>
+> A contemporary luxury kitchen with marble tabletops. window with beautiful sunset outside. There is an esspresso coffee maker on the table in front of the white robot arm. Robot arm interacts with a coffee cup and coffee maker on the kitchen table.
 
-| Input Video | Computed Control | Output Video |
-| --- | --- | --- |
-| <video src="https://github.com/user-attachments/assets/bffc031e-3933-4511-a659-136965931ab0" width="100%" alt="Input video" controls></video> | <video src="https://github.com/user-attachments/assets/8ed4c49c-af26-4318-b95a-32f9cf44d992" width="100%" alt="Control map video" controls></video> | <video src="https://github.com/user-attachments/assets/88f7e63b-efe1-46ff-8174-df2f01462c53" width="100%" alt="Output video" controls></video> |
+<table>
+  <tr>
+    <th>Input Video</th>
+    <th>Computed Control</th>
+    <th>Output Video</th>
+  </tr>
+  <tr>
+    <td valign="top" width="33%">
+      <video src="https://github.com/user-attachments/assets/20d63162-0fd5-483a-a306-7b8021df5ed9" width="100%" alt="Input video" controls></video>
+    </td>
+    <td valign="top" width="33%">
+      <video src="https://github.com/user-attachments/assets/131ffe81-cca0-44cd-8547-7b0e49d5253f" width="100%" alt="Control map video" controls></video>
+      <details>
+        <summary>See more computed controls</summary>
+        <video src="https://github.com/user-attachments/assets/e4dd3b80-4696-4930-8b05-6d41e37974c2" width="100%" alt="Control map video" controls></video>
+        <video src="https://github.com/user-attachments/assets/5a816f4d-fdc3-4939-b2b9-141c6ee64d2b" width="100%" alt="Control map video" controls></video>
+      </details>
+    </td>
+    <td valign="top" width="33%">
+      <video src="https://github.com/user-attachments/assets/56f76740-ea36-4916-9e94-c983d6b84d28" width="100%" alt="Output video" controls></video>
+    </td>
+  </tr>
+</table>
 
-### Scale World State Diversity
+### Real 2 Real Augmentation
 
-Leveraging sensor captured RGB or ground truth augmentations.
+Leveraging sensor captured RGB augmentation.
 
 **Input prompt:**
-> The video is a driving scene through a modern urban environment, likely captured from a dashcam or a similar fixed camera setup inside a vehicle. <details><summary>Click to see more prompt</summary>
-> The scene unfolds on a wide, multi-lane road flanked by tall, modern buildings with glass facades. The road is relatively empty, with only a few cars visible, including a black car directly ahead of the camera, maintaining a steady pace. The camera remains static, providing a consistent view of the road and surroundings as the vehicle moves forward.On the left side of the road, there are several trees lining the sidewalk, providing a touch of greenery amidst the urban setting. Pedestrians are visible on the sidewalks, some walking leisurely, while others stand near the buildings. The buildings are a mix of architectural styles, with some featuring large glass windows and others having more traditional concrete exteriors. A few commercial signs and logos are visible on the buildings, indicating the presence of businesses and offices.Traffic cones are placed on the road ahead, suggesting some form of roadwork or lane closure, guiding the vehicles to merge or change lanes. The road markings are clear, with white arrows indicating the direction of travel. The sky is clear, suggesting a sunny day, which enhances the visibility of the scene. Throughout the video, the vehicle maintains a steady speed, and the camera captures the gradual approach towards the intersection, where the road splits into different directions. The overall atmosphere is calm and orderly, typical of a city during non-peak hours.</details>
+> Dashcam video, driving through a modern urban environment, twilight or early morning, partly cloudy.
 
 | Input Video | Computed Control | Output Video |
 | --- | --- | --- |
-| <video src="https://github.com/user-attachments/assets/4705c192-b8c6-4ba3-af7f-fd968c4a3eeb" width="100%" alt="Input video" controls></video> | <video src="https://github.com/user-attachments/assets/ba92fa5d-2972-463e-af2e-a637a810a463" width="100%" alt="Control map video" controls></video> | <video src="https://github.com/user-attachments/assets/0c5151d4-968b-42ad-a517-cdc0dde37ee5" width="100%" alt="Output video" controls></video> |
+| <video src="https://github.com/user-attachments/assets/4705c192-b8c6-4ba3-af7f-fd968c4a3eeb" width="100%" alt="Input video" controls></video> | <video src="https://github.com/user-attachments/assets/ba92fa5d-2972-463e-af2e-a637a810a463" width="100%" alt="Control map video" controls></video> | <video src="https://github.com/user-attachments/assets/8e62af23-3ca4-4e72-97fe-7a337a31d306" width="100%" alt="Output video" controls></video> |
+
+### Scaling World State Diversity Examples
+
+Robotic Matrix Diversity Example
+<video src="https://github.com/user-attachments/assets/5daee273-5f49-4238-a67f-d63fdb48a4d9" width="100%" alt="Input video" controls></video>
+
+AV Matrix Diversity Example
+<video src="https://github.com/user-attachments/assets/51b18d9b-0cb4-44dc-898c-624e3020dcb1" width="100%" alt="Input video" controls></video>
 
 For an example demonstrating how to augment sythentic data with Cosmos Transfer on robotics navigation tasks to improve Sim2Real performance see [Cosmos Transfer Sim2Real for Robotics Navigation Tasks](https://nvidia-cosmos.github.io/cosmos-cookbook/recipes/inference/transfer1/inference-x-mobility/inference.html) in the [Cosmos Cookbook](https://nvidia-cosmos.github.io/cosmos-cookbook/).
 
