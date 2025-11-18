@@ -69,11 +69,31 @@ Minimizing the need for achieving high fidelity in 3D simulation.
 Leveraging sensor captured RGB augmentation.
 
 **Input prompt:**
-> Dashcam video, driving through a modern urban environment, twilight or early morning, partly cloudy.
-
-| Input Video | Computed Control | Output Video |
-| --- | --- | --- |
-| <video src="https://github.com/user-attachments/assets/4705c192-b8c6-4ba3-af7f-fd968c4a3eeb" width="100%" alt="Input video" controls></video> | <video src="https://github.com/user-attachments/assets/ba92fa5d-2972-463e-af2e-a637a810a463" width="100%" alt="Control map video" controls></video> | <video src="https://github.com/user-attachments/assets/8e62af23-3ca4-4e72-97fe-7a337a31d306" width="100%" alt="Output video" controls></video> |
+> Dashcam video, driving through a modern urban environment, winter with heavy snow storm, trees and sidewalks covered in snow.
+<table>
+  <tr>
+    <th>Input Video</th>
+    <th>Computed Control</th>
+    <th>Output Video</th>
+  </tr>
+  <tr>
+    <td valign="top" width="33%">
+      <video src="https://github.com/user-attachments/assets/4705c192-b8c6-4ba3-af7f-fd968c4a3eeb" width="100%" alt="Input video" controls></video>
+    </td>
+    <td valign="top" width="33%">
+      <video src="https://github.com/user-attachments/assets/ba92fa5d-2972-463e-af2e-a637a810a463" width="100%" alt="Control map video" controls></video>
+      <details>
+        <summary>See more computed controls</summary>
+        <video src="https://github.com/user-attachments/assets/f8e6c351-78b5-4bd6-949b-e1845aa19f63" width="100%" alt="Control map video" controls></video>
+        <video src="https://github.com/user-attachments/assets/7edf3f46-c4da-403f-b630-d8853a165602" width="100%" alt="Control map video" controls></video>
+        <video src="https://github.com/user-attachments/assets/ba59f926-c4c2-4232-bdbf-392c53f29a97" width="100%" alt="Control map video" controls></video>
+      </details>
+    </td>
+    <td valign="top" width="33%">
+      <video src="https://github.com/user-attachments/assets/8e62af23-3ca4-4e72-97fe-7a337a31d306" width="100%" alt="Output video" controls></video>
+    </td>
+  </tr>
+</table>
 
 ### Scaling World State Diversity Examples
 
