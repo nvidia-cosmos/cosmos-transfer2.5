@@ -34,6 +34,7 @@ from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.condition
 )
 from cosmos_transfer2._src.predict2_multiview.datasets.local import LocalMultiViewDataset
 from cosmos_transfer2._src.predict2_multiview.datasets.multiview import AugmentationConfig, collate_fn
+from cosmos_transfer2._src.transfer2.inference.utils import color_message
 from cosmos_transfer2._src.transfer2_multiview.inference.inference import ControlVideo2WorldInference
 from cosmos_transfer2.multiview_config import (
     MULTIVIEW_CAMERA_KEYS,
@@ -317,7 +318,75 @@ class MultiviewInference:
                 else:
                     log.warning("Guardrail checks on video are disabled")
 
-                save_img_or_video(video, str(output_path), fps=sample.fps, quality=8)
-                log.success(f"Generated video saved to {output_path}.mp4")
+                def save_combined_video():
+                    save_img_or_video(video, str(output_path), fps=sample.fps, quality=8)
+                    log.success(f"Generated video saved to {output_path}.mp4")
+
+                needs_view_split = sample.save_individual_views or sample.save_view_grid
+                if not needs_view_split:
+                    save_combined_video()
+                    return f"{output_path}.mp4"
+
+                frames_per_view = num_video_frames_per_view
+                total_frames = video.shape[1]
+                if frames_per_view <= 0:
+                    log.warning(
+                        "Cannot split views because num_video_frames_per_view is not positive. Saving combined output instead."
+                    )
+                    save_combined_video()
+                    return f"{output_path}.mp4"
+
+                inferred_views = total_frames // frames_per_view
+                if inferred_views * frames_per_view != total_frames:
+                    log.warning(
+                        f"Video frames ({total_frames}) not divisible by frames per view ({frames_per_view}). "
+                        "Saving combined output instead."
+                    )
+                    save_combined_video()
+                    return f"{output_path}.mp4"
+
+                n_views = len(augmentation_config.camera_keys)
+                if inferred_views != n_views:
+                    log.warning(
+                        f"Number of inferred views ({inferred_views}) does not match configured n_views ({n_views}). "
+                        "Proceeding with inferred view count."
+                    )
+
+                # Split the concatenated video into per-view tensors
+                camera_keys = list(augmentation_config.camera_keys)
+                view_tensors = []
+                for view_index in range(inferred_views):
+                    start = view_index * frames_per_view
+                    end = start + frames_per_view
+                    view_tensor = video[:, start:end]
+                    view_name = camera_keys[view_index] if view_index < len(camera_keys) else f"view_{view_index}"
+                    view_tensors.append((view_name, view_tensor))
+
+                # Save individual view videos
+                output_messages = []
+                if sample.save_individual_views:
+                    for view_name, view_tensor in view_tensors:
+                        view_output_path = f"{output_path}_{view_name}"
+                        save_img_or_video(view_tensor, view_output_path, fps=sample.fps, quality=8)
+                        output_messages.append(f"{view_output_path}.mp4")
+
+                # Save grid video
+                if sample.save_view_grid:
+                    grid_rows, grid_cols = 3, 3
+                    c, t, h, w = view_tensors[0][1].shape
+                    grid_tensor = torch.zeros((c, t, grid_rows * h, grid_cols * w), dtype=video.dtype, device=video.device)
+                    
+                    num_views_in_grid = min(len(view_tensors), grid_rows * grid_cols)
+                    for idx in range(num_views_in_grid):
+                        row, col = idx // grid_cols, idx % grid_cols
+                        grid_tensor[:, :, row * h : (row + 1) * h, col * w : (col + 1) * w] = view_tensors[idx][1]
+
+                    grid_output_path = f"{output_path}_grid"
+                    save_img_or_video(grid_tensor, grid_output_path, fps=sample.fps, quality=8)
+                    output_messages.append(f"{grid_output_path}.mp4 ({num_views_in_grid} views in {grid_rows}x{grid_cols} grid)")
+
+                # Log all outputs at once
+                if output_messages:
+                    log.success(color_message(f"Generated videos saved to:\n" + "\n".join(output_messages) + "\n", "green"))
 
         return f"{output_path}.mp4"
