@@ -299,30 +299,28 @@ class MultiviewInference:
                     save_combined_video()
                     return f"{output_path}.mp4"
 
-                frames_per_view = num_video_frames_per_view
                 total_frames = video.shape[1]
-                if frames_per_view <= 0:
+                n_views = len(augmentation_config.camera_keys)
+                
+                # Calculate frames per view from actual video tensor shape
+                # Video shape is C (V T) H W where V is number of views and T is frames per view
+                if total_frames % n_views != 0:
                     log.warning(
-                        "Cannot split views because num_video_frames_per_view is not positive. Saving combined output instead."
-                    )
-                    save_combined_video()
-                    return f"{output_path}.mp4"
-
-                inferred_views = total_frames // frames_per_view
-                if inferred_views * frames_per_view != total_frames:
-                    log.warning(
-                        f"Video frames ({total_frames}) not divisible by frames per view ({frames_per_view}). "
+                        f"Video frames ({total_frames}) not divisible by number of views ({n_views}). "
                         "Saving combined output instead."
                     )
                     save_combined_video()
                     return f"{output_path}.mp4"
-
-                n_views = len(augmentation_config.camera_keys)
-                if inferred_views != n_views:
+                
+                frames_per_view = total_frames // n_views
+                if frames_per_view <= 0:
                     log.warning(
-                        f"Number of inferred views ({inferred_views}) does not match configured n_views ({n_views}). "
-                        "Proceeding with inferred view count."
+                        "Cannot split views because frames_per_view is not positive. Saving combined output instead."
                     )
+                    save_combined_video()
+                    return f"{output_path}.mp4"
+
+                inferred_views = n_views
 
                 # Split the concatenated video into per-view tensors
                 camera_keys = list(augmentation_config.camera_keys)
@@ -346,8 +344,10 @@ class MultiviewInference:
                 if sample.save_view_grid:
                     grid_rows, grid_cols = 3, 3
                     c, t, h, w = view_tensors[0][1].shape
-                    grid_tensor = torch.zeros((c, t, grid_rows * h, grid_cols * w), dtype=video.dtype, device=video.device)
-                    
+                    grid_tensor = torch.zeros(
+                        (c, t, grid_rows * h, grid_cols * w), dtype=video.dtype, device=video.device
+                    )
+
                     num_views_in_grid = min(len(view_tensors), grid_rows * grid_cols)
                     for idx in range(num_views_in_grid):
                         row, col = idx // grid_cols, idx % grid_cols
@@ -355,10 +355,14 @@ class MultiviewInference:
 
                     grid_output_path = f"{output_path}_grid"
                     save_img_or_video(grid_tensor, grid_output_path, fps=sample.fps, quality=8)
-                    output_messages.append(f"{grid_output_path}.mp4 ({num_views_in_grid} views in {grid_rows}x{grid_cols} grid)")
+                    output_messages.append(
+                        f"{grid_output_path}.mp4 ({num_views_in_grid} views in {grid_rows}x{grid_cols} grid)"
+                    )
 
                 # Log all outputs at once
                 if output_messages:
-                    log.success(color_message(f"Generated videos saved to:\n" + "\n".join(output_messages) + "\n", "green"))
+                    log.success(
+                        color_message(f"Generated videos saved to:\n" + "\n".join(output_messages) + "\n", "green")
+                    )
 
         return f"{output_path}.mp4"
