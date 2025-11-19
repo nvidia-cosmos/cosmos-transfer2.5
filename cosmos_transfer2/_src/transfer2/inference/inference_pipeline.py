@@ -485,7 +485,7 @@ class ControlVideo2WorldInference:
 
             # For next chunk, use last conditional_frames as input
             if chunk_id < num_chunks - 1:  # Don't need to prepare next input for last chunk
-                last_frames = video[:, :, -num_conditional_frames:, :, :]  # (1, C, num_conditional_frames, H, W)
+                last_frames = video[:, :, video.shape[2] - num_conditional_frames:, :, :]  # (1, C, num_conditional_frames, H, W)
                 # Convert to uint8 [0, 255]
                 last_frames_uint8 = normalized_float_to_uint8(last_frames)
                 # Create blank frames for the rest
