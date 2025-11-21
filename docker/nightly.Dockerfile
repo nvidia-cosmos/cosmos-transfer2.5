@@ -16,7 +16,7 @@
 # Experimental dockerfile using latest nvidia pytorch container.
 
 ARG TARGETPLATFORM
-ARG BASE_IMAGE=nvcr.io/nvidian/pytorch:25.10-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.10-py3
 
 FROM ${BASE_IMAGE}
 
@@ -31,8 +31,12 @@ RUN --mount=type=cache,target=/var/cache/apt \
         curl \
         ffmpeg \
         git \
+        libx11-dev \
         tree \
         wget
+
+# Install just: https://just.systems/man/en/pre-built-binaries.html
+RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin --tag 1.42.4
 
 WORKDIR /workspace
 
