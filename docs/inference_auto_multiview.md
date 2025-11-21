@@ -13,6 +13,10 @@ Run multiview2world:
 torchrun --nproc_per_node=8 --master_port=12341 examples/multiview.py -i assets/multiview_example/multiview_spec.json -o outputs/multiview/
 ```
 
+Set `"save_individual_views": true` in the params JSON to write one MP4 per camera view instead of a single concatenated video.
+
+Optionally set `"save_view_grid": true` to save a 3x3 tiled grid video that combines all camera views into a single MP4.
+
 For an explanation of all the available parameters run:
 ```bash
 python examples/multiview.py --help
