@@ -115,7 +115,10 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
         cp_size = len(get_process_group_ranks(parallel_state.get_context_parallel_group()))
         cp_group = parallel_state.get_context_parallel_group()
         n_views = state.shape[2] // self.tokenizer.get_pixel_num_frames(self.state_t)
-        assert n_views < cp_size, f"n_views must be less than cp_size, got n_views={n_views} and cp_size={cp_size}"
+        if n_views > cp_size:
+            raise ValueError(
+                f"n_views must be less than or equal to cp_size, got n_views={n_views} and cp_size={cp_size}"
+            )
         state_V_B_C_T_H_W = rearrange(state, "B C (V T) H W -> V B C T H W", V=n_views)
         state_input = torch.zeros((cp_size, *state_V_B_C_T_H_W.shape[1:]), **self.tensor_kwargs)
         state_input[0:n_views] = state_V_B_C_T_H_W

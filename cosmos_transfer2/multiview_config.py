@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 import pydantic
 
@@ -31,6 +31,15 @@ from cosmos_transfer2.config import (
 
 DEFAULT_MODEL_KEY = ModelKey(variant=ModelVariant.AUTO_MULTIVIEW)
 DEFAULT_CHECKPOINT = MODEL_CHECKPOINTS[DEFAULT_MODEL_KEY]
+MULTIVIEW_CAMERA_KEYS: tuple[str, ...] = (
+    "front_wide",
+    "cross_right",
+    "rear_right",
+    "rear",
+    "rear_left",
+    "cross_left",
+    "front_tele",
+)
 
 
 class MultiviewSetupArguments(CommonSetupArguments):
@@ -47,7 +56,7 @@ class ViewConfig(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra="forbid")
     input_path: ResolvedFilePath | None = None
     """Path to the input video for this view, required when num_conditional_frames > 0"""
-    control_path: ResolvedFilePath
+    control_path: ResolvedFilePath | None = None
     """Path to the control video for this view, required for every view"""
 
     # Autoregressive inference mode
@@ -62,6 +71,7 @@ class ViewConfig(pydantic.BaseModel):
 class MultiviewInferenceArguments(CommonInferenceArguments):
     """All the required values to generate image from text at a given resolution."""
 
+    view_key_order: ClassVar[tuple[str, ...]] = MULTIVIEW_CAMERA_KEYS
     num_conditional_frames: int = pydantic.Field(default=1)
     """Number of frames to condition on."""
     control_weight: Annotated[float, pydantic.Field(ge=0.0, le=1.0)] = 1.0
@@ -105,61 +115,59 @@ class MultiviewInferenceArguments(CommonInferenceArguments):
     @pydantic.model_validator(mode="after")
     def validate_input_paths(self):
         """Validate that input_path is provided when num_conditional_frames > 0."""
+        active_views = self.active_view_configs
+        if not active_views:
+            raise ValueError("At least one view configuration with a control_path must be provided.")
+
         if self.num_conditional_frames > 0 or self.enable_autoregressive:
-            view_configs = [
-                ("front_wide", self.front_wide),
-                ("rear", self.rear),
-                ("rear_left", self.rear_left),
-                ("rear_right", self.rear_right),
-                ("cross_left", self.cross_left),
-                ("cross_right", self.cross_right),
-                ("front_tele", self.front_tele),
-            ]
             missing_input_paths = [
-                view_name for view_name, view_config in view_configs if view_config.input_path is None
+                view_name for view_name, view_config in active_views if view_config.input_path is None
             ]
             if missing_input_paths:
                 raise ValueError(
-                    f"input_path is required for all views when num_conditional_frames > 0. "
+                    "input_path is required for all active views when num_conditional_frames > 0. "
                     f"Missing input_path for views: {', '.join(missing_input_paths)}"
                 )
-            # check if all view_configs has the num_conditional_frames_per_view otherwise throw error, for autoregressive mode,
-            # all views must have the num_conditional_frames_per_view, if defined for one then all must be defined
-            view_names = [view_name for view_name, _ in view_configs]
+            # Check per-view frame counts when autoregressive mode is enabled.
             num_conditional_frames_per_view = [
-                getattr(self, view_name).num_conditional_frames_per_view for view_name in view_names
+                view_config.num_conditional_frames_per_view for _, view_config in active_views
             ]
-            # check if any view has num_conditional_frames_per_view not in (0, 1, 5)
             if any(frames not in (0, 1, 5) for frames in num_conditional_frames_per_view):
-                raise ValueError(f"num_conditional_frames_per_view must be one of [0, 1, 5] for views: {view_names}")
-            # Check if some (but not all) views have non-zero values
+                raise ValueError(
+                    "num_conditional_frames_per_view must be one of [0, 1, 5] "
+                    f"for views: {[view_name for view_name, _ in active_views]}"
+                )
             if any(frames == 0 for frames in num_conditional_frames_per_view) and not all(
                 frames == 0 for frames in num_conditional_frames_per_view
             ):
                 raise ValueError(
-                    f"num_conditional_frames_per_view must be consistent across all views in autoregressive mode. "
-                    f"Either set it for all views or leave all at default (0). "
+                    "num_conditional_frames_per_view must be consistent across all active views in autoregressive mode. "
+                    "Either set it for all views or leave all at default (0)."
                 )
         return self
 
     @property
+    def active_view_configs(self) -> list[tuple[str, ViewConfig]]:
+        """Return the ordered list of view configs that have a control path supplied."""
+        active_views: list[tuple[str, ViewConfig]] = []
+        for view_name in self.view_key_order:
+            view_config = getattr(self, view_name)
+            if view_config.control_path is not None:
+                active_views.append((view_name, view_config))
+        return active_views
+
+    @property
+    def active_camera_keys(self) -> tuple[str, ...]:
+        """Ordered camera keys with control data."""
+        return tuple(view_name for view_name, _ in self.active_view_configs)
+
+    @property
     def input_and_control_paths(self):
-        input_and_control_paths = {
-            "front_wide_input": self.front_wide.input_path,
-            "rear_input": self.rear.input_path,
-            "rear_left_input": self.rear_left.input_path,
-            "rear_right_input": self.rear_right.input_path,
-            "cross_left_input": self.cross_left.input_path,
-            "cross_right_input": self.cross_right.input_path,
-            "front_tele_input": self.front_tele.input_path,
-            "front_wide_control": self.front_wide.control_path,
-            "rear_control": self.rear.control_path,
-            "rear_left_control": self.rear_left.control_path,
-            "rear_right_control": self.rear_right.control_path,
-            "cross_left_control": self.cross_left.control_path,
-            "cross_right_control": self.cross_right.control_path,
-            "front_tele_control": self.front_tele.control_path,
-        }
+        input_and_control_paths: dict[str, ResolvedFilePath | None] = {}
+        for view_name, view_config in self.active_view_configs:
+            input_and_control_paths[f"{view_name}_input"] = view_config.input_path
+            assert view_config.control_path is not None
+            input_and_control_paths[f"{view_name}_control"] = view_config.control_path
         return input_and_control_paths
 
 
