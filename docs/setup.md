@@ -86,6 +86,6 @@ Optional arguments:
 1. Get a [Hugging Face Access Token](https://huggingface.co/settings/tokens) with `Read` permission
 2. Install [Hugging Face CLI](https://huggingface.co/docs/huggingface_hub/en/guides/cli): `uv tool install -U "huggingface_hub[cli]"`
 3. Login: `hf auth login`
-4. Accept the [NVIDIA Open Model License Agreement](https://huggingface.co/nvidia/Cosmos-Predict2.5-2B).
+4. Accept the [NVIDIA Open Model License Agreement](https://huggingface.co/nvidia/Cosmos-Transfer2.5-2B).
 
 Checkpoints are automatically downloaded during inference and post-training. To modify the checkpoint cache location, set the [`HF_HOME`](https://huggingface.co/docs/huggingface_hub/en/package_reference/environment_variables#hfhome) environment variable.
