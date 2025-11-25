@@ -112,6 +112,9 @@ class MultiviewInferenceArguments(CommonInferenceArguments):
     )
     """Number of overlapping frames between consecutive chunks for temporal consistency."""
 
+    save_combined_views: bool = True
+    """Save a single concatenated video containing all views side-by-side. If False, saves individual split views and a grid view."""
+
     @pydantic.model_validator(mode="after")
     def validate_input_paths(self):
         """Validate that input_path is provided when num_conditional_frames > 0."""
