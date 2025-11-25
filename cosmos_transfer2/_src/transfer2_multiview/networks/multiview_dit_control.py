@@ -18,17 +18,24 @@ import math
 from collections.abc import Sequence
 from typing import List, Literal, Optional, Tuple, Union
 
+try:
+    import megatron.core.parallel_state as parallel_state
+
+    USE_MEGATRON = True
+except ImportError:
+    USE_MEGATRON = False
+
 import numpy as np
 import torch
 import torch.nn as nn
 from einops import rearrange
-from megatron.core import parallel_state
 from torch import amp
 from torch.distributed import ProcessGroup, get_process_group_ranks
 from torch.distributed._composable.fsdp import fully_shard
 from torchvision import transforms
 
 from cosmos_transfer2._src.imaginaire.utils import log
+from cosmos_transfer2._src.imaginaire.utils.graph import create_cuda_graph
 from cosmos_transfer2._src.predict2.conditioner import DataType
 from cosmos_transfer2._src.predict2.networks.a2a_cp import NattenA2AAttnOp
 from cosmos_transfer2._src.predict2_multiview.networks.multiview_dit import (
@@ -111,6 +118,7 @@ class MultiViewControlEncoderDiTBlock(ControlEncoderDiTBlock):
         block_id: Optional[int] = None,
         hint_dim: Optional[int] = None,
         use_wan_fp32_strategy: bool = False,
+        use_cuda_graphs: bool = False,
     ):
         super().__init__(
             x_dim,
@@ -124,6 +132,7 @@ class MultiViewControlEncoderDiTBlock(ControlEncoderDiTBlock):
             block_id,
             hint_dim,
             use_wan_fp32_strategy=use_wan_fp32_strategy,
+            use_cuda_graphs=use_cuda_graphs,
         )
         self.state_t = state_t
         if image_context_dim is None:
@@ -238,12 +247,24 @@ class MultiViewControlDiT(MinimalV4LVGControlVaceDiT):
         use_input_hint_block: bool = False,
         sac_config: SACConfig = SACConfig(),
         use_wan_fp32_strategy: bool = False,
+        use_cuda_graphs: bool = False,
         **kwargs,
     ):
         self.state_t = state_t
         self.n_cameras_emb = n_cameras_emb
         self.view_condition_dim = view_condition_dim
         self.concat_view_embedding = concat_view_embedding
+        """
+        At large scale per-GPU amount of tokens decreases, which leads to shorter GPU compute kernels and exposed CPU
+        kernel launch overhead. A standard fix to that are CUDA Graphs, which have a larger overhead at creation, but
+        provide a significant speedup for following inference calls.
+        CUDA Graphs are kept in a dictionary, which maps input shape to the list of per-block CUDA Graphs.
+        Base Blocks and ControlNet Blocks are kept separately, since we need to create separate CUDA Graphs for them, as
+        they have different implementation.
+        """
+        self.use_cuda_graphs = use_cuda_graphs
+        self.blocks_cuda_graphs = {}
+        self.cg_blocks_cuda_graphs = {}
         assert "in_channels" in kwargs, "in_channels must be provided"
         kwargs["in_channels"] += (
             self.view_condition_dim if self.concat_view_embedding else 0
@@ -309,6 +330,7 @@ class MultiViewControlDiT(MinimalV4LVGControlVaceDiT):
                     hint_dim=hint_nf[-1] if use_input_hint_block else None,
                     state_t=self.state_t,
                     use_wan_fp32_strategy=self.use_wan_fp32_strategy,
+                    use_cuda_graphs=use_cuda_graphs,
                 )
                 for i in self.control_layers
             ]
@@ -365,7 +387,7 @@ class MultiViewControlDiT(MinimalV4LVGControlVaceDiT):
         if self.extra_image_context_dim is not None:
             fully_shard(self.img_context_proj, mesh=mesh, reshard_after_forward=False)
 
-    def enable_context_parallel(self, process_group: Optional[ProcessGroup] = None):
+    def enable_context_parallel(self, process_group: Optional[ProcessGroup] = None, cp_comm_type: str = "p2p"):
         # pos_embedder
         for pos_embedder in self.pos_embedder_options.values():
             pos_embedder.enable_context_parallel(process_group=process_group)
@@ -380,12 +402,11 @@ class MultiViewControlDiT(MinimalV4LVGControlVaceDiT):
                 process_group=process_group,
                 ranks=cp_ranks,
                 stream=torch.cuda.Stream(),
+                cp_comm_type=cp_comm_type,
             )
         for block in self.control_blocks:
             block.self_attn.set_context_parallel_group(
-                process_group=process_group,
-                ranks=cp_ranks,
-                stream=torch.cuda.Stream(),
+                process_group=process_group, ranks=cp_ranks, stream=torch.cuda.Stream(), cp_comm_type=cp_comm_type
             )
 
         self._is_context_parallel_enabled = True
@@ -536,8 +557,12 @@ class MultiViewControlDiT(MinimalV4LVGControlVaceDiT):
             x_B_C_T_H_W = torch.cat(
                 [x_B_C_T_H_W, padding_mask.unsqueeze(1).repeat(1, 1, x_B_C_T_H_W.shape[2], 1, 1)], dim=1
             )
+        if not USE_MEGATRON:
+            raise ImportError("No megatron.core package found, which is required for Multiview model inference.")
         process_group = parallel_state.get_context_parallel_group()
         cp_size = len(get_process_group_ranks(process_group))
+        if USE_MEGATRON and hasattr(parallel_state, "cp_size_t"):
+            cp_size = parallel_state.cp_size_t
         n_cameras = (x_B_C_T_H_W.shape[2] * cp_size) // self.state_t
         pos_embedder = self.pos_embedder_options[f"n_cameras_{n_cameras}"]
         if self.concat_view_embedding:
@@ -606,6 +631,8 @@ class MultiViewControlDiT(MinimalV4LVGControlVaceDiT):
         # Determine number of cameras
         process_group = parallel_state.get_context_parallel_group()
         cp_size = len(get_process_group_ranks(process_group))
+        if USE_MEGATRON and hasattr(parallel_state, "cp_size_t"):
+            cp_size = parallel_state.cp_size_t
         n_cameras = (control_B_C_T_H_W.shape[2] * cp_size) // self.state_t
         pos_embedder = self.pos_embedder_options[f"n_cameras_{n_cameras}"]
 
@@ -666,14 +693,11 @@ class MultiViewControlDiT(MinimalV4LVGControlVaceDiT):
     ) -> torch.Tensor | List[torch.Tensor] | Tuple[torch.Tensor, List[torch.Tensor]]:
         # Deletes elements like condition.use_video_condition that are not used in the forward pass
         del kwargs
-        if type(control_context_scale) == float:
-            B, _, _, _, _ = x_B_C_T_H_W.shape
-            control_context_scale_B_1_1_1_1 = (
-                torch.ones((B, 1, 1, 1, 1), device=x_B_C_T_H_W.device) * control_context_scale
+        assert not (self.training and self.use_cuda_graphs), "CUDA Graphs are supported only for inference"
+        if isinstance(control_context_scale, float):
+            control_context_scale = torch.tensor(
+                control_context_scale, device=x_B_C_T_H_W.device, dtype=x_B_C_T_H_W.dtype
             )
-            control_context_scale_B_1_1_1_1 = control_context_scale_B_1_1_1_1.to(dtype=x_B_C_T_H_W.dtype)
-        else:
-            control_context_scale_B_1_1_1_1 = control_context_scale.unsqueeze(1).unsqueeze(1).unsqueeze(1).unsqueeze(1)
         # Control branch forward
         if latent_control_input is not None:
             # Get the original shape
@@ -767,31 +791,56 @@ class MultiViewControlDiT(MinimalV4LVGControlVaceDiT):
                 f"{x_B_T_H_W_D.shape} != {extra_pos_emb_B_T_H_W_D_or_T_H_W_B_D.shape}"
             )
 
-        B, T, H, W, D = x_B_T_H_W_D.shape
+        block_kwargs = {
+            "emb_B_T_D": t_embedding_B_T_D,
+            "crossattn_emb": context_input,
+            "rope_emb_L_1_1_D": rope_emb_L_1_1_D,
+            "adaln_lora_B_T_3D": adaln_lora_B_T_3D,
+            "extra_per_block_pos_emb": extra_pos_emb_B_T_H_W_D_or_T_H_W_B_D,
+        }
 
-        for block in self.control_blocks:
-            control_B_T_H_W_D = block(
-                c=control_B_T_H_W_D,
-                x_B_T_H_W_D=x_B_T_H_W_D,
-                emb_B_T_D=t_embedding_B_T_D,
-                crossattn_emb=context_input,
-                rope_emb_L_1_1_D=rope_emb_L_1_1_D,
-                adaln_lora_B_T_3D=adaln_lora_B_T_3D,
-                extra_per_block_pos_emb=extra_pos_emb_B_T_H_W_D_or_T_H_W_B_D,
+        if self.use_cuda_graphs:
+            shapes_key = create_cuda_graph(
+                self.cg_blocks_cuda_graphs,
+                self.control_blocks,
+                [control_B_T_H_W_D, x_B_T_H_W_D],
+                block_kwargs,
             )
+            cg_control_blocks = self.cg_blocks_cuda_graphs[shapes_key]
+        else:
+            cg_control_blocks = self.control_blocks
+
+        for i, block in enumerate(self.control_blocks):
+            if self.use_cuda_graphs:
+                control_B_T_H_W_D, all_c = block.pre_forward(control_B_T_H_W_D, x_B_T_H_W_D)
+            control_B_T_H_W_D = cg_control_blocks[i](
+                control_B_T_H_W_D,
+                x_B_T_H_W_D,
+                **block_kwargs,
+            )
+            if self.use_cuda_graphs:
+                control_B_T_H_W_D = block.post_forward(control_B_T_H_W_D, all_c)
 
         hints = torch.unbind(control_B_T_H_W_D)[:-1]  # list of layerwise control modulations
+        block_kwargs["control_context_scale"] = control_context_scale
 
-        for block in self.blocks:
+        hints = torch.stack(hints)
+        if self.use_cuda_graphs:
+            shapes_key = create_cuda_graph(
+                self.blocks_cuda_graphs,
+                self.blocks,
+                [x_B_T_H_W_D, hints],
+                block_kwargs,
+            )
+            blocks = self.blocks_cuda_graphs[shapes_key]
+        else:
+            blocks = self.blocks
+
+        for block in blocks:
             x_B_T_H_W_D = block(
-                x_B_T_H_W_D=x_B_T_H_W_D,
-                hints=hints,
-                control_context_scale=control_context_scale_B_1_1_1_1,
-                emb_B_T_D=t_embedding_B_T_D,
-                crossattn_emb=context_input,
-                rope_emb_L_1_1_D=rope_emb_L_1_1_D,
-                adaln_lora_B_T_3D=adaln_lora_B_T_3D,
-                extra_per_block_pos_emb=extra_pos_emb_B_T_H_W_D_or_T_H_W_B_D,
+                x_B_T_H_W_D,
+                hints,
+                **block_kwargs,
             )
 
         x_B_T_H_W_O = self.final_layer(x_B_T_H_W_D, t_embedding_B_T_D, adaln_lora_B_T_3D=adaln_lora_B_T_3D)

@@ -1,3 +1,3 @@
-{"name": "robot_depth", "prompt_path": "robot_example/robot_prompt.txt", "video_path": "robot_example/robot_input.mp4", "guidance": 3, "depth": {"control_path": "robot_example/depth/robot_depth.mp4", "control_weight": 1.0}}
-{"name": "car_depth", "prompt_path": "car_example/car_prompt.txt", "video_path": "car_example/car_input.mp4", "guidance": 3, "depth": {"control_path": "car_example/depth/car_depth.mp4", "control_weight": 1.0}}
-{"name": "car_depth_on_the_fly", "prompt_path": "car_example/car_prompt.txt", "video_path": "car_example/car_input.mp4", "guidance": 3, "depth": {"control_weight": 1.0}}
+version https://git-lfs.github.com/spec/v1
+oid sha256:cea310a7de19a3f57d65daa9ed8dc7e2b8bf4eac4bb588c4070ee91af044d69e
+size 604

@@ -72,7 +72,10 @@ def get_overrides_cls(cls: type[_PydanticModelT], *, exclude: list[str] | None =
             if model_field.default is not PydanticUndefined
             else "(default: None) (required)"
         )
-        annotation = Annotated[Optional[model_field.annotation], tyro.conf.arg(help_behavior_hint=behavior_hint)]
+        annotation = Annotated[
+            Optional[cls.model_fields[name].rebuild_annotation()],  # pyrefly: ignore  # no-matching-overload
+            tyro.conf.arg(help_behavior_hint=behavior_hint),
+        ]
         fields[name] = (annotation, pydantic.Field(default=None, description=model_field.description))
     # pyrefly: ignore  # no-matching-overload, bad-argument-type, bad-argument-count
     return pydantic.create_model(f"{cls.__name__}Overrides", **fields)
@@ -99,7 +102,7 @@ def handle_tyro_exception(exception: Exception) -> NoReturn:
 
 def _resolve_path(v: Path) -> Path:
     """Resolve path to absolute."""
-    return v.expanduser().resolve()
+    return v.expanduser().absolute()
 
 
 ResolvedFilePath = Annotated[pydantic.FilePath, pydantic.AfterValidator(_resolve_path)]
@@ -207,14 +210,14 @@ class CommonSetupArguments(pydantic.BaseModel):
     """Context parallel size. Defaults to WORLD_SIZE set by torchrun."""
     disable_guardrails: bool = True if SMOKE else False
     """Option to enable or disable guardrails."""
-    offload_guardrail_models: bool = True
+    offload_guardrail_models: bool = False
     """Offload guardrail models to CPU to save GPU memory."""
     keep_going: bool = True
     """When running batch inference, keep going if an error occurs. If set to False, the batch will stop on the first error."""
     profile: bool = False
     """Run profiler and save report to output directory."""
     benchmark: bool = False
-    """Enable benchmarking mode - only works for batch processing. Runs the first sample as warmup and reports the average run times of all other samples."""
+    """Enable benchmarking mode. Runs the first sample as warmup and reports the average run times of all other samples. If single sample specified repeats it 4 times before running."""
     compile_tokenizer: CompileMode = CompileMode.NONE
     """Set tokenizer compilation mode: 'none' (default), 'moderate', or 'aggressive'. 'moderate' and 'aggresive' cause a significant overhead on the first use (use if you want to generate 30+ videos in one run). Aggressive compilation can cause OOM on some systems."""
     enable_parallel_tokenizer: bool = False

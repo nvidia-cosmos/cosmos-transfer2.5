@@ -1,22 +1,3 @@
-{
-    "name": "robot_multicontrol",
-    "prompt_path": "../robot_prompt.txt",
-    "video_path": "../robot_input.mp4",
-    "guidance": 3,
-    "depth": {
-        "control_path": "../depth/robot_depth.mp4",
-        "control_weight": 1.0
-    },
-    "edge": {
-        "control_path": "../edge/robot_edge.mp4",
-        "control_weight": 0.2
-    },
-    "seg": {
-        "control_path": "../seg/robot_seg.mp4",
-        "control_weight": 1.0
-    },
-    "vis": {
-        "control_weight": 0.5,
-        "preset_blur_strength": "high"
-    }
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:da33c6ffe2c157cd581c0254a9ac3ef67e444db290c13fd4ed7659287ab39bcb
+size 531

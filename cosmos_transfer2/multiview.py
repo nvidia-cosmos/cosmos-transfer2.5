@@ -33,7 +33,7 @@ from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.condition
     ConditionLocationList,
 )
 from cosmos_transfer2._src.predict2_multiview.datasets.local import LocalMultiViewDataset
-from cosmos_transfer2._src.predict2_multiview.datasets.multiview import AugmentationConfig
+from cosmos_transfer2._src.predict2_multiview.datasets.multiview import AugmentationConfig, collate_fn
 from cosmos_transfer2._src.transfer2_multiview.inference.inference import ControlVideo2WorldInference
 from cosmos_transfer2.multiview_config import (
     MULTIVIEW_CAMERA_KEYS,
@@ -44,6 +44,8 @@ from cosmos_transfer2.multiview_config import (
 RESOLUTIONS: Mapping = {
     "720p": (720, 1280),
 }
+
+
 DEFAULT_CAMERA_KEYS = MULTIVIEW_CAMERA_KEYS
 DEFAULT_CAMERA_VIEW_MAPPING = {camera_key: idx for idx, camera_key in enumerate(DEFAULT_CAMERA_KEYS)}
 DEFAULT_CAMERA_PREFIX_MAPPING = {
@@ -82,7 +84,7 @@ def setup_config(
         camera_caption_key_mapping={k: f"caption_{k}" for k in camera_keys},
         camera_video_key_mapping={k: f"video_{k}" for k in camera_keys},
         camera_control_key_mapping={k: f"control_{k}" for k in camera_keys},
-        add_view_prefix_to_caption=True,
+        add_view_prefix_to_caption=False,
         camera_prefix_mapping={k: DEFAULT_CAMERA_PREFIX_MAPPING[k] for k in camera_keys},
         single_caption_camera_name=single_caption_camera_name,
     )
@@ -94,10 +96,11 @@ class MultiviewInference:
         log.debug(f"{args.__class__.__name__}({args})")
 
         # Enable deterministic inference
-        os.environ["NVTE_FUSED_ATTN"] = "0"
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
-        torch.enable_grad(False)  # Disable gradient calculations for inference
+
+        # Disable gradient calculations for inference
+        torch.enable_grad(False)
 
         self.setup_args = args
 
@@ -242,6 +245,7 @@ class MultiviewInference:
             dataset,
             batch_size=1,
             shuffle=False,
+            collate_fn=collate_fn,
         )
 
         if len(dataloader) == 0:
@@ -273,19 +277,22 @@ class MultiviewInference:
                     seed=sample.seed,
                     num_conditional_frames=batch["num_conditional_frames"],
                     num_steps=sample.num_steps,
+                    use_negative_prompt=True,
                 )
             else:
                 log.info(f"------ Generating video ------")
                 video = self.pipe.generate_from_batch(
-                    batch, guidance=sample.guidance, seed=sample.seed, num_steps=sample.num_steps
+                    batch,
+                    guidance=sample.guidance,
+                    seed=sample.seed,
+                    num_steps=sample.num_steps,
+                    use_negative_prompt=True,
                 )
                 control = None
 
             if self.rank0:
                 if not sample.enable_autoregressive:
                     video = video[0]
-                # Normalize video from [-1, 1] to [0, 1]
-                video = video.clamp(-1, 1) / 2 + 0.5
 
                 # Run video guardrail on the normalized video
                 if self.video_guardrail_runner is not None:

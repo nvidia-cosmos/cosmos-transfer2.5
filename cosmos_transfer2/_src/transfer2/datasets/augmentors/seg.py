@@ -136,11 +136,11 @@ def decode_partial_rle_width1(rle_obj, start_row, end_row):
     current_val = 0
     i = 0
     while i < len(counts):
-        x = 0
+        x = int(0)
         k = 0
         more = True
         while more:
-            c = counts[i] - 48
+            c = int(counts[i]) - 48
             x |= (c & 0x1F) << (5 * k)
             more = (c & 0x20) != 0
             i += 1

@@ -1,33 +1,3 @@
-{
-    "name": "auto_multiview",
-    "prompt_path": "prompt.txt",
-    "fps": 10,
-    "front_wide":{
-        "input_path": "input_videos/night_front_wide_120fov.mp4",
-        "control_path": "world_scenario_videos/ws_front_wide_120fov.mp4"
-    },
-    "cross_left":{
-        "input_path": "input_videos/night_cross_left_120fov.mp4",
-        "control_path": "world_scenario_videos/ws_cross_left_120fov.mp4"
-    },
-    "cross_right":{
-        "input_path": "input_videos/night_cross_right_120fov.mp4",
-        "control_path": "world_scenario_videos/ws_cross_right_120fov.mp4"
-    },
-    "rear_left":{
-        "input_path": "input_videos/night_rear_left_70fov.mp4",
-        "control_path": "world_scenario_videos/ws_rear_left_70fov.mp4"
-    },
-    "rear_right":{
-        "input_path": "input_videos/night_rear_right_70fov.mp4",
-        "control_path": "world_scenario_videos/ws_rear_right_70fov.mp4"
-    },
-    "rear":{
-        "input_path": "input_videos/night_rear_30fov.mp4",
-        "control_path": "world_scenario_videos/ws_rear_30fov.mp4"
-    },
-    "front_tele":{
-        "input_path": "input_videos/night_front_tele_30fov.mp4",
-        "control_path": "world_scenario_videos/ws_front_tele_30fov.mp4"
-    }
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:0719d3248228f41d8966b5742cae8df30bfc667ef58e611edd81989b3c9d95cb
+size 1210

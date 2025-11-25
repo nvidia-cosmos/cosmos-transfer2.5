@@ -1,4 +1,4 @@
-# Cosmos-Transfer2-2B: World Generation with Adaptive Multimodal Control
+# Cosmos-Transfer2.5-2B: World Generation with Adaptive Multimodal Control
 This guide provides instructions on running inference with Cosmos-Transfer2.5/general models.
 
 ![Architecture](../assets/Cosmos-Transfer2-2B-Arch.png)
@@ -8,26 +8,27 @@ This guide provides instructions on running inference with Cosmos-Transfer2.5/ge
 
 ### Hardware Requirements
 
-The following table shows the GPU memory requirements for different Cosmos-Transfer2 models for single-GPU inference:
+The following table shows the GPU memory requirements for different Cosmos-Transfer2.5 models for single-GPU inference:
 
 | Model | Required GPU VRAM |
 |-------|-------------------|
-| Cosmos-Transfer2-2B | 65.4 GB |
+| Cosmos-Transfer2.5-2B | 65.4 GB |
 
 ### Inference performance
 
 The following table shows generation times(*) across different NVIDIA GPU hardware for single-GPU inference:
 
-| GPU Hardware | Cosmos-Transfer2-2B (Segmentation) |
-|--------------|---------------|
-| NVIDIA B200 | 285.83 sec |
-| NVIDIA H100 NVL | 719.4 sec |
-| NVIDIA H100 PCIe | 870.3 sec |
-| NVIDIA H20 | 2326.6 sec |
+| GPU Hardware | Cosmos-Transfer2.5-2B (Segmentation) 93 frame generation time | Cosmos-Transfer2.5-2B (Segmentation) E2E time (**)|
+|--------------|---------------|---------------|
+| NVIDIA B200 | 92.25 sec | 186.92 |
+| NVIDIA H100 NVL | 445.52 sec | 895.33 |
+| NVIDIA H100 PCIe | 264.13 sec | 533.58 |
+| NVIDIA H20 | 683.65 sec | 1370.39 |
 
-\* Generation times are listed for 720P video with 16FPS for 5 seconds length (93 frames) with segmentation control input.
+\* Generation times are listed for 720P video with 16FPS with segmentation control input and disabled guardrails. \
+\** E2E time is measured for input video with 121 frames, which results in two 93 frame "chunk" generations.
 
-## Inference with Pre-trained Cosmos-Transfer2 Models
+## Inference with Pre-trained Cosmos-Transfer2.5 Models
 
 Individual control variants can be run on a single GPU:
 ```bash

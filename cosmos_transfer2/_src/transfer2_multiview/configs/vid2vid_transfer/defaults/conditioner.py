@@ -14,17 +14,19 @@
 # limitations under the License.
 
 import copy
+import math
 from dataclasses import dataclass
 from typing import Dict, Optional
 
 import torch
 from einops import rearrange
 from hydra.core.config_store import ConfigStore
+from torch.distributed import get_process_group_ranks
 
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyDict
 from cosmos_transfer2._src.imaginaire.utils import log
-from cosmos_transfer2._src.imaginaire.utils.context_parallel import broadcast_split_tensor
+from cosmos_transfer2._src.imaginaire.utils.context_parallel import broadcast_split_tensor, find_split
 from cosmos_transfer2._src.predict2.conditioner import ReMapkey, Text2WorldCondition, TextAttr
 from cosmos_transfer2._src.predict2_multiview.conditioner import MVTextAttr
 from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.conditioner import MultiViewCondition
@@ -88,19 +90,45 @@ class MultiViewControlVideo2WorldCondition(
 
         if process_group is not None and T > 1 and process_group.size() > 1:
             log.debug(f"Broadcasting multiview control tensors {gt_frames_B_C_T_H_W.shape=} to {n_views=} views")
+            cp_ranks = get_process_group_ranks(process_group)
+            cp_size = len(cp_ranks)
+            # Perform spatial split only when it's required, i.e. temporal split is not enough.
+            # Refer to "find_split" definition for more details.
+            use_spatial_split = cp_size > self.state_t
+            after_split_shape = (
+                find_split(gt_frames_B_C_T_H_W.shape, cp_size, view_factor=n_views) if use_spatial_split else None
+            )
             gt_frames_B_C_V_T_H_W = rearrange(gt_frames_B_C_T_H_W, "B C (V T) H W -> B C V T H W", V=n_views)
             condition_video_input_mask_B_C_V_T_H_W = rearrange(
                 condition_video_input_mask_B_C_T_H_W, "B C (V T) H W -> B C V T H W", V=n_views
             )
+            if use_spatial_split:
+                gt_frames_B_C_V_T_H_W = rearrange(gt_frames_B_C_V_T_H_W, "B C V T H W -> B C V (T H W)")
+                condition_video_input_mask_B_C_V_T_H_W = rearrange(
+                    condition_video_input_mask_B_C_V_T_H_W, "B C V T H W -> B C V (T H W)"
+                )
             view_indices_B_V_T = rearrange(view_indices_B_T, "B (V T) -> B V T", V=n_views)
             if latent_control_input is not None:
                 if latent_control_input.dim() == 5:  # B, C, T, H, W
                     latent_control_input_B_C_V_T_H_W = rearrange(
                         latent_control_input, "B C (V T) H W -> B C V T H W", V=n_views
                     )
+                    if use_spatial_split:
+                        latent_control_input_B_C_V_T_H_W = rearrange(
+                            latent_control_input_B_C_V_T_H_W, "B C V T H W -> B C V (T H W)"
+                        )
                     latent_control_input_B_C_V_T_H_W = broadcast_split_tensor(
                         latent_control_input_B_C_V_T_H_W, seq_dim=3, process_group=process_group
                     )
+                    if use_spatial_split:
+                        after_split_shape_latent = find_split(latent_control_input.shape, cp_size, view_factor=n_views)
+                        latent_control_input_B_C_V_T_H_W = rearrange(
+                            latent_control_input_B_C_V_T_H_W,
+                            "B C V (T H W) -> B C V T H W",
+                            V=n_views,
+                            T=after_split_shape_latent[0],
+                            H=after_split_shape_latent[1],
+                        )
                     latent_control_input = rearrange(
                         latent_control_input_B_C_V_T_H_W, "B C V T H W -> B C (V T) H W", V=n_views
                     )
@@ -110,8 +138,36 @@ class MultiViewControlVideo2WorldCondition(
             condition_video_input_mask_B_C_V_T_H_W = broadcast_split_tensor(
                 condition_video_input_mask_B_C_V_T_H_W, seq_dim=3, process_group=process_group
             )
+            if use_spatial_split:
+                if cp_size % self.state_t != 0:
+                    split_size_t = math.gcd(self.state_t, cp_size)
+                    B, V, _ = view_indices_B_V_T.shape
+                    view_indices_B_V_T = view_indices_B_V_T.view(B, V, split_size_t, -1)
+                    view_indices_B_V_T = view_indices_B_V_T.repeat_interleave(
+                        repeats=max(1, cp_size // split_size_t), dim=2
+                    )
+                    view_indices_B_V_T = view_indices_B_V_T.view(B, V, -1)
+                else:
+                    view_indices_B_V_T = view_indices_B_V_T.repeat_interleave(
+                        repeats=max(1, cp_size // self.state_t), dim=2
+                    )
             view_indices_B_V_T = broadcast_split_tensor(view_indices_B_V_T, seq_dim=2, process_group=process_group)
 
+            if use_spatial_split:
+                gt_frames_B_C_V_T_H_W = rearrange(
+                    gt_frames_B_C_V_T_H_W,
+                    "B C V (T H W) -> B C V T H W",
+                    V=n_views,
+                    T=after_split_shape[0],
+                    H=after_split_shape[1],
+                )
+                condition_video_input_mask_B_C_V_T_H_W = rearrange(
+                    condition_video_input_mask_B_C_V_T_H_W,
+                    "B C V (T H W) -> B C V T H W",
+                    V=n_views,
+                    T=after_split_shape[0],
+                    H=after_split_shape[1],
+                )
             gt_frames_B_C_T_H_W = rearrange(gt_frames_B_C_V_T_H_W, "B C V T H W -> B C (V T) H W", V=n_views)
             condition_video_input_mask_B_C_T_H_W = rearrange(
                 condition_video_input_mask_B_C_V_T_H_W, "B C V T H W -> B C (V T) H W", V=n_views

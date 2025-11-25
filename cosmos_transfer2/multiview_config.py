@@ -132,11 +132,13 @@ class MultiviewInferenceArguments(CommonInferenceArguments):
             num_conditional_frames_per_view = [
                 view_config.num_conditional_frames_per_view for _, view_config in active_views
             ]
+            # check if any view has num_conditional_frames_per_view not in (0, 1, 5)
             if any(frames not in (0, 1, 5) for frames in num_conditional_frames_per_view):
                 raise ValueError(
                     "num_conditional_frames_per_view must be one of [0, 1, 5] "
                     f"for views: {[view_name for view_name, _ in active_views]}"
                 )
+            # Check if some (but not all) views have non-zero values
             if any(frames == 0 for frames in num_conditional_frames_per_view) and not all(
                 frames == 0 for frames in num_conditional_frames_per_view
             ):

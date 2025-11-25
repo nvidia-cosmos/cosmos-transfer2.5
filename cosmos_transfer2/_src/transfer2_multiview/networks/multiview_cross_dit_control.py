@@ -15,7 +15,7 @@
 
 import gc
 import math
-from typing import Any, List, Literal, Optional, Tuple
+from typing import Any, List, Literal, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -51,16 +51,16 @@ class MultiViewCrossControlAwareBlock(MultiViewCrossBlock):
     def forward(
         self,
         x_B_T_H_W_D: torch.Tensor,
-        hints: Optional[torch.Tensor] = None,
-        control_context_scale: float = 1.0,
+        hints: torch.Tensor,
+        control_context_scale: Union[float, torch.Tensor] = 1.0,
         **kwargs: Any,
     ) -> torch.Tensor:
         """
         Forward pass of the block.
         """
         x_B_T_H_W_D = super().forward(x_B_T_H_W_D, **kwargs)
-        if self.block_id is not None and hints is not None:
-            x_B_T_H_W_D = x_B_T_H_W_D + hints[self.block_id] * control_context_scale
+        if self.block_id is not None:
+            x_B_T_H_W_D += hints[self.block_id] * control_context_scale
         return x_B_T_H_W_D
 
 
@@ -536,8 +536,6 @@ class MultiViewCrossControlDiT(MultiViewCrossDiT):
             assert x_B_T_H_W_D.shape == extra_pos_emb_B_T_H_W_D_or_T_H_W_B_D.shape, (
                 f"{x_B_T_H_W_D.shape} != {extra_pos_emb_B_T_H_W_D_or_T_H_W_B_D.shape}"
             )
-
-        B, T, H, W, D = x_B_T_H_W_D.shape
 
         for vace_block_idx, block in enumerate(self.control_blocks):
             control_B_T_H_W_D = block(

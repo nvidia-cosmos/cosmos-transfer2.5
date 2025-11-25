@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import time
 from pathlib import Path
 
 import numpy as np
@@ -22,7 +21,7 @@ import torch
 from cosmos_transfer2._src.imaginaire.auxiliary.guardrail.common import presets as guardrail_presets
 from cosmos_transfer2._src.imaginaire.flags import SMOKE
 from cosmos_transfer2._src.imaginaire.lazy_config.lazy import LazyConfig
-from cosmos_transfer2._src.imaginaire.utils import distributed, log
+from cosmos_transfer2._src.imaginaire.utils import distributed, log, misc
 from cosmos_transfer2._src.imaginaire.visualize.video import save_img_or_video
 from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.experiment.experiment_list import EXPERIMENTS
 from cosmos_transfer2._src.transfer2.inference.inference_pipeline import ControlVideo2WorldInference
@@ -85,6 +84,7 @@ class Control2WorldInference:
             # pyrefly: ignore  # bad-assignment
             self.video_guardrail_runner = None
 
+        self.benchmark_timer = misc.TrainingTimer()
         # Initialize the inference class
         self.inference_pipeline = ControlVideo2WorldInference(
             registered_exp_name=EXPERIMENTS[self.experiment].registered_exp_name,
@@ -94,6 +94,7 @@ class Control2WorldInference:
             process_group=process_group,
             use_cp_wan=args.enable_parallel_tokenizer,
             wan_cp_grid=args.parallel_tokenizer_grid,
+            benchmark_timer=self.benchmark_timer if args.benchmark else None,
         )
 
         compile_tokenizer_if_enabled(self.inference_pipeline, args.compile_tokenizer.value)
@@ -110,7 +111,6 @@ class Control2WorldInference:
             # pyrefly: ignore  # bad-argument-type
             LazyConfig.save_yaml(self.inference_pipeline.config, config_path)
             log.info(f"Saved config to {config_path}")
-        self.benchmark_times = []
 
     def generate(self, samples: list[InferenceArguments], output_dir: Path) -> list[str]:
         if SMOKE:
@@ -126,13 +126,16 @@ class Control2WorldInference:
             if output_path is not None:
                 output_paths.append(output_path)
 
-        if is_rank0() and len(self.benchmark_times) > 0:
-            avg_time = sum(self.benchmark_times) / len(self.benchmark_times)
+        if is_rank0() and self.setup_args.benchmark:
             log.info("=" * 50)
             log.info("BENCHMARK RESULTS")
             log.info("=" * 50)
-            log.info(f"Benchmark runs: {[f'{t:.2f}s' for t in self.benchmark_times]}")
-            log.info(f"Average time (last {self.benchmark_times} runs): {avg_time:.2f} seconds")
+            log.info(f"Benchmark runs:")
+            for key, value in self.benchmark_timer.results.items():
+                log.info(f"{key}: {value} seconds")
+            log.info(f"Average times:")
+            for key, value in self.benchmark_timer.compute_average_results().items():
+                log.info(f"{key}: {value:.2f} seconds")
             log.info("=" * 50)
         return output_paths
 
@@ -151,34 +154,35 @@ class Control2WorldInference:
             open(f"{output_path}.json", "w").write(sample.model_dump_json())
             log.info(f"Saved arguments to {output_path}.json")
 
-            # run text guardrail on the prompt
-            if self.text_guardrail_runner is not None:
-                log.info("Running guardrail check on prompt...")
+            with self.benchmark_timer("text_guardrail"):
+                # run text guardrail on the prompt
+                if self.text_guardrail_runner is not None:
+                    log.info("Running guardrail check on prompt...")
 
-                if not guardrail_presets.run_text_guardrail(prompt, self.text_guardrail_runner):
-                    message = f"Guardrail blocked generation. Prompt: {prompt}"
-                    log.critical(message)
-                    if self.setup_args.keep_going:
-                        return None
+                    if not guardrail_presets.run_text_guardrail(prompt, self.text_guardrail_runner):
+                        message = f"Guardrail blocked generation. Prompt: {prompt}"
+                        log.critical(message)
+                        if self.setup_args.keep_going:
+                            return None
+                        else:
+                            raise Exception(message)
                     else:
-                        raise Exception(message)
-                else:
-                    log.success("Passed guardrail on prompt")
+                        log.success("Passed guardrail on prompt")
 
-                if not guardrail_presets.run_text_guardrail(
-                    negative_prompt,
-                    self.text_guardrail_runner,
-                ):
-                    message = f"Guardrail blocked generation. Negative prompt: {negative_prompt}"
-                    log.critical(message)
-                    if self.setup_args.keep_going:
-                        return None
+                    if not guardrail_presets.run_text_guardrail(
+                        negative_prompt,
+                        self.text_guardrail_runner,
+                    ):
+                        message = f"Guardrail blocked generation. Negative prompt: {negative_prompt}"
+                        log.critical(message)
+                        if self.setup_args.keep_going:
+                            return None
+                        else:
+                            raise Exception(message)
                     else:
-                        raise Exception(message)
-                else:
-                    log.success("Passed guardrail on negative prompt")
-            elif self.text_guardrail_runner is None:
-                log.warning("Guardrail checks on prompt are disabled")
+                        log.success("Passed guardrail on negative prompt")
+                elif self.text_guardrail_runner is None:
+                    log.warning("Guardrail checks on prompt are disabled")
 
         input_control_video_paths = sample.control_modalities
         log.info(f"Processing the following paths: {input_control_video_paths}")
@@ -192,42 +196,37 @@ class Control2WorldInference:
             control_weight += sample.control_weight_dict.get(key, "0.0") + ","
         control_weight = control_weight[:-1]
 
-        # Measure the time in case of benchmarking, but only for samples which aren't warm-up samples.
-        if sample_id > 0 and self.setup_args.benchmark:
+        if self.setup_args.benchmark:
             torch.cuda.synchronize()
-            start_time = time.time()
-        else:
-            start_time = None
 
-        # Run model inference
-        output_video, control_video_dict, mask_video_dict, fps, _ = self.inference_pipeline.generate_img2world(
-            # pyrefly: ignore  # bad-argument-type
-            video_path=path_to_str(sample.video_path),
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            image_context_path=path_to_str(sample.image_context_path),
-            guidance=sample.guidance,
-            seed=sample.seed,
-            resolution=sample.resolution,
-            control_weight=control_weight,
-            sigma_max=sigma_max,
-            hint_key=sample.hint_keys,
-            # pyrefly: ignore  # bad-argument-type
-            input_control_video_paths=input_control_video_paths,
-            show_control_condition=sample.show_control_condition,
-            seg_control_prompt=sample.seg_control_prompt,
-            show_input=sample.show_input,
-            keep_input_resolution=not sample.not_keep_input_resolution,
-            preset_blur_strength=sample.preset_blur_strength,
-            preset_edge_threshold=sample.preset_edge_threshold,
-            num_conditional_frames=sample.num_conditional_frames,
-            num_video_frames_per_chunk=sample.num_video_frames_per_chunk,
-            num_steps=sample.num_steps,
-        )
-
-        if start_time is not None:
-            torch.cuda.synchronize()
-            self.benchmark_times.append(time.time() - start_time)
+        with self.benchmark_timer("generate_img2world"):
+            # Run model inference
+            output_video, control_video_dict, mask_video_dict, fps, _ = self.inference_pipeline.generate_img2world(
+                # pyrefly: ignore  # bad-argument-type
+                video_path=path_to_str(sample.video_path),
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                image_context_path=path_to_str(sample.image_context_path),
+                guidance=sample.guidance,
+                seed=sample.seed,
+                resolution=sample.resolution,
+                control_weight=control_weight,
+                sigma_max=sigma_max,
+                hint_key=sample.hint_keys,
+                # pyrefly: ignore  # bad-argument-type
+                input_control_video_paths=input_control_video_paths,
+                show_control_condition=sample.show_control_condition,
+                seg_control_prompt=sample.seg_control_prompt,
+                show_input=sample.show_input,
+                keep_input_resolution=not sample.not_keep_input_resolution,
+                preset_blur_strength=sample.preset_blur_strength,
+                preset_edge_threshold=sample.preset_edge_threshold,
+                num_conditional_frames=sample.num_conditional_frames,
+                num_video_frames_per_chunk=sample.num_video_frames_per_chunk,
+                num_steps=sample.num_steps,
+            )
+            if self.setup_args.benchmark:
+                torch.cuda.synchronize()
 
         # Save video
         if self.device_rank == 0:
@@ -237,29 +236,29 @@ class Control2WorldInference:
                 save_img_or_video(control_video_dict[key], f"{output_path}_control_{key}", fps=fps)
                 log.info(f"{key} control video saved to {output_path}_control_{key}.mp4")
 
-            for key in mask_video_dict:
-                save_img_or_video(mask_video_dict[key], f"{output_path}_mask_{key}", fps=fps)
-                log.info(f"Mask for {key} saved to {output_path}_mask_{key}.mp4")
-
-            # run video guardrail on the video
-            if self.video_guardrail_runner is not None:
-                log.info("Running guardrail check on video...")
-                frames = (output_video * 255.0).clamp(0.0, 255.0).to(torch.uint8)
-                frames = frames.permute(1, 2, 3, 0).cpu().numpy().astype(np.uint8)  # (T, H, W, C)
-                processed_frames = guardrail_presets.run_video_guardrail(frames, self.video_guardrail_runner)
-                if processed_frames is None:
-                    if self.setup_args.keep_going:
-                        return None
+            with self.benchmark_timer("video_guardrail"):
+                for key in mask_video_dict:
+                    save_img_or_video(mask_video_dict[key], f"{output_path}_mask_{key}", fps=fps)
+                    log.info(f"Mask for {key} saved to {output_path}_mask_{key}.mp4")
+                # run video guardrail on the video
+                if self.video_guardrail_runner is not None:
+                    log.info("Running guardrail check on video...")
+                    frames = (output_video * 255.0).clamp(0.0, 255.0).to(torch.uint8)
+                    frames = frames.permute(1, 2, 3, 0).cpu().numpy().astype(np.uint8)  # (T, H, W, C)
+                    processed_frames = guardrail_presets.run_video_guardrail(frames, self.video_guardrail_runner)
+                    if processed_frames is None:
+                        if self.setup_args.keep_going:
+                            return None
+                        else:
+                            raise Exception("Guardrail blocked video2world generation.")
                     else:
-                        raise Exception("Guardrail blocked video2world generation.")
-                else:
-                    log.success("Passed guardrail on generated video")
+                        log.success("Passed guardrail on generated video")
 
-                # Convert processed frames back to tensor format
-                processed_video = torch.from_numpy(processed_frames).float().permute(3, 0, 1, 2) / 255.0
-                output_video = processed_video.to(output_video.device, dtype=output_video.dtype)
-            else:
-                log.warning("Guardrail checks on video are disabled")
+                    # Convert processed frames back to tensor format
+                    processed_video = torch.from_numpy(processed_frames).float().permute(3, 0, 1, 2) / 255.0
+                    output_video = processed_video.to(output_video.device, dtype=output_video.dtype)
+                else:
+                    log.warning("Guardrail checks on video are disabled")
 
             # Remove batch dimension and normalize to [0, 1] range
             save_img_or_video(output_video, str(output_path), fps=fps)
@@ -268,6 +267,10 @@ class Control2WorldInference:
             with open(prompt_save_path, "w") as f:
                 f.write(sample.prompt)
             log.success(f"Generated video saved to {output_path}.mp4")
+
+        if sample_id == 0 and self.setup_args.benchmark:
+            # discard first warmup sample from timing
+            self.benchmark_timer.reset()
 
         torch.cuda.empty_cache()
         return f"{output_path}.mp4"

@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import math
-from typing import Any, List, Literal, Optional, Tuple
+from typing import Any, List, Literal, Optional, Tuple, Union
 
 import torch
 import torch.amp as amp
@@ -211,24 +211,24 @@ class ControlAwareDiTBlock(Block):
     def forward(
         self,
         x_B_T_H_W_D: torch.Tensor,
-        hints: Optional[torch.Tensor] = None,
-        control_context_scale: float = 1.0,
+        hints: torch.Tensor,
+        control_context_scale: Union[float, torch.Tensor] = 1.0,
         **kwargs: Any,
     ) -> torch.Tensor:
         """Forward pass of the block.
 
         Args:
             x: Input tensor
-            hints: Optional control signals from the control branch
+            hints: Control signals from the control branch. Pass a Tensor filled with zeroes in order for hints to not take any effect.
             control_context_scale: Optional scaling factor for the hints
             **kwargs: Additional arguments passed to the base DiTBlock
 
         Returns:
-            Processed tensor with optional hints added
+            Processed tensor with hints added
         """
         x_B_T_H_W_D = super().forward(x_B_T_H_W_D, **kwargs)
-        if self.block_id is not None and hints is not None:
-            x_B_T_H_W_D = x_B_T_H_W_D + hints[self.block_id] * control_context_scale
+        if self.block_id is not None:
+            x_B_T_H_W_D += hints[self.block_id] * control_context_scale
         return x_B_T_H_W_D
 
 
@@ -259,6 +259,7 @@ class ControlEncoderDiTBlock(Block):
         hint_dim: Optional[int] = None,
         use_after_proj: bool = True,
         use_wan_fp32_strategy: bool = False,
+        use_cuda_graphs: bool = False,
     ) -> None:
         super().__init__(
             x_dim,
@@ -273,6 +274,7 @@ class ControlEncoderDiTBlock(Block):
         )
         self.block_id = block_id
         self.use_after_proj = use_after_proj
+        self.use_cuda_graphs = use_cuda_graphs
 
         # Zero convolution as in ControlNet
         if block_id == 0:
@@ -289,25 +291,31 @@ class ControlEncoderDiTBlock(Block):
             nn.init.zeros_(self.before_proj.weight)
             nn.init.zeros_(self.before_proj.bias)
 
-    def forward(self, c: torch.Tensor, x_B_T_H_W_D: torch.Tensor, **kwargs):
-        """
-        stacks the previous block's output with the current block's output,
-        so that the final output from the control branch is a stack of all the control block outputs,
-        and easy to apply block-wise to base model.
-
-        """
+    def pre_forward(self, c: torch.Tensor, x_B_T_H_W_D: torch.Tensor):
+        all_c = []
         if self.block_id == 0:
             c = self.before_proj(c) + x_B_T_H_W_D
-            all_c = []
         elif self.use_after_proj:
             all_c = list(torch.unbind(c))
             c = all_c.pop(-1)
-        c = super().forward(c, **kwargs)
+        return c, all_c
+
+    def post_forward(self, c: torch.Tensor, all_c: list[torch.Tensor]):
         if self.use_after_proj:
             c_skip = self.after_proj(c)
             all_c += [c_skip, c]
             c = torch.stack(all_c)
         return c
+
+    def forward(self, c: torch.Tensor, x_B_T_H_W_D: torch.Tensor, **kwargs):
+        if self.use_cuda_graphs:
+            # When using CUDA Graphs, pre_forward and post_forward methods must be called by user manually outside of
+            # the forward call. That is because these methods are not graphable due to changing input shapes.
+            return super().forward(c, **kwargs)
+        else:
+            c, all_c = self.pre_forward(c, x_B_T_H_W_D)
+            c = super().forward(c, **kwargs)
+            return self.post_forward(c, all_c)
 
 
 # Modified BaseMiniTrainDIT class by adding reference image parameter

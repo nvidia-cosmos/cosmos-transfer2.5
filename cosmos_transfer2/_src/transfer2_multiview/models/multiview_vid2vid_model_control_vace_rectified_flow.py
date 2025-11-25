@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import random
 from dataclasses import field
 from typing import Callable, Dict, Optional, Tuple, cast
 
@@ -26,7 +25,7 @@ from torch import Tensor
 from torch.distributed import get_process_group_ranks
 
 from cosmos_transfer2._src.imaginaire.utils import log
-from cosmos_transfer2._src.imaginaire.utils.context_parallel import broadcast, broadcast_split_tensor
+from cosmos_transfer2._src.imaginaire.utils.context_parallel import broadcast_split_tensor
 from cosmos_transfer2._src.predict2.conditioner import DataType
 from cosmos_transfer2._src.predict2.models.text2world_model_rectified_flow import IS_PREPROCESSED_KEY
 from cosmos_transfer2._src.predict2.models.video2world_model_rectified_flow import NUM_CONDITIONAL_FRAMES_KEY
@@ -46,8 +45,6 @@ from cosmos_transfer2._src.transfer2_multiview.configs.vid2vid_transfer.defaults
     MultiViewControlVideo2WorldCondition,
 )
 
-TRAIN_SAMPLE_N_VIEWS_KEY = "train_sample_n_views"
-TRAIN_SAMPLING_APPLIED_KEY = "train_sampling_applied"
 CONTROL_WEIGHT_KEY = "control_weight"
 
 _base_classes = (ControlVideo2WorldRectifiedFlowConfig,)
@@ -201,106 +198,6 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
         # data_batch_with_latent_view_indices = data_batch.copy()
         data_batch["latent_view_indices_B_T"] = latent_view_indices_B_T
 
-        return data_batch
-
-    def sample_first_n_views_from_data_batch(self, data_batch, n_views):
-        if n_views == data_batch["sample_n_views"].cpu().item():
-            return data_batch
-        """Sample first n views from data batch, handling both video and control inputs."""
-        new_data_batch = {}
-        num_video_frames_per_view = data_batch["num_video_frames_per_view"].cpu().item()
-        log.debug(f"Sampling {n_views} views out of {data_batch['sample_n_views'].cpu().item()}")
-        log.debug(f"num_video_frames_per_view: {num_video_frames_per_view}")
-        new_total_frames = num_video_frames_per_view * n_views
-        new_total_t5_dim = 512 * n_views
-        new_data_batch["video"] = data_batch["video"][:, :, 0:new_total_frames]
-        new_data_batch["view_indices"] = data_batch["view_indices"][:, 0:new_total_frames]
-        new_data_batch["sample_n_views"] = 0 * data_batch["sample_n_views"] + n_views
-        new_data_batch["fps"] = data_batch["fps"]
-        new_data_batch["t5_text_embeddings"] = data_batch["t5_text_embeddings"][:, 0:new_total_t5_dim]
-        new_data_batch["neg_t5_text_embeddings"] = data_batch["neg_t5_text_embeddings"][:, 0:new_total_t5_dim]
-        new_data_batch["t5_text_mask"] = data_batch["t5_text_mask"][:, 0:new_total_t5_dim]
-        split_captions = data_batch["ai_caption"][0].split(" -- ")
-        assert len(split_captions) == 7, f"Expected 7 view captions, got {len(split_captions)}"
-        new_data_batch["ai_caption"] = [" -- ".join(split_captions[0:n_views])]
-        new_data_batch["n_orig_video_frames_per_view"] = data_batch["n_orig_video_frames_per_view"]
-        assert data_batch["ref_cam_view_idx_sample_position"].item() == -1, (
-            f"ref_cam_view_idx_sample_position is not supported by batch sampling, got {data_batch['ref_cam_view_idx_sample_position']}"
-        )
-        new_data_batch["ref_cam_view_idx_sample_position"] = data_batch["ref_cam_view_idx_sample_position"]
-        new_data_batch["camera_keys_selection"] = data_batch["camera_keys_selection"][0:n_views]
-        new_data_batch["view_indices_selection"] = data_batch["view_indices_selection"][0:n_views]
-
-        if data_batch["front_cam_view_idx_sample_position"].item() > n_views:
-            # front cam view idx is not selected
-            new_data_batch["front_cam_view_idx_sample_position"] = None
-        else:
-            new_data_batch["front_cam_view_idx_sample_position"] = data_batch["front_cam_view_idx_sample_position"]
-
-        if "all_view_selected_frame_ranges" in data_batch:
-            new_data_batch["all_view_selected_frame_ranges"] = data_batch["all_view_selected_frame_ranges"][0:n_views]
-        for key in [
-            "__url__",
-            "__key__",
-            "__t5_url__",
-            "image_size",
-            "num_video_frames_per_view",
-            "aspect_ratio",
-            "padding_mask",
-            "dataset_name",
-            "use_apg",
-            # only in mads
-            "frame_start",
-            "frame_end",
-            "sampled_caption_style",
-            "n_orig_video_frames",
-            "frame_indices",
-            "chunk_index",
-            "control_weight",
-            NUM_CONDITIONAL_FRAMES_KEY,
-        ]:
-            if key in data_batch:
-                new_data_batch[key] = data_batch[key]
-
-        # === CONTROL INPUTS SAMPLING ===
-        # Handle all control input keys (edge, blur, depth, etc.)
-        control_keys_processed = []
-        for key in data_batch.keys():
-            if key.startswith("control_input_") and data_batch[key] is not None:
-                # Sample control input to match video temporal structure
-                original_shape = data_batch[key].shape
-                new_data_batch[key] = data_batch[key][:, :, 0:new_total_frames]
-                control_keys_processed.append(key)
-                log.debug(f"Sampled {key}: {original_shape} -> {new_data_batch[key].shape}")
-
-        old_keys = set(list(data_batch.keys()))
-        new_keys = set(list(new_data_batch.keys()))
-        diff = old_keys.difference(new_keys)
-        # We use the following check to ensure that all newly introduced keys are correctly and explicitly handled and avoid bugs from omitted handling of new keys
-        assert old_keys == new_keys, f"Expected old keys to equal new keys. Difference {diff}"
-        return new_data_batch
-
-    def _preprocess_databatch(self, data_batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        """Preprocess data batch with dynamic view sampling"""
-        if TRAIN_SAMPLING_APPLIED_KEY in data_batch and data_batch[TRAIN_SAMPLING_APPLIED_KEY] is True:
-            return data_batch
-        if hasattr(self.config, "train_sample_views_range") and self.config.train_sample_views_range is not None:
-            min_views, max_views = self.config.train_sample_views_range
-            log.debug(f"Randomly sampling {min_views} to {max_views} views")
-            if TRAIN_SAMPLE_N_VIEWS_KEY in data_batch:
-                train_sample_n_views = data_batch[TRAIN_SAMPLE_N_VIEWS_KEY]
-                log.debug(f"Using {TRAIN_SAMPLE_N_VIEWS_KEY} from data batch: {train_sample_n_views}")
-                if train_sample_n_views < 1:  # No sampling is applied
-                    return data_batch
-            else:
-                # Sample and broadcast n_views across cp_groups so all ranks sample the same number of views
-                train_sample_n_views = random.randint(min_views, max_views)
-                if parallel_state.get_context_parallel_group() is not None:
-                    train_sample_n_views = broadcast(train_sample_n_views, parallel_state.get_context_parallel_group())
-                log.debug(f"Sampled and broadcasted train_sample_n_views={train_sample_n_views}")
-            log.debug(f"Sampling {train_sample_n_views} views out of {data_batch['sample_n_views'].cpu().item()}")
-            data_batch = self.sample_first_n_views_from_data_batch(data_batch, train_sample_n_views)
-            data_batch[TRAIN_SAMPLING_APPLIED_KEY] = True
         return data_batch
 
     def _normalize_video_databatch_inplace(self, data_batch: dict[str, Tensor], input_key: str = None) -> None:
@@ -650,10 +547,55 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
                 init_noise=None,
                 **kwargs,
             )
+        else:
+            raise ValueError(f"Distillation method {distillation} not implemented.")
         if cp_size > 1:
-            samples_B_C_T_H_W = rearrange(
-                samples_B_C_T_H_W, "B C (c V T) H W -> B C (V c T) H W", c=cp_size, T=self.state_t // cp_size
+            num_views = samples_B_C_T_H_W.shape[2] // self.state_t
+            H = samples_B_C_T_H_W.shape[3]
+            W = samples_B_C_T_H_W.shape[4]
+            assert (self.state_t * H * W) % cp_size == 0, (
+                "Flattened, one view sequence length must be divisible by CP size."
             )
+            """
+            We merge the video into contiguous views, as it's scattered per-frame and per-height hunks when using CP.
+
+            1. Flatten all dimensions (T, H, W) into a single sequence.
+               Input: B C T H W -> B C (T H W)
+               
+            2. The flattened sequence is a concatenation of chunks from each CP rank.
+               Because we broadcast-split PER VIEW the sequence structure is:
+               [Rank0_View0_Chunk] [Rank0_View1_Chunk] ... [Rank0_ViewN_Chunk]
+               [Rank1_View0_Chunk] [Rank1_View1_Chunk] ... [Rank1_ViewN_Chunk]
+               ...
+               
+               We need to regroup these chunks by VIEW first:
+               Input: B C (cp_size num_views chunk)
+               Output: B C num_views (cp_size chunk)
+               
+               This creates a contiguous block for each view:
+               View0: [Rank0_Chunk] [Rank1_Chunk] ... [RankN_Chunk] (This reconstructs the full View0 volume)
+               View1: [Rank0_Chunk] [Rank1_Chunk] ... [RankN_Chunk] (This reconstructs the full View1 volume)
+               
+            3. Reshape the contiguous view blocks back into (T, H, W).
+               The total size of (cp_size * chunk) equals exactly (T * H * W) for one view.
+               Input: B C num_views (T H W)
+               Output: B C (num_views T) H W
+            """
+            samples_B_C_T_H_W = rearrange(samples_B_C_T_H_W, "B C T H W -> B C (T H W)")
+            samples_B_C_T_H_W = rearrange(
+                samples_B_C_T_H_W,
+                "B C (cp_size num_views chunk) -> B C num_views (cp_size chunk)",
+                cp_size=cp_size,
+                num_views=num_views,
+            )
+            samples_B_C_T_H_W = rearrange(
+                samples_B_C_T_H_W,
+                "B C num_views (T H W) -> B C (num_views T) H W",
+                T=self.state_t,
+                H=H,
+                W=W,
+            )
+
         return samples_B_C_T_H_W
 
     def denoise(

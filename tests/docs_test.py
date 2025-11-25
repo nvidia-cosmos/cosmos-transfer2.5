@@ -13,78 +13,86 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import subprocess
 from pathlib import Path
 
 import pytest
+from cosmos_oss.fixtures.script import ScriptConfig, ScriptRunner
+from cosmos_oss.fixtures.script import script_runner as script_runner
 
-_CURRENT_DIR = Path(__file__).resolve().parent
-_ROOT_DIR = _CURRENT_DIR.parent
+_CURRENT_DIR = Path(__file__).parent.absolute()
+_SCRIPT_DIR = _CURRENT_DIR / "docs_test"
+
+SCRIPT_CONFIGS = [
+    ScriptConfig(
+        script="depth.sh",
+    ),
+    ScriptConfig(
+        script="depth_tokenizer_compile.sh",
+        levels=[2],
+    ),
+    ScriptConfig(
+        script="depth_parallel_tokenizer.sh",
+        levels=[2],
+    ),
+    ScriptConfig(
+        script="edge.sh",
+    ),
+    ScriptConfig(
+        script="seg.sh",
+    ),
+    ScriptConfig(
+        script="vis.sh",
+    ),
+    ScriptConfig(
+        script="vanilla_multicontrol.sh",
+        gpus=8,
+    ),
+    ScriptConfig(
+        script="auto_multiview.sh",
+        gpus=8,
+    ),
+    ScriptConfig(
+        script="auto_multiview_autoregressive.sh",
+        gpus=8,
+        levels=[2],
+    ),
+    ScriptConfig(
+        script="post-training_auto_multiview.sh",
+        gpus=8,
+    ),
+]
 
 
-def _get_env(tmp_path: Path):
-    return (
-        {
-            "INPUT_DIR": _ROOT_DIR,
-            "COSMOS_VERBOSE": "0",
-        }
-        | dict(os.environ)
-        | {
-            "COSMOS_INTERNAL": "0",
-            "COSMOS_SMOKE": "0",
-            "OUTPUT_DIR": f"{_ROOT_DIR}/output",
-            "TMP_DIR": f"{tmp_path}/tmp",
-            "IMAGINAIRE_OUTPUT_ROOT": f"{_ROOT_DIR}/imaginaire4-output",
-        }
-    )
-
-
+@pytest.mark.level(0)
 @pytest.mark.gpus(1)
 @pytest.mark.parametrize(
-    "test_script",
-    [
-        pytest.param("vanilla.sh", id="vanilla"),
-        pytest.param("vanilla_multicontrol.sh", id="vanilla_multicontrol"),
-        pytest.param("auto_multiview.sh", id="auto_multiview"),
-        pytest.param("auto_multiview_autoregressive.sh", id="auto_multiview_autoregressive"),
-        pytest.param("post-training_auto_multiview.sh", id="post_training_auto_multiview"),
-    ],
+    "cfg", [pytest.param(cfg, id=cfg.name, marks=cfg.marks) for cfg in SCRIPT_CONFIGS if 0 in cfg.levels]
 )
-def test_smoke(test_script: str, tmp_path: Path):
-    cmd = [
-        f"{_CURRENT_DIR}/docs_test/{test_script}",
-    ]
-    env = _get_env(tmp_path) | {"COSMOS_SMOKE": "1"}
-    subprocess.check_call(cmd, cwd=_ROOT_DIR, env=env)
+def test_level_0(cfg: ScriptConfig, script_runner: ScriptRunner):
+    script_runner.run(f"{_SCRIPT_DIR}/{cfg.script}", script_runner.env_level_0)
 
 
+@pytest.mark.level(1)
 @pytest.mark.parametrize(
-    "test_script",
+    "cfg",
     [
-        pytest.param("vanilla.sh", id="vanilla", marks=[pytest.mark.gpus(1), pytest.mark.level(1)]),
-        pytest.param(
-            "vanilla_multicontrol.sh", id="vanilla_multicontrol", marks=[pytest.mark.gpus(8), pytest.mark.level(1)]
-        ),
-        pytest.param("auto_multiview.sh", id="auto_multiview", marks=[pytest.mark.gpus(1), pytest.mark.level(1)]),
-        pytest.param(
-            "auto_multiview_autoregressive.sh",
-            id="auto_multiview_autoregressive",
-            marks=[pytest.mark.gpus(1), pytest.mark.level(1)],
-        ),
-        pytest.param(
-            "post-training_auto_multiview.sh",
-            id="post_training_auto_multiview",
-            marks=[pytest.mark.gpus(8), pytest.mark.level(2)],
-        ),
+        pytest.param(cfg, id=cfg.name, marks=[pytest.mark.gpus(cfg.gpus), *cfg.marks])
+        for cfg in SCRIPT_CONFIGS
+        if 1 in cfg.levels
     ],
 )
-def test_full(test_script: str, tmp_path: Path):
-    cmd = [
-        f"{_CURRENT_DIR}/docs_test/{test_script}",
-    ]
-    subprocess.check_call(
-        cmd,
-        cwd=_ROOT_DIR,
-        env=_get_env(tmp_path),
-    )
+def test_level_1(cfg: ScriptConfig, script_runner: ScriptRunner):
+    script_runner.run(f"{_SCRIPT_DIR}/{cfg.script}", script_runner.env_level_1)
+
+
+@pytest.mark.level(2)
+@pytest.mark.parametrize(
+    "cfg",
+    [
+        pytest.param(cfg, id=cfg.name, marks=[pytest.mark.gpus(8), *cfg.marks])
+        for cfg in SCRIPT_CONFIGS
+        if 2 in cfg.levels
+    ],
+)
+def test_level_2(cfg: ScriptConfig, script_runner: ScriptRunner):
+    script_runner.run(f"{_SCRIPT_DIR}/{cfg.script}", script_runner.env_level_2)

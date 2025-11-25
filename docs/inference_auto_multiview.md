@@ -12,6 +12,7 @@ The default sample spec enables seven views, so it runs on seven GPUs.
 If you reduce the views in your JSON spec, you can run on fewer GPUs.
 Adjust `--nproc_per_node` (or total world size) accordingly before running the commands below.
 
+
 ## Examples
 
 Multiview requires 8 GPUs

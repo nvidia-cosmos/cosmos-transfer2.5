@@ -1,8 +1,3 @@
-{
-    "prompt_path": "assets/car_example/car_prompt.json",
-    "output_dir": "outputs/car_vis",
-    "video_path": "assets/car_example/car_input.mp4",
-    "control_weight": 1.0,
-    "vis": {
-    }
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:9a1719988544c7a18d1c0ecb3f61d70eb8afb2c12d0c9fd2d62bd16942b8e696
+size 198

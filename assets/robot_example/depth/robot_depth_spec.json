@@ -1,10 +1,3 @@
-{
-    "name": "robot_depth",
-    "prompt_path": "../robot_prompt.txt",
-    "video_path": "../robot_input.mp4",
-    "guidance": 3,
-    "depth": {
-        "control_path": "robot_depth.mp4",
-        "control_weight": 1.0
-    }
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:bb0d5d3d165ff9e28bb803aba0ff86784f7956d9fc45afa6c427f940dfeac16e
+size 226

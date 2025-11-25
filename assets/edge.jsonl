@@ -1,2 +1,3 @@
-{"name": "robot_edge", "prompt_path": "robot_example/robot_prompt.txt", "video_path": "robot_example/robot_input.mp4", "guidance": 3, "edge": {"control_weight": 1.0, "control_path": "robot_example/edge/robot_edge.mp4"}}
-{"name": "car_edge", "prompt_path": "car_example/car_prompt.txt", "video_path": "car_example/car_input.mp4", "guidance": 3, "edge": {"control_weight": 1.0, "control_path": "car_example/edge/car_edge.mp4"}}
+version https://git-lfs.github.com/spec/v1
+oid sha256:97303a580f9d98504d58f3f7a5d113c80ce7ae4661f054c8f90f636645b452f3
+size 426
