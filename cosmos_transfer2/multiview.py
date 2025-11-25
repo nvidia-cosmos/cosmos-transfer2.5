@@ -294,8 +294,7 @@ class MultiviewInference:
                     save_img_or_video(video, str(output_path), fps=sample.fps, quality=8)
                     log.success(f"Generated video saved to {output_path}.mp4")
 
-                needs_view_split = sample.save_individual_views or sample.save_view_grid
-                if not needs_view_split:
+                if sample.save_combined_views:
                     save_combined_video()
                     return f"{output_path}.mp4"
 
@@ -305,20 +304,15 @@ class MultiviewInference:
                 # Calculate frames per view from actual video tensor shape
                 # Video shape is C (V T) H W where V is number of views and T is frames per view
                 if total_frames % n_views != 0:
-                    log.warning(
-                        f"Video frames ({total_frames}) not divisible by number of views ({n_views}). "
-                        "Saving combined output instead."
+                    raise ValueError(
+                        f"Video frames ({total_frames}) not divisible by number of views ({n_views})."
                     )
-                    save_combined_video()
-                    return f"{output_path}.mp4"
                 
                 frames_per_view = total_frames // n_views
                 if frames_per_view <= 0:
-                    log.warning(
-                        "Cannot split views because frames_per_view is not positive. Saving combined output instead."
+                    raise ValueError(
+                        "Cannot split views because frames_per_view is not positive."
                     )
-                    save_combined_video()
-                    return f"{output_path}.mp4"
 
                 inferred_views = n_views
 
@@ -334,30 +328,28 @@ class MultiviewInference:
 
                 # Save individual view videos
                 output_messages = []
-                if sample.save_individual_views:
-                    for view_name, view_tensor in view_tensors:
-                        view_output_path = f"{output_path}_{view_name}"
-                        save_img_or_video(view_tensor, view_output_path, fps=sample.fps, quality=8)
-                        output_messages.append(f"{view_output_path}.mp4")
+                for view_name, view_tensor in view_tensors:
+                    view_output_path = f"{output_path}_{view_name}"
+                    save_img_or_video(view_tensor, view_output_path, fps=sample.fps, quality=8)
+                    output_messages.append(f"{view_output_path}.mp4")
 
                 # Save grid video
-                if sample.save_view_grid:
-                    grid_rows, grid_cols = 3, 3
-                    c, t, h, w = view_tensors[0][1].shape
-                    grid_tensor = torch.zeros(
-                        (c, t, grid_rows * h, grid_cols * w), dtype=video.dtype, device=video.device
-                    )
+                grid_rows, grid_cols = 3, 3
+                c, t, h, w = view_tensors[0][1].shape
+                grid_tensor = torch.zeros(
+                    (c, t, grid_rows * h, grid_cols * w), dtype=video.dtype, device=video.device
+                )
 
-                    num_views_in_grid = min(len(view_tensors), grid_rows * grid_cols)
-                    for idx in range(num_views_in_grid):
-                        row, col = idx // grid_cols, idx % grid_cols
-                        grid_tensor[:, :, row * h : (row + 1) * h, col * w : (col + 1) * w] = view_tensors[idx][1]
+                num_views_in_grid = min(len(view_tensors), grid_rows * grid_cols)
+                for idx in range(num_views_in_grid):
+                    row, col = idx // grid_cols, idx % grid_cols
+                    grid_tensor[:, :, row * h : (row + 1) * h, col * w : (col + 1) * w] = view_tensors[idx][1]
 
-                    grid_output_path = f"{output_path}_grid"
-                    save_img_or_video(grid_tensor, grid_output_path, fps=sample.fps, quality=8)
-                    output_messages.append(
-                        f"{grid_output_path}.mp4 ({num_views_in_grid} views in {grid_rows}x{grid_cols} grid)"
-                    )
+                grid_output_path = f"{output_path}_grid"
+                save_img_or_video(grid_tensor, grid_output_path, fps=sample.fps, quality=8)
+                output_messages.append(
+                    f"{grid_output_path}.mp4 ({num_views_in_grid} views in {grid_rows}x{grid_cols} grid)"
+                )
 
                 # Log all outputs at once
                 if output_messages:
