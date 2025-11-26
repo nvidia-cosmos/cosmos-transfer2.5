@@ -17,6 +17,8 @@ from typing import Final
 import numpy as np
 
 from av_utils.camera.base import CameraBase
+from av_utils.graphics_utils import LineSegment2D, Polygon2D, TriangleList2D
+from av_utils.pcd_utils import filter_by_height_relative_to_ego, interpolate_polyline_to_points, triangulate_polygon_3d
 
 
 def load_hdmap_colors(version: str = "v3") -> dict:
@@ -212,6 +214,124 @@ def create_minimap_projection(
 
     return projection_images
 
+def create_minimap_geometry_objects_from_data(
+    minimap_name_to_minimap_data,
+    camera_pose,
+    camera_model,
+    minimap_to_rgb,
+    camera_pose_init=None,
+):
+    """
+    Build geometry objects for minimap layers for a single frame.
+
+    Args:
+        minimap_name_to_minimap_data: dict[name -> list[np.ndarray]]
+        camera_pose: np.ndarray (4,4)
+        camera_model: CameraModel
+        minimap_to_rgb: dict[str, list[np.ndarray]], mapping from minimap name to RGB values
+        camera_pose_init: np.ndarray (4,4), reference camera pose for ego space transformation
+
+    Returns:
+        list: geometry objects (LineSegment2D/Polygon2D)
+    """
+
+    all_geometry_objects = []
+    for minimap_name, minimap_data in minimap_name_to_minimap_data.items():
+        minimap_type = get_type_from_name(minimap_name)
+        
+        # We create LineSegment2D geometry object for each polyline
+        if minimap_type == 'polyline':
+            line_segment_list = []
+            for polyline in minimap_data:
+                # Filter out minimap that is under the ego vehicle
+                if camera_pose_init is not None and filter_by_height_relative_to_ego(
+                    polyline, camera_model, camera_pose, camera_pose_init
+                ):
+                    continue
+                # Subdivide the polyline so that distortion is observed in camera view
+                polyline_subdivided = interpolate_polyline_to_points(polyline, segment_interval=0.2)
+                line_segment = np.stack([polyline_subdivided[0:-1], polyline_subdivided[1:]], axis=1) # [N, 2, 3]
+                line_segment_list.append(line_segment)
+            if len(line_segment_list) == 0:
+                continue
+
+            all_line_segments = np.concatenate(line_segment_list, axis=0) # [N', 2, 3]
+            xy_and_depth = camera_model.get_xy_and_depth(all_line_segments.reshape(-1, 3), camera_pose).reshape(-1, 2, 3) # [N', 3]
+            
+            # filter the line segments with both vertices have depth >= 0
+            valid_line_segment_vertices = xy_and_depth[:, :, 2] >= 0
+            valid_line_segment_indices = np.all(valid_line_segment_vertices, axis=1)
+            valid_xy_and_depth = xy_and_depth[valid_line_segment_indices]
+            if len(valid_xy_and_depth) == 0:
+                continue
+
+            color_float = np.array(minimap_to_rgb[minimap_name]) / 255.0
+            all_geometry_objects.append(
+                LineSegment2D(
+                    valid_xy_and_depth,
+                    base_color=color_float,
+                    line_width=5 if minimap_name == 'poles' else 12,
+                )
+            )
+
+        elif minimap_type == 'polygon' or minimap_type == 'cuboid3d':
+            # merge all vertices from polygons and record indices
+            polygon_vertices = []
+            polygon_vertex_counts = []
+            for polygon in minimap_data:
+                # Filter out minimap that is under the ego vehicle
+                if camera_pose_init is not None and filter_by_height_relative_to_ego(
+                    polygon, camera_model, camera_pose, camera_pose_init
+                ):
+                    continue
+                if minimap_name == 'crosswalks':
+                    # Subdivide the polygon so that distortion is observed in camera view
+                    polygon_subdivided = interpolate_polyline_to_points(polygon, segment_interval=0.8)
+                    # Use triangulation for crosswalks to handle concave polygons in camera view
+                    triangles_3d = triangulate_polygon_3d(polygon_subdivided)
+                    polygon_subdivided = triangles_3d.reshape(-1, 3)
+                    if len(polygon_subdivided) == 0:
+                        continue
+                else:
+                    polygon_subdivided = polygon
+                polygon_vertices.append(polygon_subdivided)
+                polygon_vertex_counts.append(len(polygon_subdivided))
+            if len(polygon_vertices) == 0:
+                continue
+            # get xy and depth for all vertices at once
+            all_vertices = np.concatenate(polygon_vertices, axis=0)
+            all_xy_and_depth = camera_model.get_xy_and_depth(all_vertices, camera_pose)
+
+            # recover individual polygons using recorded counts, and keep access to original 3D subdivided vertices
+            start_idx = 0
+            for vertex_count in polygon_vertex_counts:
+                polygon_xy_and_depth = all_xy_and_depth[start_idx:start_idx+vertex_count]
+                start_idx += vertex_count
+                color_float = np.array(minimap_to_rgb[minimap_name]) / 255.0
+                
+                if minimap_name == 'crosswalks':
+                    triangles_proj = polygon_xy_and_depth.reshape(-1, 3, 3)
+                    # Filter out triangles that have ANY vertex behind camera (z < 0)
+                    # This prevents rendering artifacts from triangles crossing the camera plane
+                    invalid_triangles_indices = np.any(triangles_proj[:, :, 2] < 0, axis=1)
+                    valid_triangles_indices = ~invalid_triangles_indices
+                    if valid_triangles_indices.sum() > 0:
+                        all_geometry_objects.append(
+                            TriangleList2D(triangles_proj[valid_triangles_indices], base_color=color_float)
+                        )
+                else:
+                    # Filter out polygons that have ANY vertex behind camera (z < 0)
+                    # This prevents rendering artifacts from polygons crossing the camera plane
+                    if np.any(polygon_xy_and_depth[:, 2] < 0):
+                        continue
+                    # Use regular polygon rendering for other polygon types
+                    all_geometry_objects.append(
+                        Polygon2D(polygon_xy_and_depth, base_color=color_float)
+                    )
+        else:
+            raise ValueError(f"Invalid minimap type: {minimap_type}")
+
+    return all_geometry_objects
 
 def create_laneline_type_projection(
     laneline_data_with_types: list,

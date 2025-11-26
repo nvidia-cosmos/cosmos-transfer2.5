@@ -19,7 +19,7 @@ from scipy.spatial.transform import Rotation, Slerp
 
 from av_utils.camera.ftheta import FThetaCamera
 from av_utils.minimap_utils import cuboid3d_to_polyline
-
+from av_utils.graphics_utils import BoundingBox2D
 
 def load_bbox_colors(version: str = "Uniform Color") -> dict:
     """
@@ -43,6 +43,22 @@ def load_bbox_colors(version: str = "Uniform Color") -> dict:
 
     return bbox_config[version]
 
+def build_per_vertex_color_map(color_version='Gradient Color'):
+    """
+    Build per-vertex color arrays for each object class according to the
+    bbox color configuration version.
+
+    Returns:
+        dict[str, np.ndarray(8,3)]: mapping from class name to per-vertex RGB
+    """
+    gradient_class_colors = load_bbox_colors(color_version)
+    object_type_to_per_vertex_color = {}
+    for object_type, colors in gradient_class_colors.items():
+        per_vertex_color = np.zeros((8, 3))
+        per_vertex_color[[0,1,4,5]] = np.array(colors[0]) / 255.0
+        per_vertex_color[[2,3,6,7]] = np.array(colors[1]) / 255.0
+        object_type_to_per_vertex_color[object_type] = per_vertex_color
+    return object_type_to_per_vertex_color
 
 # Default colors for backward compatibility
 CLASS_COLORS = load_bbox_colors("Uniform Color")
@@ -184,6 +200,102 @@ def create_bbox_projection(
 
     return np.concatenate(bbox_projections, axis=0)
 
+def create_bbox_geometry_objects_for_frame(
+    current_object_info,
+    current_camera_pose,
+    camera_model,
+    fill_face='front_and_back',
+    fill_face_style='diagonal',
+    object_type_to_per_vertex_color=None,
+    color_version='Gradient Color',
+    line_width=9,
+    edge_color=None,
+):
+    """
+    Build BoundingBox2D geometry objects for a single frame.
+    Args:
+        current_object_info: dict, containing all object info for the current frame
+        current_camera_pose: np.ndarray, shape (4, 4), dtype=np.float32, camera pose
+        camera_model: CameraModel, camera model
+        fill_face: str, which faces to fill
+        fill_face_style: str, style of face filling
+        object_type_to_per_vertex_color: dict, mapping from object type to per-vertex color
+        color_version: str, version key for bbox colors from config_color_bbox.json
+        line_width: int, line width for rendering
+        edge_color: np.ndarray, shape (3,), dtype=np.float32, optional edge color
+
+    Returns:
+        list[BoundingBox2D], geometry objects for the current frame
+    """
+    # Prepare per-vertex colors if not supplied
+    if object_type_to_per_vertex_color is None:
+        object_type_to_per_vertex_color = build_per_vertex_color_map(color_version)
+    if edge_color is not None:
+        edge_color = np.array(edge_color) / 255.0
+
+    # Store the 8 corner vertices of each object type
+    object_type_to_corner_vertices = {
+        'Car': [], 'Truck': [], 'Pedestrian': [], 'Cyclist': [], 'Others': []
+    }
+
+    tracking_ids = list(current_object_info.keys())
+    tracking_ids.sort()
+
+    for tracking_id in tracking_ids:
+        object_info = current_object_info[tracking_id]
+        object_info = simplify_type_in_object_info(object_info)
+
+        object_to_world = np.array(object_info['object_to_world'])
+        object_lwh = np.array(object_info['object_lwh'])
+        cuboid_eight_vertices = build_cuboid_bounding_box(
+            object_lwh[0], object_lwh[1], object_lwh[2], object_to_world
+        ) # (8, 3)
+
+        # Cull objects entirely behind camera
+        if np.all(np.dot(cuboid_eight_vertices - current_camera_pose[:3, 3], current_camera_pose[:3, 2]) < 0):
+            continue
+
+        if object_info['object_type'] in ['Car', 'Truck', 'Pedestrian', 'Cyclist']:
+            object_type_to_corner_vertices[object_info['object_type']].append(cuboid_eight_vertices)
+        else:
+            object_type_to_corner_vertices['Others'].append(cuboid_eight_vertices)
+
+    # draw the bbox projection. xy are pixel coordinate, depth is in meters.
+    geometry_objects = []
+    for object_type, all_corner_vertices in object_type_to_corner_vertices.items():
+        if len(all_corner_vertices) == 0:
+            continue
+
+        # all_corner_vertices is [n, 8, 3]
+        n_objects = len(all_corner_vertices)
+        all_corner_vertices_flatten = np.array(all_corner_vertices).reshape(-1, 3)
+        all_points_in_cam = camera_model.transform_points(
+            all_corner_vertices_flatten, np.linalg.inv(current_camera_pose)
+        )
+        all_depth = all_points_in_cam[:, 2:3] # (n * 8, 1)
+        all_xy = camera_model.ray2pixel(all_points_in_cam) # (n * 8, 2)
+        all_xy_and_depth = np.hstack([all_xy, all_depth]).reshape(n_objects, 8, 3) # (n, 8, 3)
+
+        # Filter out bounding boxes that cross the camera plane (any vertex with depth <= 0)
+        # This prevents rendering artifacts from bboxes that are partially behind camera
+        valid_depth_mask = (all_xy_and_depth[:, :, 2] > 0)  # (n, 8)
+        valid_object_mask = np.all(valid_depth_mask, axis=1)  # (n,) - all 8 vertices must have positive depth
+
+        all_xy_and_depth = all_xy_and_depth[valid_object_mask]
+
+        for xy_and_depth in all_xy_and_depth:
+            geometry_objects.append(
+                BoundingBox2D(
+                    xy_and_depth=xy_and_depth,
+                    base_color_or_per_vertex_color=object_type_to_per_vertex_color[object_type],
+                    fill_face=fill_face,
+                    fill_face_style=fill_face_style,
+                    line_width=line_width,
+                    edge_color=edge_color,
+                )
+            )
+
+    return geometry_objects
 
 def interpolate_pose(prev_pose: np.ndarray, next_pose: np.ndarray, t: float) -> np.ndarray:
     """

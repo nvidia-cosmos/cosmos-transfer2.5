@@ -14,7 +14,8 @@ from pathlib import Path
 import numpy as np
 
 from av_utils.pcd_utils import interpolate_polyline_to_points
-
+from av_utils.graphics_utils import LineSegment2D
+from av_utils.pcd_utils import filter_by_height_relative_to_ego
 
 def load_laneline_geometry_config() -> dict:
     """Load lane line geometry configuration."""
@@ -275,6 +276,53 @@ def create_dotted_segments_1_9_ratio(line_segments: np.ndarray) -> np.ndarray:
     # Simple 1:9 ratio - take every 10th segment
     return line_segments[::10]
 
+def create_laneline_geometry_objects_from_data(
+    processed_lanelines,
+    camera_pose,
+    camera_model,
+    camera_pose_init=None,
+):
+    """
+    Build LineSegment2D geometry objects for a single frame from preprocessed laneline data.
+
+    Args:
+        processed_lanelines: list[dict], each with keys 'pattern_segments_list', 'rgb_float', 'line_width'
+        camera_pose: np.ndarray, shape (4, 4), dtype=np.float32, camera pose
+        camera_model: CameraModel, ftheta or pinhole camera model
+        camera_pose_init: np.ndarray, shape (4, 4), dtype=np.float32, camera pose at the start of the clip
+
+    Returns:
+        geometry_objects: list[LineSegment2D], geometry objects for the current frame
+    """
+    geometry_objects = []
+    for laneline_info in processed_lanelines:
+        # Combine all segments into a single polyline
+        combined_segments = np.concatenate(laneline_info['pattern_segments_list'], axis=0)
+        # Reshape to [N, 3]
+        combined_segments = combined_segments.reshape(-1, 3)
+        if camera_pose_init is not None and filter_by_height_relative_to_ego(
+            combined_segments, camera_model, camera_pose, camera_pose_init):
+            continue
+        
+        for segments in laneline_info['pattern_segments_list']:
+            if len(segments) == 0:
+                continue
+            # Project to image space and filter out the line segments that are out of the image
+            xy_and_depth = camera_model.get_xy_and_depth(segments.reshape(-1, 3), camera_pose).reshape(-1, 2, 3)
+            valid_line_segment_vertices = xy_and_depth[:, :, 2] >= 0
+            valid_line_segment_indices = np.all(valid_line_segment_vertices, axis=1)
+            valid_xy_and_depth = xy_and_depth[valid_line_segment_indices]
+            if len(valid_xy_and_depth) == 0:
+                continue
+            geometry_objects.append(
+                LineSegment2D(
+                    valid_xy_and_depth,
+                    base_color=laneline_info['rgb_float'],
+                    line_width=laneline_info['line_width']
+                )
+            )
+
+    return geometry_objects
 
 def offset_line_segments(line_segments: np.ndarray, offset_distance: float = 0.1) -> tuple[np.ndarray, np.ndarray]:
     """
