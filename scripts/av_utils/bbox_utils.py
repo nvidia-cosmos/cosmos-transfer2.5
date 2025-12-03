@@ -276,12 +276,37 @@ def create_bbox_geometry_objects_for_frame(
         all_xy = camera_model.ray2pixel(all_points_in_cam) # (n * 8, 2)
         all_xy_and_depth = np.hstack([all_xy, all_depth]).reshape(n_objects, 8, 3) # (n, 8, 3)
 
-        # Filter out bounding boxes that cross the camera plane (any vertex with depth <= 0)
-        # This prevents rendering artifacts from bboxes that are partially behind camera
+        # Handle bounding boxes that cross the camera plane
+        # Strategy: Clip negative depths to near plane, then re-project to get correct pixel coordinates
+        
+        # Step 1: Identify objects with any vertex behind camera
         valid_depth_mask = (all_xy_and_depth[:, :, 2] > 0)  # (n, 8)
-        valid_object_mask = np.all(valid_depth_mask, axis=1)  # (n,) - all 8 vertices must have positive depth
-
-        all_xy_and_depth = all_xy_and_depth[valid_object_mask]
+        has_negative_depth = ~np.all(valid_depth_mask, axis=1)  # Objects crossing camera plane
+        
+        # Step 2: For objects with negative depth vertices, clip them to near plane
+        NEAR_PLANE = 0.1  # Minimum depth in meters (adjust as needed: 0.05-0.5)
+        
+        for obj_idx in np.where(has_negative_depth)[0]:
+            # Get original 3D vertices for this object
+            obj_vertices_3d = all_corner_vertices[obj_idx]  # (8, 3) in world coords
+            
+            # Transform to camera space
+            obj_vertices_cam = camera_model.transform_points(
+                obj_vertices_3d, np.linalg.inv(current_camera_pose)
+            )  # (8, 3)
+            
+            # Clip depths to near plane
+            obj_vertices_cam[:, 2] = np.maximum(obj_vertices_cam[:, 2], NEAR_PLANE)
+            
+            # Re-project with clipped depths
+            clipped_depth = obj_vertices_cam[:, 2:3]
+            clipped_xy = camera_model.ray2pixel(obj_vertices_cam)
+            all_xy_and_depth[obj_idx] = np.hstack([clipped_xy, clipped_depth])
+        
+        # Step 3: Filter out objects that are completely behind camera (optional, but recommended)
+        # Only filter if ALL vertices were originally behind camera (very rare)
+        all_positive_after_clip = np.all(all_xy_and_depth[:, :, 2] > 0, axis=1)
+        all_xy_and_depth = all_xy_and_depth[all_positive_after_clip]
 
         for xy_and_depth in all_xy_and_depth:
             geometry_objects.append(
