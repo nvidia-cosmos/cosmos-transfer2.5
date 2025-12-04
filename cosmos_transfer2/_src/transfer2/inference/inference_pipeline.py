@@ -497,26 +497,26 @@ class ControlVideo2WorldInference:
                     # For subsequent chunks, only append the non-overlapping frames
                     all_chunks.append(video_cat[:, :, num_conditional_frames:, :, :].cpu())
 
-            # For next chunk, use last conditional_frames as input
-            if chunk_id < num_chunks - 1:  # Don't need to prepare next input for last chunk
-                last_frames = video[:, :, video.shape[2] - num_conditional_frames:, :, :]  # (1, C, num_conditional_frames, H, W)
-                # Convert to uint8 [0, 255]
-                last_frames_uint8 = normalized_float_to_uint8(last_frames)
-                # Create blank frames for the rest
-                blank_frames = torch.zeros(
-                    (
-                        1,
-                        3,
-                        num_video_frames_per_chunk - num_conditional_frames,
-                        video.shape[-2],
-                        video.shape[-1],
-                    ),
-                    dtype=torch.uint8,
-                    device=video.device,
-                )
-                prev_output = torch.cat([last_frames_uint8, blank_frames], dim=2)
-            end_time = time.perf_counter()
-            time_per_chunk.append(end_time - start_time)
+                # For next chunk, use last conditional_frames as input
+                if chunk_id < num_chunks - 1:  # Don't need to prepare next input for last chunk
+                    last_frames = video[:, :, video.shape[2] - num_conditional_frames:, :, :]  # (1, C, num_conditional_frames, H, W)
+                    # Convert to uint8 [0, 255]
+                    last_frames_uint8 = normalized_float_to_uint8(last_frames)
+                    # Create blank frames for the rest
+                    blank_frames = torch.zeros(
+                        (
+                            1,
+                            3,
+                            num_video_frames_per_chunk - num_conditional_frames,
+                            video.shape[-2],
+                            video.shape[-1],
+                        ),
+                        dtype=torch.uint8,
+                        device=video.device,
+                    )
+                    prev_output = torch.cat([last_frames_uint8, blank_frames], dim=2)
+                end_time = time.perf_counter()
+                time_per_chunk.append(end_time - start_time)
 
         with _maybe_get_timer(self.benchmark_timer, "postprocessing"):
             # Concatenate all chunks along time
