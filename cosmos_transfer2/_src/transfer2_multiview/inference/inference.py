@@ -31,8 +31,10 @@ PYTHONPATH=. torchrun --nproc_per_node=8 --master_port=12341 -m cosmos_transfer2
 
 """
 
+import math
 import os
 import random
+from typing import Optional
 
 import einops
 import numpy as np
@@ -44,39 +46,6 @@ from megatron.core import parallel_state
 from cosmos_transfer2._src.imaginaire.utils import distributed
 from cosmos_transfer2._src.predict2.utils.model_loader import load_model_from_checkpoint
 
-camera_to_view_id = {
-    "camera_cross_left_120fov": 5,
-    "camera_cross_right_120fov": 1,
-    "camera_front_tele_30fov": 6,
-    "camera_front_wide_120fov": 0,
-    "camera_rear_left_70fov": 4,
-    "camera_rear_right_70fov": 2,
-    "camera_rear_tele_30fov": 3,
-}
-
-visualization_camera_order = [
-    "camera_rear_left_70fov",
-    "camera_cross_left_120fov",
-    "camera_front_wide_120fov",
-    "camera_cross_right_120fov",
-    "camera_rear_right_70fov",
-    "camera_rear_tele_30fov",
-    "camera_front_tele_30fov",
-]
-
-camera_to_caption_prefix_7views = {
-    "camera_front_wide_120fov": "The video is captured from a camera mounted on a car. The camera is facing forward.",
-    "camera_rear_tele_30fov": "The video is captured from a camera mounted on a car. The camera is facing backwards.",
-    "camera_cross_left_120fov": "The video is captured from a camera mounted on a car. The camera is facing to the left.",
-    "camera_cross_right_120fov": "The video is captured from a camera mounted on a car. The camera is facing to the right.",
-    "camera_rear_right_70fov": "The video is captured from a camera mounted on a car. The camera is facing the rear right side.",
-    "camera_rear_left_70fov": "The video is captured from a camera mounted on a car. The camera is facing the rear left side.",
-    "camera_front_tele_30fov": "The video is captured from a telephoto camera mounted on a car. The camera is facing forward.",
-}
-
-visualization_view_index_order = [camera_to_view_id[camera] for camera in visualization_camera_order]
-view_id_to_caption = {view_id: camera_to_caption_prefix_7views[camera] for camera, view_id in camera_to_view_id.items()}
-
 
 def time_to_width_dimension(mv_video, data_batch):
     """
@@ -85,17 +54,26 @@ def time_to_width_dimension(mv_video, data_batch):
     Returns:
         (B, C, T, V, H, W)
     """
-    n_views = len(data_batch["view_indices_selection"][0])
-    current_view_index_order = [i.item() for i in data_batch["view_indices_selection"][0]]
-    expected_view_index_order = visualization_view_index_order
+    visualization_camera_order = [
+        "camera_rear_left_70fov",
+        "camera_cross_left_120fov",
+        "camera_front_wide_120fov",
+        "camera_cross_right_120fov",
+        "camera_rear_right_70fov",
+        "camera_rear_tele_30fov",
+        "camera_front_tele_30fov",
+    ]
+
+    current_view_order = data_batch["camera_keys_selection"][0]
+    n_views = len(current_view_order)
 
     # Reorder views to match expected visualization order
-    if current_view_index_order != expected_view_index_order:
+    if current_view_order != visualization_camera_order:
         # Create mapping from current order to expected order
         reorder_indices = []
-        for expected_view in expected_view_index_order:
-            if expected_view in current_view_index_order:
-                reorder_indices.append(current_view_index_order.index(expected_view))
+        for view in visualization_camera_order:
+            if view in current_view_order:
+                reorder_indices.append(current_view_order.index(view))
 
         # Reshape to separate view and time dimensions
         B, C, VT, H, W = mv_video.shape
@@ -172,7 +150,8 @@ class ControlVideo2WorldInference:
         experiment_name: str,
         ckpt_path: str,
         context_parallel_size: int = 1,
-        experiment_opts: tuple[str, ...] = (),
+        hierarchical_cp: bool = False,
+        experiment_opts: Optional[list[str]] = None,
     ):
         """
         Initializes the Vid2VidInference class.
@@ -192,56 +171,76 @@ class ControlVideo2WorldInference:
         self.process_group = None
 
         if "RANK" in os.environ:
-            self._init_distributed()
+            self._init_distributed(hierarchical_cp=hierarchical_cp)
 
+        if experiment_opts is None:
+            experiment_opts = []
         # Load the model and config
         model, config = load_model_from_checkpoint(
             experiment_name=self.experiment_name,
             s3_checkpoint_dir=self.ckpt_path,
             config_file="cosmos_transfer2/_src/transfer2_multiview/configs/vid2vid_transfer/config.py",
             load_ema_to_reg=True,
-            experiment_opts=list(experiment_opts),
+            experiment_opts=experiment_opts,
         )
 
         # Enable context parallel on the model if using context parallelism
+        self.rank0 = True
         if self.context_parallel_size > 1:
-            model.net.enable_context_parallel(self.process_group)
+            # A2A+P2P enables using CP sizes larger than number of attention heads.
+            cp_comm_type = "a2a+p2p" if hierarchical_cp else "p2p"
+            model.net.enable_context_parallel(self.process_group, cp_comm_type=cp_comm_type)
+            self.rank0 = distributed.get_rank() == 0
 
         self.model = model
         self.config = config
         self.batch_size = 1
 
-    def _init_distributed(self):
+    def _init_distributed(self, hierarchical_cp: bool = False, num_attention_heads: int = 16):
         """Initialize distributed processing for context parallelism."""
 
         # Initialize distributed environment
         distributed.init()
 
+        # We use as big A2A size as possible, given the CP size and number of attention heads.
+        a2a_size = math.gcd(self.context_parallel_size, num_attention_heads)
+        p2p_size = max(1, self.context_parallel_size // a2a_size)
+        hierarchical_context_parallel_sizes = [a2a_size, p2p_size] if hierarchical_cp else None
+
         # Initialize model parallel states
         parallel_state.initialize_model_parallel(
             context_parallel_size=self.context_parallel_size,
+            hierarchical_context_parallel_sizes=hierarchical_context_parallel_sizes,
         )
 
         # Get the process group for context parallel
         self.process_group = parallel_state.get_context_parallel_group()
-
         logger.info(f"Initialized context parallel with size {self.context_parallel_size}")
         logger.info(f"Current rank: {distributed.get_rank()}, World size: {distributed.get_world_size()}")
 
     def generate_from_batch(
         self,
         data_batch,
-        guidance: float = 7.0,
-        seed: int = 1,
-        num_steps: int = 35,
+        guidance: float,
+        seed: int,
+        num_steps: int,
+        use_negative_prompt: bool,
         distillation: str = "",
     ):
+        """Generate video tensor from batch.
+
+        Returns:
+            tensor of shape (1, 3, v * t, h, w)
+            where t is the number of frames, v is the number of views, h is the height, and w is the width
+            The values are in the range [0, 1]
+        """
         data_batch = to_model_input(data_batch, self.model)
         if self.model.config.text_encoder_config is not None and self.model.config.text_encoder_config.compute_online:
             self.model.inplace_compute_text_embeddings_online(data_batch)
 
         raw_data, x0, condition = self.model.get_data_and_condition(data_batch)
 
+        self.model.eval()
         sample = self.model.generate_samples_from_batch(
             data_batch,
             guidance=guidance,
@@ -250,11 +249,11 @@ class ControlVideo2WorldInference:
             n_sample=x0.shape[0],
             seed=seed,  # Fixed seed for reproducibility
             num_steps=num_steps,
-            is_negative_prompt=True,
+            is_negative_prompt=use_negative_prompt,
             distillation=distillation,
         )
         # (bsz = 1, c = 3, t = n_camera * t, h, w)
-        return self.model.decode(sample).cpu()
+        return ((self.model.decode(sample) + 1.0) / 2.0).clamp(0, 1)
 
     def generate_autoregressive_from_batch(
         self,
@@ -265,7 +264,9 @@ class ControlVideo2WorldInference:
         guidance: float,
         seed: int,
         num_conditional_frames: int | list[int],
-        num_steps: int = 35,
+        num_steps: int,
+        use_negative_prompt: bool,
+        distillation: str = "",
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Generate video using autoregressive sliding window approach.
@@ -279,9 +280,12 @@ class ControlVideo2WorldInference:
             seed: Random seed for generation
             num_conditional_frames: Number of conditional frames (scalar or per-view list)
             num_steps: Number of sampling steps for the model.
+            use_negative_prompt: Whether to use default negative prompt.
+            distillation: If using distilled model, pass `dmd2`.
 
         Returns:
             Tuple of (generated video tensor, control video tensor)
+            Both tensors contain values between 0 and 1.
         """
         # Extract full video and control tensors
 
@@ -293,7 +297,8 @@ class ControlVideo2WorldInference:
 
         # Calculate frames per view from the loaded video
         frames_per_view = total_frames // n_views
-        logger.info(f"Total frames loaded: {total_frames}, Frames per view: {frames_per_view}, Views: {n_views}")
+        if self.rank0:
+            logger.info(f"Total frames loaded: {total_frames}, Frames per view: {frames_per_view}, Views: {n_views}")
 
         # Initialize output video list
         generated_chunks = []
@@ -302,7 +307,8 @@ class ControlVideo2WorldInference:
         effective_chunk_size = chunk_size - overlap
         num_chunks = max(1, (frames_per_view - overlap + effective_chunk_size - 1) // effective_chunk_size)
 
-        logger.info(f"Generating {num_chunks} chunks with overlap {overlap}")
+        if self.rank0:
+            logger.info(f"Generating {num_chunks} chunks with overlap {overlap}")
 
         # Generate first chunk using original input videos
         current_input_video = full_batch["video"].clone()
@@ -315,7 +321,8 @@ class ControlVideo2WorldInference:
             if start_frame >= frames_per_view:
                 break
 
-            logger.info(f"Processing chunk {chunk_idx + 1}/{num_chunks}, frames {start_frame}-{end_frame}")
+            if self.rank0:
+                logger.info(f"Processing chunk {chunk_idx + 1}/{num_chunks}, frames {start_frame}-{end_frame}")
 
             # Create chunk batch (extract 29-frame window from full video)
             chunk_batch = self._create_chunk_batch(
@@ -329,9 +336,11 @@ class ControlVideo2WorldInference:
             # Generate chunk
             chunk_video = self.generate_from_batch(
                 chunk_batch,
-                guidance=float(guidance),
+                guidance=guidance,
                 seed=int(seed) + chunk_idx,
                 num_steps=num_steps,
+                use_negative_prompt=use_negative_prompt,
+                distillation=distillation,
             )[0]  # C_T_H_W
             chunk_video = einops.rearrange(chunk_video, "C (V T) H W -> V C T H W", V=n_views)
             # Store generated chunk (remove overlap from previous chunks)
@@ -364,14 +373,15 @@ class ControlVideo2WorldInference:
 
         # Concatenate all chunks along time dimension
         final_video = torch.cat(generated_chunks, dim=2)
-        # Return the corresponding control video for the same time range
+
+        # Return the corresponding control video for the same time range, between 0 and 1
         final_control = einops.rearrange(full_control[0].float() / 255.0, "C (V T) H W -> V C T H W", V=n_views)[
             :, :, : final_video.shape[2]
         ]
 
         final_video = einops.rearrange(final_video, "V C T H W -> C (V T) H W")
         final_control = einops.rearrange(final_control, "V C T H W -> C (V T) H W")
-        return final_video, final_control
+        return final_video.cpu(), final_control.cpu()
 
     def _create_chunk_batch(
         self,
@@ -453,12 +463,13 @@ class ControlVideo2WorldInference:
         actual_gen_end = gen_view_end
 
         frames_to_copy = min(actual_update_end - update_start, actual_gen_end - gen_view_start)
-        logger.info(f"Frames to copy: {frames_to_copy}")
-        logger.info(f"Update start: {update_start}, Update end: {update_end}")
-        logger.info(f"Gen view start: {gen_view_start}, Gen view end: {gen_view_end}")
+        if self.rank0:
+            logger.info(f"Frames to copy: {frames_to_copy}")
+            logger.info(f"Update start: {update_start}, Update end: {update_end}")
+            logger.info(f"Gen view start: {gen_view_start}, Gen view end: {gen_view_end}")
         current_input_NVCTHW = einops.rearrange(current_input.clone(), "N C (V T) H W -> N V C T H W", V=n_views)
         generated_chunk_NVCTHW = generated_chunk.unsqueeze(0)
-        generated_chunk_NVCTHW = ((generated_chunk_NVCTHW / 2.0 + 0.5).clamp(-1.0, 1.0) * 255.0).to(current_input.dtype)
+        generated_chunk_NVCTHW = (generated_chunk_NVCTHW * 255.0).to(current_input.dtype)
 
         current_input_NVCTHW[:, :, :, update_start : update_start + frames_to_copy] = generated_chunk_NVCTHW[
             :, :, :, gen_view_start : gen_view_start + frames_to_copy

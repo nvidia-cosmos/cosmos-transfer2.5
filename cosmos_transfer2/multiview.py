@@ -33,12 +33,29 @@ from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.condition
     ConditionLocationList,
 )
 from cosmos_transfer2._src.predict2_multiview.datasets.local import LocalMultiViewDataset
-from cosmos_transfer2._src.predict2_multiview.datasets.multiview import AugmentationConfig
+from cosmos_transfer2._src.predict2_multiview.datasets.multiview import AugmentationConfig, collate_fn
 from cosmos_transfer2._src.transfer2_multiview.inference.inference import ControlVideo2WorldInference
-from cosmos_transfer2.multiview_config import MultiviewInferenceArguments, MultiviewSetupArguments
+from cosmos_transfer2.multiview_config import (
+    MULTIVIEW_CAMERA_KEYS,
+    MultiviewInferenceArguments,
+    MultiviewSetupArguments,
+)
 
 RESOLUTIONS: Mapping = {
     "720p": (720, 1280),
+}
+
+
+DEFAULT_CAMERA_KEYS = MULTIVIEW_CAMERA_KEYS
+DEFAULT_CAMERA_VIEW_MAPPING = {camera_key: idx for idx, camera_key in enumerate(DEFAULT_CAMERA_KEYS)}
+DEFAULT_CAMERA_PREFIX_MAPPING = {
+    "front_wide": "The video is captured from a camera mounted on a car. The camera is facing forward.",
+    "cross_right": "The video is captured from a camera mounted on a car. The camera is facing to the right.",
+    "rear_right": "The video is captured from a camera mounted on a car. The camera is facing the rear right side.",
+    "rear": "The video is captured from a camera mounted on a car. The camera is facing backwards.",
+    "rear_left": "The video is captured from a camera mounted on a car. The camera is facing the rear left side.",
+    "cross_left": "The video is captured from a camera mounted on a car. The camera is facing to the left.",
+    "front_tele": "The video is captured from a telephoto camera mounted on a car. The camera is facing forward.",
 }
 
 
@@ -46,28 +63,30 @@ def setup_config(
     resolution_hw: tuple[int, int],
     num_video_frames_per_view: int,
     fps_downsample_factor: int,
+    camera_keys: tuple[str, ...] | None = None,
+    single_caption_camera_name: str | None = "front_wide",
 ) -> AugmentationConfig:
-    camera_keys = ("front_wide", "cross_right", "rear_right", "rear", "rear_left", "cross_left", "front_tele")
+    camera_keys = camera_keys or DEFAULT_CAMERA_KEYS
+    if not camera_keys:
+        raise ValueError("At least one camera key must be provided for multiview inference.")
+    invalid_keys = set(camera_keys) - set(DEFAULT_CAMERA_KEYS)
+    if invalid_keys:
+        raise ValueError(f"Unknown camera keys provided: {', '.join(sorted(invalid_keys))}")
+    if single_caption_camera_name not in camera_keys:
+        single_caption_camera_name = camera_keys[0]
+
     kwargs = dict(
         resolution_hw=resolution_hw,
         fps_downsample_factor=fps_downsample_factor,
         num_video_frames=num_video_frames_per_view,
         camera_keys=camera_keys,
-        camera_view_mapping=dict(zip(camera_keys, range(len(camera_keys)))),
+        camera_view_mapping={key: DEFAULT_CAMERA_VIEW_MAPPING[key] for key in camera_keys},
         camera_caption_key_mapping={k: f"caption_{k}" for k in camera_keys},
         camera_video_key_mapping={k: f"video_{k}" for k in camera_keys},
         camera_control_key_mapping={k: f"control_{k}" for k in camera_keys},
-        add_view_prefix_to_caption=True,
-        camera_prefix_mapping={
-            "front_wide": "The video is captured from a camera mounted on a car. The camera is facing forward.",
-            "cross_right": "The video is captured from a camera mounted on a car. The camera is facing to the right.",
-            "rear_right": "The video is captured from a camera mounted on a car. The camera is facing the rear right side.",
-            "rear": "The video is captured from a camera mounted on a car. The camera is facing backwards.",
-            "rear_left": "The video is captured from a camera mounted on a car. The camera is facing the rear left side.",
-            "cross_left": "The video is captured from a camera mounted on a car. The camera is facing to the left.",
-            "front_tele": "The video is captured from a telephoto camera mounted on a car. The camera is facing forward.",
-        },
-        single_caption_camera_name="front_wide",
+        add_view_prefix_to_caption=False,
+        camera_prefix_mapping={k: DEFAULT_CAMERA_PREFIX_MAPPING[k] for k in camera_keys},
+        single_caption_camera_name=single_caption_camera_name,
     )
     return AugmentationConfig(**kwargs)
 
@@ -77,10 +96,11 @@ class MultiviewInference:
         log.debug(f"{args.__class__.__name__}({args})")
 
         # Enable deterministic inference
-        os.environ["NVTE_FUSED_ATTN"] = "0"
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
-        torch.enable_grad(False)  # Disable gradient calculations for inference
+
+        # Disable gradient calculations for inference
+        torch.enable_grad(False)
 
         self.setup_args = args
 
@@ -175,10 +195,14 @@ class MultiviewInference:
         if sample.enable_autoregressive:
             num_video_frames_per_view += (num_video_frames_per_view - sample.chunk_overlap) * (sample.num_chunks - 1)
 
+        camera_keys = sample.active_camera_keys
+        primary_caption_view = "front_wide" if "front_wide" in camera_keys else camera_keys[0]
         augmentation_config = setup_config(
             resolution_hw=RESOLUTIONS[self.pipe.config.model.config.resolution],
             num_video_frames_per_view=num_video_frames_per_view,
             fps_downsample_factor=fps_downsample_factor,
+            camera_keys=camera_keys,
+            single_caption_camera_name=primary_caption_view,
         )
         if SMOKE:
             log.warning(f"Reducing the number of views to 1 for smoke test. Generated quality will be sub-optimal.")
@@ -221,6 +245,7 @@ class MultiviewInference:
             dataset,
             batch_size=1,
             shuffle=False,
+            collate_fn=collate_fn,
         )
 
         if len(dataloader) == 0:
@@ -252,19 +277,22 @@ class MultiviewInference:
                     seed=sample.seed,
                     num_conditional_frames=batch["num_conditional_frames"],
                     num_steps=sample.num_steps,
+                    use_negative_prompt=True,
                 )
             else:
                 log.info(f"------ Generating video ------")
                 video = self.pipe.generate_from_batch(
-                    batch, guidance=sample.guidance, seed=sample.seed, num_steps=sample.num_steps
+                    batch,
+                    guidance=sample.guidance,
+                    seed=sample.seed,
+                    num_steps=sample.num_steps,
+                    use_negative_prompt=True,
                 )
                 control = None
 
             if self.rank0:
                 if not sample.enable_autoregressive:
                     video = video[0]
-                # Normalize video from [-1, 1] to [0, 1]
-                video = video.clamp(-1, 1) / 2 + 0.5
 
                 # Run video guardrail on the normalized video
                 if self.video_guardrail_runner is not None:

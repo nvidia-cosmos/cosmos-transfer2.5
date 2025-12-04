@@ -1,10 +1,3 @@
-{
-    "name": "robot_blur",
-    "prompt_path": "../robot_prompt.txt",
-    "video_path": "../robot_input.mp4",
-    "guidance": 3,
-    "vis": {
-        "control_path": "robot_vis.mp4",
-        "control_weight": 1.0
-    }
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:cd96cdc82f0b5622bba37ff2b50ff25beefa0ddab2c05b189c2da7c38266da6e
+size 221

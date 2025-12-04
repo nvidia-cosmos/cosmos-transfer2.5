@@ -23,7 +23,7 @@ try:
 except ImportError:
     Siglip2VisionModel = None
 
-from cosmos_transfer2._src.common.models.abstract_emb_model import AbstractEmbModel
+from cosmos_transfer2._src.imaginaire.models.abstract_emb_model import AbstractEmbModel
 from cosmos_transfer2._src.imaginaire.utils import distributed, log
 from cosmos_transfer2._src.imaginaire.utils.easy_io import easy_io
 

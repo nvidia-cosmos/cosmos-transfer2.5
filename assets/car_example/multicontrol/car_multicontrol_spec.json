@@ -1,21 +1,3 @@
-{
-    "name": "car_multicontrol",
-    "prompt_path": "../car_prompt.txt",
-    "video_path": "../car_input.mp4",
-    "guidance": 3,
-    "depth": {
-        "control_path": "../depth/car_depth.mp4",
-        "control_weight": 1.0
-    },
-    "edge": {
-        "control_path": "../edge/car_edge.mp4",
-        "control_weight": 1.0
-    },
-    "seg": {
-        "control_path": "../seg/car_seg.mp4",
-        "control_weight": 1.0
-    },
-    "vis": {
-        "control_weight": 1.0
-    }
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:d4a29889a60001bcfcd914e68f67908f19bab127cf1fea40b6727c337ed3ed17
+size 479

@@ -11,20 +11,15 @@ NVIDIA Cosmos™ is a platform purpose-built for physical AI, featuring state-of
 Cosmos World Foundation Models come in three model types which can all be customized in post-training: [cosmos-predict](https://github.com/nvidia-cosmos/cosmos-predict2.5), [cosmos-transfer](https://github.com/nvidia-cosmos/cosmos-transfer2.5), and [cosmos-reason](https://github.com/nvidia-cosmos/cosmos-reason1).
 
 ## News
+* [November 25, 2025] Added Blackwell + ARM inference support, Auto/Multiview code fixes, along with fixes for the help menu and CLI overrides, improved guardrail offloading, and LFS enablement for large assets.
+* [November 11, 2025] Refactored the Cosmos-Transfer2.5-2B Auto/Multiview code, and updated the Auto/Multiview checkpoints in Hugging Face.
 * [November 7, 2025] We added autoregressive sliding window generation mode for generating longer videos. We also added a new multiview cross-attention module, upgraded dependencies to improve support for Blackwell, and updated inference examples and documentation.
-
 * [November 6, 2025] As part of the Cosmos family, we released the recipe, a reference diffusion model and a tokenizer for [synthetic LiDAR point cloud generation](https://github.com/nv-tlabs/Cosmos-Drive-Dreams/tree/main/cosmos-transfer-lidargen) from RGB image!
-
 * [October 28, 2025] We added [Cosmos Cookbook](https://github.com/nvidia-cosmos/cosmos-cookbook), a collection of step-by-step recipes and post-training scripts to quickly build, customize, and deploy NVIDIA’s Cosmos world foundation models for robotics and autonomous systems.
-
 * [October 28, 2025] We added the autogeneration of spatiotemporal masking for control inputs when prompt is given, added cosmos-oss, new pyrefly annotations, introduced multi-storage backend in easyio, reorganized internal packages, and boosted Transfer2 speed with Torch Compile tokenizer optimizations.
-
 * [October 21, 2025] We added on-the-fly computation support for depth and segmentation, and fixed multicontrol experiments in [inference](docs/inference.md). Also, updated Docker base image version, and Gradio related documentation.
-
 * [October 13, 2025] Updated Transfer2.5 Auto Multiview [post-training datasets](https://github.com/nvidia-cosmos/cosmos-transfer2.5/blob/main/docs/post-training_auto_multiview.md), and setup dependencies to support NVIDIA Blackwell.
-
 * [October 6, 2025] We released [Cosmos-Transfer2.5](https://github.com/nvidia-cosmos/cosmos-transfer2.5) and [Cosmos-Predict2.5](https://github.com/nvidia-cosmos/cosmos-predict2.5) - the next generation of our world simulation models!
-
 * [June 12, 2025] As part of the Cosmos family, we released [Cosmos-Transfer1-DiffusionRenderer](https://github.com/nv-tlabs/cosmos-transfer1-diffusion-renderer)
 
 ## Cosmos-Transfer2.5

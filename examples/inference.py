@@ -20,6 +20,7 @@ import pydantic
 import tyro
 from cosmos_oss.init import cleanup_environment, init_environment, init_output_dir
 
+from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2.config import (
     BlurConfig,
     DepthConfig,
@@ -65,7 +66,10 @@ def main(
 ):
     inference_samples, batch_hint_keys = InferenceArguments.from_files(args.input_files, overrides=args.overrides)
     if args.setup.benchmark:
-        assert len(inference_samples) > 1, "Benchmarking must be run for more than 1 sample."
+        if len(inference_samples) == 1:
+            inference_samples = inference_samples * 4
+            log.info(f"Repeating inference sample 4 times for benchmarking.")
+        # assert len(inference_samples) > 1, "Benchmarking must be run for more than 1 sample."
     init_output_dir(args.setup.output_dir, profile=args.setup.profile)
 
     from cosmos_transfer2.inference import Control2WorldInference

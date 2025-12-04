@@ -23,7 +23,10 @@ from cosmos_transfer2._src.predict2.configs.common.mock_data import (
     MOCK_DATA_VIDEO_ONLY_CONFIG,
 )
 from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.dataloader import DEFAULT_CAMERA_VIEW_CONFIGS
-from cosmos_transfer2._src.predict2_multiview.datasets.multiview import AugmentationConfig, get_multiview_video_loader
+from cosmos_transfer2._src.predict2_multiview.datasets.multiview import (
+    AugmentationConfig,
+    get_multiview_video_loader,
+)
 from cosmos_transfer2._src.predict2_multiview.datasets.wdinfo_utils import DEFAULT_CATALOG
 
 INDEX_TO_CAMERA_MAPPING: Final = {
