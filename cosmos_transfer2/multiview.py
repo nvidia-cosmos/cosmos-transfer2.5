@@ -328,19 +328,15 @@ class MultiviewInference:
 
                 total_frames = video.shape[1]
                 n_views = len(augmentation_config.camera_keys)
-                
+
                 # Calculate frames per view from actual video tensor shape
                 # Video shape is C (V T) H W where V is number of views and T is frames per view
                 if total_frames % n_views != 0:
-                    raise ValueError(
-                        f"Video frames ({total_frames}) not divisible by number of views ({n_views})."
-                    )
-                
+                    raise ValueError(f"Video frames ({total_frames}) not divisible by number of views ({n_views}).")
+
                 frames_per_view = total_frames // n_views
                 if frames_per_view <= 0:
-                    raise ValueError(
-                        "Cannot split views because frames_per_view is not positive."
-                    )
+                    raise ValueError("Cannot split views because frames_per_view is not positive.")
 
                 inferred_views = n_views
 
@@ -364,9 +360,7 @@ class MultiviewInference:
                 # Save grid video
                 grid_rows, grid_cols = 3, 3
                 c, t, h, w = view_tensors[0][1].shape
-                grid_tensor = torch.zeros(
-                    (c, t, grid_rows * h, grid_cols * w), dtype=video.dtype, device=video.device
-                )
+                grid_tensor = torch.zeros((c, t, grid_rows * h, grid_cols * w), dtype=video.dtype, device=video.device)
 
                 num_views_in_grid = min(len(view_tensors), grid_rows * grid_cols)
                 for idx in range(num_views_in_grid):
