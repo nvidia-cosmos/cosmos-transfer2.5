@@ -51,9 +51,6 @@ def upload_siglip2_weights(model_name: str):
 
 
 def get_siglip2_model_processor(model_name: str):
-    easy_io.set_s3_backend(
-        key=S3_KEY, backend_args={"backend": "s3", "s3_credential_path": "credentials/s3_training.secret"}
-    )
     config = AutoConfig.from_pretrained(model_name)
     config.vision_config.vision_use_head = False
     model = Siglip2VisionModel(config.vision_config)
@@ -61,25 +58,11 @@ def get_siglip2_model_processor(model_name: str):
     s3_path = S3_PATH_FORMAT.format(model_name=model_name)
 
     if distributed.is_rank0():
-        try:
-            # Try to load from S3
-            state_dict = easy_io.load(s3_path, backend_key=S3_KEY, weights_only=True)
-            log.info(model.load_state_dict(state_dict))
-        except Exception as e:
-            log.warning(f"Could not load SigLIP2 weights from S3 ({s3_path}): {e}")
-            log.info("Attempting to download weights from HuggingFace Hub...")
-            # Download from HuggingFace and save to S3 for future use
-            model_hf = Siglip2VisionModel.from_pretrained(
-                model_name, config=config.vision_config, torch_dtype=torch.bfloat16
-            )
-            state_dict = model_hf.state_dict()
-            log.info(model.load_state_dict(state_dict))
-            # Save to S3 for future use
-            try:
-                easy_io.dump(state_dict, s3_path, backend_key=S3_KEY)
-                log.info(f"Uploaded SigLIP2 weights to S3: {s3_path}")
-            except Exception as e2:
-                log.warning(f"Could not upload SigLIP2 weights to S3: {e2}")
+        model_hf = Siglip2VisionModel.from_pretrained(
+            model_name, config=config.vision_config, torch_dtype=torch.bfloat16
+        )
+        state_dict = model_hf.state_dict()
+        log.info(model.load_state_dict(state_dict))
 
     distributed.sync_model_states(model)
     processor = AutoImageProcessor.from_pretrained(model_name)

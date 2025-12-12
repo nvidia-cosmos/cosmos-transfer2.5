@@ -64,6 +64,7 @@ class ControlVideo2WorldInference:
         use_cp_wan: bool = False,
         wan_cp_grid: tuple[int, int] = (-1, -1),
         benchmark_timer: Optional[misc.TrainingTimer] = None,
+        cache_text_encoder: bool = True,
     ):
         """
         Initializes the ControlVideo2WorldInference class.
@@ -86,7 +87,7 @@ class ControlVideo2WorldInference:
         self.checkpoint_path = checkpoint_paths if isinstance(checkpoint_paths, str) else checkpoint_paths[0]
         self.s3_credential_path = s3_credential_path
         self.cache_dir = cache_dir
-
+        self.cache_text_encoder = cache_text_encoder
         if exp_override_opts is None:
             exp_override_opts = []
         # no need to load base model separately at inference
@@ -105,6 +106,7 @@ class ControlVideo2WorldInference:
                 cache_dir if not checkpoint_paths else None
             ),  # for multi-control models, need to load other branches before caching
             experiment_opts=exp_override_opts,
+            cache_text_encoder=self.cache_text_encoder,
         )
         if (
             isinstance(checkpoint_paths, list) and len(checkpoint_paths) > 1 and not skip_load_model
@@ -136,7 +138,7 @@ class ControlVideo2WorldInference:
                 "load_path": base_load_from,
                 "credentials": s3_credential_path,
             }
-            model.load_base_model()
+            model.load_base_model(load_ema_to_reg=True)
 
         self.text_encoder_class = model.text_encoder_class
 
@@ -291,6 +293,7 @@ class ControlVideo2WorldInference:
         negative_prompt: str | None = None,
         max_frames: int | None = None,
         context_frame_idx: int | None = None,
+        distillation: str = "none",
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, torch.Tensor], int, tuple[int, int]]:
         """
         Generates a video based on an input video and text prompt.
@@ -453,16 +456,26 @@ class ControlVideo2WorldInference:
                 log.info(f"Seed: {seed}")
 
                 # Generate and decode video
-                sample = self.model.generate_samples_from_batch(
-                    data_batch,
-                    n_sample=1,
-                    guidance=guidance,
-                    seed=seed,
-                    is_negative_prompt=negative_prompt is not None,
-                    x_sigma_max=x_sigma_max,
-                    sigma_max=sigma_max,
-                    num_steps=num_steps,
-                )
+                if distillation == "dmd2":
+                    log.info("Generating samples using DMD2 distillation...")
+                    sample = self.model.generate_samples_from_batch_dmd2(
+                        data_batch,
+                        n_sample=1,
+                        num_steps=num_steps,
+                        guidance=guidance,
+                        seed=seed,
+                    )
+                else:
+                    sample = self.model.generate_samples_from_batch(
+                        data_batch,
+                        n_sample=1,
+                        guidance=guidance,
+                        seed=seed,
+                        is_negative_prompt=negative_prompt is not None,
+                        x_sigma_max=x_sigma_max,
+                        sigma_max=sigma_max,
+                        num_steps=num_steps,
+                    )
                 video = self.model.decode(sample).cpu()  # Shape: (1, C, T, H, W)
 
                 # For visualization: concatenate condition and input videos with generated video

@@ -16,11 +16,17 @@
 from pathlib import Path
 
 import pytest
-from cosmos_oss.fixtures.script import ScriptConfig, ScriptRunner
+from cosmos_oss.fixtures.script import ScriptConfig, ScriptRunner, extract_bash_commands
 from cosmos_oss.fixtures.script import script_runner as script_runner
 
 _CURRENT_DIR = Path(__file__).parent.absolute()
 _SCRIPT_DIR = _CURRENT_DIR / "docs_test"
+_DOCS_DIR = _CURRENT_DIR.parent / "docs"
+
+INFERENCE_DOCS = sorted([f.name for f in _DOCS_DIR.glob("inference*.md")])
+POSTTRAINING_DOCS = sorted([f.name for f in _DOCS_DIR.glob("post-training_*.md")])
+
+DOCS_CONFIG = [ScriptConfig(script=doc) for doc in INFERENCE_DOCS]
 
 SCRIPT_CONFIGS = [
     ScriptConfig(
@@ -44,6 +50,9 @@ SCRIPT_CONFIGS = [
         script="vis.sh",
     ),
     ScriptConfig(
+        script="image.sh",
+    ),
+    ScriptConfig(
         script="vanilla_multicontrol.sh",
         gpus=8,
     ),
@@ -60,6 +69,10 @@ SCRIPT_CONFIGS = [
         script="post-training_auto_multiview.sh",
         gpus=8,
     ),
+    ScriptConfig(
+        script="post-training_singleview.sh",
+        gpus=8,
+    ),
 ]
 
 
@@ -70,6 +83,18 @@ SCRIPT_CONFIGS = [
 )
 def test_level_0(cfg: ScriptConfig, script_runner: ScriptRunner):
     script_runner.run(f"{_SCRIPT_DIR}/{cfg.script}", script_runner.env_level_0)
+
+
+@pytest.mark.level(0)
+@pytest.mark.gpus(1)
+@pytest.mark.parametrize(
+    "cfg", [pytest.param(cfg, id=cfg.name, marks=cfg.marks) for cfg in DOCS_CONFIG if 0 in cfg.levels]
+)
+def test_docs(cfg: ScriptConfig, script_runner: ScriptRunner, tmp_path: Path):
+    """Test individual doc commands."""
+    md_path = _DOCS_DIR / cfg.script
+    script_path = generate_script_from_doc(md_path, tmp_path)
+    script_runner.run(str(script_path), script_runner.env_level_0)
 
 
 @pytest.mark.level(1)
@@ -96,3 +121,22 @@ def test_level_1(cfg: ScriptConfig, script_runner: ScriptRunner):
 )
 def test_level_2(cfg: ScriptConfig, script_runner: ScriptRunner):
     script_runner.run(f"{_SCRIPT_DIR}/{cfg.script}", script_runner.env_level_2)
+
+
+def generate_script_from_doc(md_file: Path, tmp_path: Path) -> Path:
+    """Generate a bash script from a markdown file."""
+    scripts_dir = tmp_path / "generated_scripts"
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+
+    script_path = scripts_dir / f"{md_file.stem}.sh"
+    commands = extract_bash_commands(md_file)
+
+    with open(script_path, "w") as f:
+        f.write("#!/bin/bash\n")
+        f.write("set -euxo pipefail\n\n")
+        f.write(f"# Commands from {md_file.name}\n")
+        for cmd in commands:
+            f.write(cmd)
+            f.write("\n\n")
+
+    return script_path

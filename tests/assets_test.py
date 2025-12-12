@@ -27,6 +27,7 @@ from cosmos_transfer2.multiview_config import MultiviewInferenceArguments
         pytest.param("car_example/edge", InferenceArguments, id="car_example/edge"),
         pytest.param("car_example/seg", InferenceArguments, id="car_example/seg"),
         pytest.param("car_example/multicontrol", InferenceArguments, id="car_example/multicontrol"),
+        pytest.param("image_example", InferenceArguments, id="image_example"),
         pytest.param("robot_example/depth", InferenceArguments, id="robot_example/depth"),
         pytest.param("robot_example/edge", InferenceArguments, id="robot_example/edge"),
         pytest.param("robot_example/vis", InferenceArguments, id="robot_example/vis"),

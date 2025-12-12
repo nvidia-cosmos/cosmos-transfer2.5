@@ -1,6 +1,10 @@
 # World Scenario Video Generation
 
-This tool generates control videos from 3D scene annotations for Cosmos Transfer2.5. It renders RDS-HQ world models into videos by projecting polylines, polygons, and cuboids onto camera views.
+This tool generates control videos from 3D scene annotations for Cosmos Transfer2.5. It renders world models into videos by projecting 3D elements (polylines, polygons, and cuboids) onto camera views.
+
+**Supported Input Formats:**
+- **Parquet format**: Structured scene annotations in parquet files (see [World Scenario Parquet File Structure](world_scenario_parquet.md))
+- **RDS-HQ format**: NVIDIA's internal format from the [Cosmos-Drive-Dreams dataset](https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-Vehicle-Cosmos-Drive-Dreams)
 
 ## Table of Contents
 
@@ -11,7 +15,8 @@ This tool generates control videos from 3D scene annotations for Cosmos Transfer
   - [Requirements](#requirements)
   - [Setup](#setup)
   - [Quick Start](#quick-start)
-  - [Complete Example](#complete-example)
+  - [Example 1: Parquet Input](#example-1-parquet-input)
+  - [Example 2: RDS-HQ Input](#example-2-rds-hq-input)
 - [Usage](#usage)
   - [Basic Commands](#basic-commands)
   - [Options](#options)
@@ -46,7 +51,7 @@ This tool generates control videos from 3D scene annotations for Cosmos Transfer
 - Python 3.10+
 - UV (for dependency management)
 - GPU with EGL support (for headless OpenGL rendering)
-- 3D scene annotation data in parquet format
+- 3D scene annotation data in Parquet or RDS-HQ format
 
 ### Setup
 
@@ -62,29 +67,37 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 Generate world scenario videos from your 3D scene annotations:
 
 ```bash
-python scripts/generate_control_videos.py /path/to/{input_root} /path/to/{save_root}
+python scripts/generate_control_videos.py -i /path/to/input_root -o /path/to/save_root
 ```
 
-### Complete Example
+The script automatically detects whether your input is in Parquet or RDS-HQ format.
+
+### Example 1: Parquet Input
 
 Here's a full working example you can copy and paste to try it out:
 
 ```bash
 # Download example data
-cd assets
-wget https://github.com/nvidia-cosmos/cosmos-dependencies/releases/download/assets/multiview_example1.zip
-unzip multiview_example1.zip
-cd ..
+wget -P assets https://github.com/nvidia-cosmos/cosmos-dependencies/releases/download/assets/multiview_example1.zip && unzip -oq assets/multiview_example1.zip -d assets
 
 # Generate control videos for the example scene
-python scripts/generate_control_videos.py assets/multiview_example1/scene_annotations outputs/multiview_example1_world_scenario_videos
+python scripts/generate_control_videos.py -i assets/multiview_example1/scene_annotations -o outputs/multiview_example1_world_scenario_videos
 ```
 
-Examples you can download:
+Additional examples available for download:
 ```bash
-wget https://github.com/nvidia-cosmos/cosmos-dependencies/releases/download/assets/multiview_example1.zip
 wget https://github.com/nvidia-cosmos/cosmos-dependencies/releases/download/assets/multiview_example2.zip
 wget https://github.com/nvidia-cosmos/cosmos-dependencies/releases/download/assets/multiview_example3.zip
+```
+
+### Example 2: RDS-HQ Input
+
+Using data from the [Cosmos-Drive-Dreams dataset](https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-Vehicle-Cosmos-Drive-Dreams) (see dataset documentation for RDS-HQ format details):
+
+```bash
+wget -P scripts https://raw.githubusercontent.com/nv-tlabs/Cosmos-Drive-Dreams/main/scripts/download.py
+python scripts/download.py --odir ./assets/rdshq-data --limit 1
+python scripts/generate_control_videos.py -i assets/rdshq-data -o outputs/rdshq-generated
 ```
 
 ## Usage
@@ -93,10 +106,10 @@ wget https://github.com/nvidia-cosmos/cosmos-dependencies/releases/download/asse
 
 ```bash
 # All cameras (default)
-python scripts/generate_control_videos.py {input_root}/ {save_root}/
+python scripts/generate_control_videos.py -i {input_root}/ -o {save_root}/
 
 # Specific cameras
-python scripts/generate_control_videos.py {input_root}/ {save_root}/ \
+python scripts/generate_control_videos.py -i {input_root}/ -o {save_root}/ \
     --cameras "camera:front:wide:120fov,camera:cross:right:120fov"
 ```
 
@@ -119,6 +132,10 @@ python scripts/generate_control_videos.py {input_root}/ {save_root}/ \
 ## Data Format
 
 ### Input Structure
+
+The tool accepts two input formats:
+
+**1. Parquet Format** - Structured scene annotations in parquet files:
 ```
 scene_annotations_directory/
 ├── uuid.obstacle.parquet              (required)
@@ -129,9 +146,13 @@ scene_annotations_directory/
 └── ... (other optional parquet files)
 ```
 
-See [World Scenario Parquet File Structure](world_scenario_parquet.md) for more details.
+See [World Scenario Parquet File Structure](world_scenario_parquet.md) for detailed schema and requirements.
+
+**2. RDS-HQ Format** - NVIDIA's recording format containing sensor data and annotations. The script automatically extracts the required scene information. See the [Cosmos-Drive-Dreams dataset documentation](https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-Vehicle-Cosmos-Drive-Dreams) for format details.
 
 ### Output Structure
+
+Both input formats produce the same output structure:
 ```
 save_root/
 └── uuid/
@@ -146,12 +167,12 @@ save_root/
 
 ## What Gets Rendered
 
-**Always rendered:** 3D bounding boxes for vehicles/pedestrians (from required `obstacle.parquet`)
+**Always rendered:** 3D bounding boxes for vehicles, pedestrians, and other dynamic objects
 
-**Optionally rendered** (only if corresponding parquet file provided):
-- Lane lines, lanes, road boundaries
-- Crosswalks, poles, road markings, wait lines
-- Traffic lights and signs
+**Optionally rendered** (when data available):
+- Lane lines, lanes, and road boundaries
+- Crosswalks, road markings, and wait lines
+- Poles, traffic lights, and traffic signs
 
 ## Troubleshooting
 
@@ -161,16 +182,16 @@ save_root/
 |-------|----------|
 | **ModernGL/EGL errors** | Install GPU drivers and EGL libraries. Ubuntu/Debian: `apt install libegl1-mesa-dev libgl1-mesa-dri` |
 | **Missing parquet files** | Ensure required files exist: `obstacle`, `calibration_estimate`, `egomotion_estimate` |
-| **Memory issues** | Process fewer cameras at once |
+| **Memory issues** | Reduce the number of cameras processed simultaneously using `--cameras` |
 | **Invalid camera names** | Run with `--help` to see valid options |
 
 ## Integration
 
-Generated control videos serve as conditioning inputs for Cosmos Transfer2.5 model inference. The HD map visualizations provide spatial context for video generation tasks.
+The generated control videos serve as conditioning inputs for Cosmos Transfer2.5 model inference, providing spatial context through HD map visualizations for controlled video generation.
 
 ## Rendering Specifications
 
-This specification enhances [Cosmos Drive Dreams](https://github.com/nv-tlabs/Cosmos-Drive-Dreams) v1 with lane line types and traffic light states, including: Dynamic Objects, Lanelines, Traffic Lights, and Map Elements.
+This rendering specification builds on [Cosmos Drive Dreams](https://github.com/nv-tlabs/Cosmos-Drive-Dreams).
 
 <p align="center">
   <img src="../assets/docs/world_scenario_image.png" alt="World Scenario Image" width="800">
@@ -187,11 +208,11 @@ This specification enhances [Cosmos Drive Dreams](https://github.com/nv-tlabs/Co
 </p>
 
 ### Dynamic Objects
-**Config:** [config_color_bbox.json](https://github.com/nvidia-cosmos/cosmos-transfer2.5/blob/c4d0517fdffaabcf8346956c910bfcbd941dbddf/scripts/av_utils/color_configs/config_color_bbox.json#L16-L21)
+**Config:** [`config_color_bbox.json`](https://github.com/nvidia-cosmos/cosmos-transfer2.5/blob/main/cosmos_transfer2/_src/imaginaire/auxiliary/world_scenario/color_scheme/config_color_bbox.json)
 
-Dynamic objects are solid cuboids with light gray edges and front-to-back gradients.
+Dynamic objects are rendered as solid 3D cuboids with light gray edges and front-to-back color gradients.
 
-**Label Mapping:** [bbox_utils.py](https://github.com/nvidia-cosmos/cosmos-transfer2.5/blob/c4d0517fdffaabcf8346956c910bfcbd941dbddf/scripts/av_utils/bbox_utils.py#L52-L80) maps the following DCP labels to the five categories:
+**Label Mapping:** [`bbox_utils.py`](https://github.com/nvidia-cosmos/cosmos-transfer2.5/blob/main/cosmos_transfer2/_src/imaginaire/auxiliary/world_scenario/utils/bbox_utils.py) maps DCP labels to five categories:
 1. **Car**: automobile, other_vehicle, vehicle
 2. **Truck**: heavy_truck, bus, train_or_tram_car, trailer
 3. **Pedestrian**: person
@@ -203,22 +224,20 @@ Dynamic objects are solid cuboids with light gray edges and front-to-back gradie
 </p>
 
 ### Lanelines
-**Config:** [config_color_geometry_laneline.json](https://github.com/nvidia-cosmos/cosmos-transfer2.5/blob/c4d0517fdffaabcf8346956c910bfcbd941dbddf/scripts/av_utils/color_configs/config_color_geometry_laneline.json)
+**Config:** [`config_color_geometry_laneline.json`](https://github.com/nvidia-cosmos/cosmos-transfer2.5/blob/main/cosmos_transfer2/_src/imaginaire/auxiliary/world_scenario/color_scheme/config_color_geometry_laneline.json)
 
-Lanelines are categorized into 15 types with combinations of:
+Lanelines are categorized into 15 types based on:
 - **Colors:** yellow, white, other
-- **Styles:** solid, dashed, dotted
+- **Styles:** solid, dashed, dotted, solid-dashed combinations
 
-**Subtypes:** solid single, solid group (double), solid dashed, dashed solid, long dashed single, etc.
-
-_Example: `yellow solid dashed` = yellow solid line (right) + yellow dashed line (left) in polyline direction._
+**Example:** `yellow solid dashed` means a yellow solid line (right) + yellow dashed line (left) in the polyline direction.
 
 <p align="center">
   <img src="../assets/docs/lanelines.png" alt="Lanelines" width="800">
 </p>
 
 ### Traffic Lights
-**Config:** [config_color_traffic_light.json](https://github.com/nvidia-cosmos/cosmos-transfer2.5/blob/c4d0517fdffaabcf8346956c910bfcbd941dbddf/scripts/av_utils/color_configs/config_color_traffic_light.json)
+**Config:** [`config_color_traffic_light.json`](https://github.com/nvidia-cosmos/cosmos-transfer2.5/blob/main/cosmos_transfer2/_src/imaginaire/auxiliary/world_scenario/color_scheme/config_color_traffic_light.json)
 
 Traffic lights are rendered as cuboids with four states: Red, Yellow, Green, Unknown.
 
@@ -227,9 +246,12 @@ Traffic lights are rendered as cuboids with four states: Red, Yellow, Green, Unk
 </p>
 
 ### Map Elements
-**Config:** [config_color_hdmap.json](https://github.com/nvidia-cosmos/cosmos-transfer2.5/blob/c4d0517fdffaabcf8346956c910bfcbd941dbddf/scripts/av_utils/color_configs/config_color_hdmap.json)
+**Config:** [`config_color_hdmap.json`](https://github.com/nvidia-cosmos/cosmos-transfer2.5/blob/main/cosmos_transfer2/_src/imaginaire/auxiliary/world_scenario/color_scheme/config_color_hdmap.json)
 
-Map elements are rendered into three geometry types: **Polylines** (poles, boundaries, wait lines), **Polygons** (crosswalks, markings), **Cuboids** (signs).
+Map elements use three geometry types:
+- **Polylines**: poles, road boundaries, wait lines
+- **Polygons**: crosswalks, road markings
+- **Cuboids**: traffic signs
 
 <p align="center">
   <img src="../assets/docs/map_elements.png" alt="Map Elements" width="800">
@@ -239,33 +261,31 @@ Map elements are rendered into three geometry types: **Polylines** (poles, bound
 
 ### Frame Rate Configuration
 
-The rendering pipeline uses two configurable frame rates (defined in `scripts/av_utils/render_config.py`):
-- **`INPUT_POSE_FPS`** (default: 30): Processing frame rate for interpolation - determines how many frames are generated
-- **`TARGET_RENDER_FPS`** (default: 30): Output video frame rate - determines playback speed
+The pipeline uses two configurable frame rates:
+- **`INPUT_POSE_FPS`** (default: 30fps): Processing frame rate for interpolation - determines how many frames are generated
+- **`TARGET_RENDER_FPS`** (default: 30fps): Output video playback frame rate - determines playback speed
 
-Common source data rates:
-- **`SOURCE_POSE_FPS`**: 10Hz (ego motion in parquet files)
-- **`SOURCE_OBSTACLE_FPS`**: 10Hz (obstacle data in parquet files)
+Source data is typically at 10Hz and is interpolated to the processing frame rate.
 
 ### 1. Interpolation
-- **Obstacle data**: Interpolated from source frequency (typically 10Hz) to processing frame rate (default: 30 fps, configurable via `INPUT_POSE_FPS` in `scripts/av_utils/render_config.py`)
-- **Egomotion data**: Interpolated to same processing frame rate (default: 30 fps, using `INPUT_POSE_FPS`)
-- **Map data**: Static elements loaded once (no interpolation needed)
-- **Note**: The processing frame rate (`INPUT_POSE_FPS`) determines the temporal resolution for rendering. The output video frame rate (`TARGET_RENDER_FPS`) is separate and typically matches the processing rate.
+- **Obstacle data**: Interpolated from source frequency (typically 10Hz) to processing frame rate
+- **Egomotion data**: Interpolated to same processing frame rate
+- **Map data**: Static elements, loaded once without interpolation
+
+The processing frame rate (`INPUT_POSE_FPS`) determines temporal resolution, while output frame rate (`TARGET_RENDER_FPS`) controls playback speed. Both typically default to 30fps.
 
 ### 2. Coordinate Systems
-- **World coordinates**: Right-handed coordinate system (x=forward, y=left, z=up)
-- **Camera coordinates**: Converted to camera coordinate system where:
-  - x-axis points right
-  - y-axis points down
-  - z-axis points forward (into the scene)
-  - This follows the convention where the camera looks along the positive z-axis
-- **FLU convention**: Forward-Left-Up used internally
+- **World coordinates**: Right-handed system (x=forward, y=left, z=up)
+- **Camera coordinates**: Camera coordinate system where the camera looks along the positive z-axis
+  - x-axis: right
+  - y-axis: down
+  - z-axis: forward (into scene)
+- **FLU convention**: Forward-Left-Up used for vehicle-to-camera transforms
 
 ### 3. Rendering Process
 1. Load camera calibration
-2. Parse egomotion trajectory and interpolate to processing frame rate
-3. Interpolate obstacle tracks to match ego timestamps
-4. Transform all geometries to camera view
-5. Render
-6. Output as MP4 video files
+2. Parse and interpolate egomotion trajectory to processing frame rate
+3. Interpolate obstacle tracks to match egomotion timestamps
+4. Transform all geometries from world to camera coordinates
+5. Render each frame using OpenGL
+6. Encode output as MP4 video

@@ -114,6 +114,7 @@ Cosmos-Transfer supports data generation in multiple industry verticals, outline
 * [Inference](docs/inference.md)
   * [Auto Multiview](docs/inference_auto_multiview.md)
 * [Post-training](docs/post-training.md)
+  * [Single View](docs/post-training_singleview.md)
   * [Auto Multiview](docs/post-training_auto_multiview.md)
 
 ## Contributing

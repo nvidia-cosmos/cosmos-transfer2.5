@@ -18,6 +18,7 @@ from typing import Any, List
 import attrs
 
 from cosmos_transfer2._src.imaginaire import config
+from cosmos_transfer2._src.imaginaire.flags import INTERNAL
 from cosmos_transfer2._src.imaginaire.trainer import ImaginaireTrainer as Trainer
 from cosmos_transfer2._src.imaginaire.utils.config_helper import import_all_modules_from_package
 from cosmos_transfer2._src.predict2.configs.common.defaults.checkpoint import register_checkpoint
@@ -30,6 +31,9 @@ from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.defaults.callbacks
 from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.defaults.conditioner import register_conditioner
 from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.defaults.dataloader import (
     register_training_and_val_data,
+)
+from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.defaults.dataloader_local import (
+    register_dataloader_local,
 )
 from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.defaults.model import register_model
 from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.defaults.net import register_net
@@ -84,6 +88,8 @@ def make_config() -> Config:
 
     # Call this function to register config groups for advanced overriding. the order follows the default config groups
     register_training_and_val_data()
+    if not INTERNAL:
+        register_dataloader_local()  # Register local dataloaders for post-training
     register_optimizer()
     register_scheduler()
     register_model()
@@ -101,5 +107,9 @@ def make_config() -> Config:
     import_all_modules_from_package(
         "cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.experiment_av", reload=True
     )
+
+    # Import public-facing post-training examples from packages (includes both singleview and multiview)
+    if not INTERNAL:
+        import_all_modules_from_package("cosmos_transfer2.experiments", reload=True)
 
     return c

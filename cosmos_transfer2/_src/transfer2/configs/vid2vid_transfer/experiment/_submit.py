@@ -27,8 +27,8 @@ from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.experiment.experim
 from cosmos_transfer2._src.transfer2.utils.submit_helper import get_executor
 
 # DOCKER_IMAGE = "/project/cosmos/snah/dpdata/sqsh/imaginaire4_mcore_v0.0.7_efa.sqsh"
-AWS_DOCKER_IMAGE = "/project/cosmos/ybalaji/dpdata/sqsh/imaginaire4_v10.1.2.sqsh"
-LEPTON_DOCKER_IMAGE = "nvcr.io/nvidian/imaginaire4:v10.1.2"
+AWS_DOCKER_IMAGE = "/project/cosmos/snah/dpdata/sqsh/imaginaire4_v10.1.3.sqsh"
+LEPTON_DOCKER_IMAGE = "nvcr.io/nvidian/imaginaire4:v10.1.3"
 
 
 def run_experiment(

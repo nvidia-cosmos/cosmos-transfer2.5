@@ -39,55 +39,11 @@ from typing import Optional
 import einops
 import numpy as np
 import torch
-from einops import rearrange
 from loguru import logger
 from megatron.core import parallel_state
 
 from cosmos_transfer2._src.imaginaire.utils import distributed
 from cosmos_transfer2._src.predict2.utils.model_loader import load_model_from_checkpoint
-
-
-def time_to_width_dimension(mv_video, data_batch):
-    """
-    Args:
-        mv_video: (B, C, V * T, H, W)
-    Returns:
-        (B, C, T, V, H, W)
-    """
-    visualization_camera_order = [
-        "camera_rear_left_70fov",
-        "camera_cross_left_120fov",
-        "camera_front_wide_120fov",
-        "camera_cross_right_120fov",
-        "camera_rear_right_70fov",
-        "camera_rear_tele_30fov",
-        "camera_front_tele_30fov",
-    ]
-
-    current_view_order = data_batch["camera_keys_selection"][0]
-    n_views = len(current_view_order)
-
-    # Reorder views to match expected visualization order
-    if current_view_order != visualization_camera_order:
-        # Create mapping from current order to expected order
-        reorder_indices = []
-        for view in visualization_camera_order:
-            if view in current_view_order:
-                reorder_indices.append(current_view_order.index(view))
-
-        # Reshape to separate view and time dimensions
-        B, C, VT, H, W = mv_video.shape
-
-        T = VT // n_views
-        mv_video = rearrange(mv_video, "B C (V T) H W -> B C V T H W", V=n_views)
-
-        # Reorder views according to expected order
-        mv_video = mv_video[:, :, reorder_indices, :, :, :]
-
-        # Reshape back to original format
-        mv_video = rearrange(mv_video, "B C V T H W -> B C (V T) H W")
-
-    return rearrange(mv_video, "B C (V T) H W -> B C T H (V W)", V=n_views)
 
 
 def set_seeds(seed: int, deterministic: bool = False):
@@ -137,6 +93,26 @@ def to_model_input(data_batch, model):
                 _v = _v.to(**model.tensor_kwargs)
         data_batch[k] = _v
     return data_batch
+
+
+def _num_conditional_frames_for_batch(
+    chunk_idx: int,
+    tokenizer,
+    num_conditional_pixel_frames: int | list[int],
+    chunk_overlap: int,
+):
+    """
+    Builds "num_conditional_frames" for a batch.
+
+    Inputs to generate_autoregressive_from_batch are in raw/pixel frames but the model works with latent frames.
+    This helper applies the conversion.
+    """
+    if chunk_idx == 0:
+        if isinstance(num_conditional_pixel_frames, list):
+            return [tokenizer.get_latent_num_frames(raw_frames) for raw_frames in num_conditional_pixel_frames]
+        return tokenizer.get_latent_num_frames(num_conditional_pixel_frames)
+
+    return tokenizer.get_latent_num_frames(chunk_overlap)
 
 
 class ControlVideo2WorldInference:
@@ -278,7 +254,7 @@ class ControlVideo2WorldInference:
             chunk_overlap: Number of overlapping frames between chunks
             guidance: Guidance scale for generation
             seed: Random seed for generation
-            num_conditional_frames: Number of conditional frames (scalar or per-view list)
+            num_conditional_frames: Number of conditional pixel frames (scalar or per-view list)
             num_steps: Number of sampling steps for the model.
             use_negative_prompt: Whether to use default negative prompt.
             distillation: If using distilled model, pass `dmd2`.
@@ -287,12 +263,15 @@ class ControlVideo2WorldInference:
             Tuple of (generated video tensor, control video tensor)
             Both tensors contain values between 0 and 1.
         """
-        # Extract full video and control tensors
+        if "num_conditional_frames" in full_batch:
+            raise ValueError("num_conditional_frames should be passed as an argument")
 
+        # Extract full video and control tensors
         full_control = full_batch["control_input_hdmap_bbox"]  # Shape: [1, 3, total_frames, H, W]
         batch_size, channels, total_frames, height, width = full_batch[
             "video"
         ].shape  # Shape: [1, 3, total_frames, H, W]
+        chunk_overlap = int(chunk_overlap)
         overlap = chunk_overlap
 
         # Calculate frames per view from the loaded video
@@ -312,6 +291,7 @@ class ControlVideo2WorldInference:
 
         # Generate first chunk using original input videos
         current_input_video = full_batch["video"].clone()
+        tokenizer = self.model.tokenizer
 
         for chunk_idx in range(num_chunks):
             # Calculate frame range for this chunk
@@ -328,10 +308,10 @@ class ControlVideo2WorldInference:
             chunk_batch = self._create_chunk_batch(
                 full_batch, current_input_video, full_control, start_frame, end_frame, n_views
             )
-            if chunk_idx == 0:
-                chunk_batch["num_conditional_frames"] = full_batch["num_conditional_frames"]
-            else:
-                chunk_batch["num_conditional_frames"] = chunk_overlap
+
+            chunk_batch["num_conditional_frames"] = _num_conditional_frames_for_batch(
+                chunk_idx, tokenizer, num_conditional_frames, chunk_overlap
+            )
 
             # Generate chunk
             chunk_video = self.generate_from_batch(
@@ -445,10 +425,10 @@ class ControlVideo2WorldInference:
         Args:
             current_input: Full input video [1, 3, total_frames, H, W]
             generated_chunk: Generated chunk [ 7, 3, 29, H, W]
-            start_frame: Start frame index within each view
-            end_frame: End frame index within each view
+            start_frame: Start pixel-frame index within each view
+            end_frame: End pixel-frame index within each view
             n_views: Number of views
-            overlap: Number of overlapping frames
+            overlap: Number of overlapping pixel frames
 
         Returns:
             Updated input video with generated frames replacing future frames

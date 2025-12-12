@@ -22,6 +22,10 @@ _uv-sync *args: setup
   fi
   uv sync --extra=$(cat .cuda-name) {{args}}
 
+# Run a command in the package environment
+run *args: _uv-sync
+  uv run --no-sync {{args}}
+
 # Setup pre-commit
 _pre-commit-setup: setup
   uv tool install "pre-commit>=4.3.0"
@@ -93,9 +97,6 @@ test-level-1 *args: (test '--levels=1' args)
 
 # Run level 2 tests
 test-level-2 *args: (test '--levels=2' args)
-
-# Run tests with coverage report
-test-coverage *args: (test '--cov-append' '--cov-report=' '--cov=' + module_name args)
 
 # List tests
 test-list *args: _uv-sync

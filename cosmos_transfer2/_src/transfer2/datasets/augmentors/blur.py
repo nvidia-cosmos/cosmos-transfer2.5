@@ -166,12 +166,12 @@ random_blur_config = BlurConfig(
     blur_combinations=[
         BlurCombinationConfig(
             blur_types=["bilateral"],
-            probability=0.5,
+            probability=0.3,
             bilateral_filter=BilateralFilterConfig(use_random=True),
         ),
         BlurCombinationConfig(
             blur_types=["gaussian"],
-            probability=0.3,
+            probability=0.5,
             gaussian_blur=GaussianBlurConfig(use_random=True),
         ),
         BlurCombinationConfig(

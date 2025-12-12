@@ -95,10 +95,6 @@ class MultiviewInference:
     def __init__(self, args: MultiviewSetupArguments):
         log.debug(f"{args.__class__.__name__}({args})")
 
-        # Enable deterministic inference
-        torch.backends.cudnn.benchmark = False
-        torch.backends.cudnn.deterministic = True
-
         # Disable gradient calculations for inference
         torch.enable_grad(False)
 
@@ -259,12 +255,12 @@ class MultiviewInference:
                 ]
                 if all(frames == 0 for frames in num_conditional_frames_per_view):
                     log.info(f"Using single conditional frames value: {sample.num_conditional_frames}")
-                    batch["num_conditional_frames"] = sample.num_conditional_frames
+                    num_conditional_frames = sample.num_conditional_frames
                 else:
                     log.info(f"Using per-view conditional frames: {num_conditional_frames_per_view}")
-                    batch["num_conditional_frames"] = num_conditional_frames_per_view
+                    num_conditional_frames = num_conditional_frames_per_view
             else:
-                batch["num_conditional_frames"] = sample.num_conditional_frames
+                num_conditional_frames = sample.num_conditional_frames
 
             if sample.enable_autoregressive:
                 log.info(f"------ Generating video with autoregressive mode ------")
@@ -275,7 +271,7 @@ class MultiviewInference:
                     chunk_size=chunk_size,
                     guidance=sample.guidance,
                     seed=sample.seed,
-                    num_conditional_frames=batch["num_conditional_frames"],
+                    num_conditional_frames=num_conditional_frames,
                     num_steps=sample.num_steps,
                     use_negative_prompt=True,
                 )

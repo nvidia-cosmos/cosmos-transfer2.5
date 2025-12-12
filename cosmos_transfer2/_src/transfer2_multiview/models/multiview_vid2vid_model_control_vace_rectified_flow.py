@@ -47,11 +47,9 @@ from cosmos_transfer2._src.transfer2_multiview.configs.vid2vid_transfer.defaults
 
 CONTROL_WEIGHT_KEY = "control_weight"
 
-_base_classes = (ControlVideo2WorldRectifiedFlowConfig,)
-
 
 @attrs.define(slots=False)
-class MultiviewControlVideo2WorldRectifiedFlowConfig(*_base_classes):
+class MultiviewControlVideo2WorldRectifiedFlowConfig(ControlVideo2WorldRectifiedFlowConfig):
     train_base_model: bool = False
     min_num_conditional_frames_per_view: int = 1
     max_num_conditional_frames_per_view: int = 2
@@ -561,21 +559,21 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
 
             1. Flatten all dimensions (T, H, W) into a single sequence.
                Input: B C T H W -> B C (T H W)
-               
+
             2. The flattened sequence is a concatenation of chunks from each CP rank.
                Because we broadcast-split PER VIEW the sequence structure is:
                [Rank0_View0_Chunk] [Rank0_View1_Chunk] ... [Rank0_ViewN_Chunk]
                [Rank1_View0_Chunk] [Rank1_View1_Chunk] ... [Rank1_ViewN_Chunk]
                ...
-               
+
                We need to regroup these chunks by VIEW first:
                Input: B C (cp_size num_views chunk)
                Output: B C num_views (cp_size chunk)
-               
+
                This creates a contiguous block for each view:
                View0: [Rank0_Chunk] [Rank1_Chunk] ... [RankN_Chunk] (This reconstructs the full View0 volume)
                View1: [Rank0_Chunk] [Rank1_Chunk] ... [RankN_Chunk] (This reconstructs the full View1 volume)
-               
+
             3. Reshape the contiguous view blocks back into (T, H, W).
                The total size of (cp_size * chunk) equals exactly (T * H * W) for one view.
                Input: B C num_views (T H W)

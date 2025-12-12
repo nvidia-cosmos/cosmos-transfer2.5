@@ -141,4 +141,5 @@ load_path="checkpoints/nvidia/Cosmos-Transfer2.5-2B/consolidated/model.pt"
 
 For detailed training examples and configuration options, see:
 
+- [Control2World Post-Training for Single View](./post-training_singleview.md)
 - [Control2World Post-Training for HDMap Multiview](./post-training_auto_multiview.md)

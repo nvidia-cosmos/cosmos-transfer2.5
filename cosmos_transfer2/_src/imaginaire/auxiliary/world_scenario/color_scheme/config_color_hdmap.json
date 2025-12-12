@@ -1,0 +1,23 @@
+{
+    "v1": {
+        "lanelines": [98, 183, 249],
+        "lanes": [56, 103, 221],
+        "poles": [66, 40, 144],
+        "road_boundaries": [200, 36, 35],
+        "wait_lines": [185, 63, 34],
+        "crosswalks": [206, 131, 63],
+        "road_markings": [126, 204, 205],
+        "traffic_signs": [131, 175, 155],
+        "traffic_lights": [252, 157, 155]
+    },
+    "v3": {
+        "lanelines": [98, 183, 249],
+        "poles": [183, 69, 177],
+        "road_boundaries": [253, 1, 232],
+        "wait_lines": [108, 179, 59],
+        "crosswalks": [139, 93, 255],
+        "road_markings": [20, 254, 185],
+        "traffic_signs": [8, 2, 255],
+        "traffic_lights": [100, 100, 100]
+    }
+}

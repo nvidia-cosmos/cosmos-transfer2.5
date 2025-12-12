@@ -207,6 +207,8 @@ class Control2WorldInference:
                 prompt=prompt,
                 negative_prompt=negative_prompt,
                 image_context_path=path_to_str(sample.image_context_path),
+                context_frame_idx=sample.context_frame_index,
+                max_frames=sample.max_frames,
                 guidance=sample.guidance,
                 seed=sample.seed,
                 resolution=sample.resolution,
@@ -228,18 +230,23 @@ class Control2WorldInference:
             if self.setup_args.benchmark:
                 torch.cuda.synchronize()
 
-        # Save video
+        if output_video.shape[2] == 1:
+            ext = "jpg"
+        else:
+            ext = "mp4"
+
+        # Save video/image
         if self.device_rank == 0:
             output_video = (1.0 + output_video[0]) / 2
             for key in control_video_dict:
                 control_video_dict[key] = (1.0 + control_video_dict[key][0]) / 2
                 save_img_or_video(control_video_dict[key], f"{output_path}_control_{key}", fps=fps)
-                log.info(f"{key} control video saved to {output_path}_control_{key}.mp4")
+                log.info(f"{key} control video saved to {output_path}_control_{key}.{ext}")
 
             with self.benchmark_timer("video_guardrail"):
                 for key in mask_video_dict:
                     save_img_or_video(mask_video_dict[key], f"{output_path}_mask_{key}", fps=fps)
-                    log.info(f"Mask for {key} saved to {output_path}_mask_{key}.mp4")
+                    log.info(f"Mask for {key} saved to {output_path}_mask_{key}.{ext}")
                 # run video guardrail on the video
                 if self.video_guardrail_runner is not None:
                     log.info("Running guardrail check on video...")
@@ -266,11 +273,11 @@ class Control2WorldInference:
             prompt_save_path = f"{output_path}.txt"
             with open(prompt_save_path, "w") as f:
                 f.write(sample.prompt)
-            log.success(f"Generated video saved to {output_path}.mp4")
+            log.success(f"Generated video saved to {output_path}.{ext}")
 
         if sample_id == 0 and self.setup_args.benchmark:
             # discard first warmup sample from timing
             self.benchmark_timer.reset()
 
         torch.cuda.empty_cache()
-        return f"{output_path}.mp4"
+        return f"{output_path}.{ext}"

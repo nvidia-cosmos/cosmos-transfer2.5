@@ -239,6 +239,7 @@ def get_video_augmentor_v2(
     use_native_fps: bool = True,
     use_original_fps: bool = False,
     use_random_consecutive_frames: bool = False,
+    use_random_interleaved_frames: bool = False,
 ):
     """
     num_video_frames: -1 means use all frames, otherwise use the number of frames specified.
@@ -251,6 +252,7 @@ def get_video_augmentor_v2(
     - extract captions and embeddings.
 
     When use_random_consecutive_frames is True, the augmentor will sample random consecutive frames, preserving the original fps.
+    When use_random_interleaved_frames is True, the augmentor will sample random interleaved frames, making fractional fps interpolation possible (e.g. 24->30fps).
 
     Supported caption_type include t2w_qwen2p5_7b and i2w_qwen2p5_7b_later_frames.
     Supported embedding_type include t5_xxl and umt5_xxl.
@@ -287,7 +289,14 @@ def get_video_augmentor_v2(
                 "num_video_frames": num_video_frames,
                 "use_native_fps": use_native_fps,
                 "use_original_fps": use_original_fps,
+                # use_random_consecutive_frames:
+                #   If True, samples random consecutive frames within the window, preserving the original fps between frames.
+                #   This enables consecutive clips from the source, without evenly-spaced dropping/duplication.
                 "use_random_consecutive_frames": use_random_consecutive_frames,
+                # use_random_interleaved_frames:
+                #   If True, enables random interleaved frame subsampling (e.g., for fractional fps upsampling/downsampling such as 24->30 FPS).
+                #   Produces non-consecutive, randomly-traced clip segments by mixing different strides, for more varied temporal sampling.
+                "use_random_interleaved_frames": use_random_interleaved_frames,
             },
         ),
         "merge_datadict": L(merge_datadict.DataDictMerger)(

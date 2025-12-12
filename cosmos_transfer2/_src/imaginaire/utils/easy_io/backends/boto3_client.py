@@ -18,9 +18,10 @@ import concurrent.futures
 import io
 import os
 import time
+from collections.abc import Generator
 from math import ceil
 from multiprocessing import shared_memory
-from typing import Any, Dict, Generator, List, Tuple
+from typing import Any, Optional
 
 import boto3
 import numpy as np
@@ -53,7 +54,7 @@ RETRY_DELAY = 1  # seconds
 
 async def upload_single_part_async(
     s3: AioSession, bucket: str, key: str, part_number: int, data: bytes, upload_id: str
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Uploads a single part of a file asynchronously to S3.
 
@@ -66,7 +67,7 @@ async def upload_single_part_async(
         upload_id (str): The upload ID for the multipart upload.
 
     Returns:
-        Dict[str, Any]: A dictionary containing the part number and ETag.
+        dict[str, Any]: A dictionary containing the part number and ETag.
     """
     for attempt in range(MAX_RETRIES):
         try:
@@ -90,8 +91,8 @@ async def upload_parts_async(
     data: bytes,
     bucket: str,
     key: str,
-    client_config: Dict[str, Any],
-) -> List[Dict[str, Any]]:
+    client_config: dict[str, Any],
+) -> list[dict[str, Any]]:
     """
     Uploads multiple parts of a file asynchronously to S3.
 
@@ -102,10 +103,10 @@ async def upload_parts_async(
         data (bytes): The data to upload.
         bucket (str): The S3 bucket name.
         key (str): The S3 key (file path).
-        client_config (Dict[str, Any]): The S3 client configuration.
+        client_config (dict[str, Any]): The S3 client configuration.
 
     Returns:
-        List[Dict[str, Any]]: A list of dictionaries containing part numbers and ETags.
+        list[dict[str, Any]]: A list of dictionaries containing part numbers and ETags.
     """
     session = aioboto3.Session()
     config = AioConfig(retries={"max_attempts": 3, "mode": "adaptive"}, connect_timeout=5, read_timeout=10)
@@ -136,22 +137,22 @@ async def upload_parts_async(
         return successful_parts
 
 
-def upload_parts_to_s3(args: Tuple[range, str, int, bytes, str, str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+def upload_parts_to_s3(args: tuple[range, str, int, bytes, str, str, dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Uploads parts of a file to S3 using a new event loop.
 
     Args:
-        args (Tuple[range, str, int, bytes, str, str, Dict[str, Any]]): The arguments for uploading parts, including:
+        args (tuple[range, str, int, bytes, str, str, dict[str, Any]]): The arguments for uploading parts, including:
             part_numbers (range): The range of part numbers to upload.
             upload_id (str): The upload ID for the multipart upload.
             part_size (int): The size of each part in bytes.
             data (bytes): The data to upload.
             bucket (str): The S3 bucket name.
             key (str): The S3 key (file path).
-            client_config (Dict[str, Any]): The S3 client configuration.
+            client_config (dict[str, Any]): The S3 client configuration.
 
     Returns:
-        List[Dict[str, Any]]: A list of dictionaries containing part numbers and ETags.
+        list[dict[str, Any]]: A list of dictionaries containing part numbers and ETags.
     """
     part_numbers, upload_id, part_size, data, bucket, key, client_config = args
     loop = asyncio.new_event_loop()
@@ -200,7 +201,7 @@ async def download_single_part_async(
 
 
 async def download_parts_async(
-    part_size: int, part_numbers: range, bucket: str, key: str, client_config: Dict[str, Any], shm_name: str
+    part_size: int, part_numbers: range, bucket: str, key: str, client_config: dict[str, Any], shm_name: str
 ) -> None:
     """
     Downloads multiple parts of a file asynchronously and writes them to shared memory.
@@ -210,7 +211,7 @@ async def download_parts_async(
         part_numbers (range): The range of part numbers to download.
         bucket (str): The S3 bucket name.
         key (str): The S3 key (file path).
-        client_config (Dict[str, Any]): The S3 client configuration.
+        client_config (dict[str, Any]): The S3 client configuration.
         shm_name (str): The name of the shared memory block.
     """
     session = aioboto3.Session()
@@ -237,17 +238,17 @@ async def download_parts_async(
             raise Exception(f"Failed to download {len(failed_parts)} parts")
 
 
-def download_parts_to_s3(args: Tuple[range, int, str, str, Dict[str, Any], str]) -> bytes:
+def download_parts_to_s3(args: tuple[range, int, str, str, dict[str, Any], str]) -> bytes:
     """
     Downloads parts of a file using a new event loop.
 
     Args:
-        args (Tuple[range, int, str, str, Dict[str, Any]]): The arguments for downloading parts, including:
+        args (tuple[range, int, str, str, dict[str, Any]]): The arguments for downloading parts, including:
             part_numbers (range): The range of part numbers to download.
             part_size (int): The size of each part in bytes.
             bucket (str): The S3 bucket name.
             key (str): The S3 key (file path).
-            client_config (Dict[str, Any]): The S3 client configuration.
+            client_config (dict[str, Any]): The S3 client configuration.
 
     Returns:
         bytes: The combined file data from all downloaded parts.
@@ -265,7 +266,7 @@ class Boto3Client:
         s3_credential_path: str,
         max_attempt: int = 3,
     ):
-        self.max_attempt = max_attempt
+        self.max_attempt: int = max_attempt
         assert s3_credential_path, "s3_credential_path is required"
         assert os.path.exists(s3_credential_path) or CRED_ENVS.APP_ENV in [
             "prod",
@@ -286,25 +287,92 @@ class Boto3Client:
         self._s3_cred_info = conf
         self._mc_kv_store = None
 
-    def get(self, filepath):
+    def size(self, filepath: str) -> int:
         filepath = self._check_path(filepath)
 
         if self._mc_kv_store and self._mc_kv_store.available:
             if self._mc_kv_store.has(filepath):
-                return self._mc_kv_store.get(filepath)
+                return len(self._mc_kv_store.get(filepath))
+
+        attempt: int = 0
+        while attempt < self.max_attempt:
+            try:
+                return self._client.head_object(
+                    Bucket=filepath.split("/")[0],
+                    Key="/".join(filepath.split("/")[1:]),
+                )["ContentLength"]
+            except ClientError as e:
+                if e.response["Error"]["Code"] == "404":
+                    raise  # Object does not exist.
+                else:
+                    attempt += 1
+                    log.error(f"Attempt {attempt} failed for {filepath}: {e}", rank0_only=False)
+                    if attempt >= self.max_attempt:
+                        raise  # Re-raise the exception after max attempt
+                    time.sleep(2)  # Wait for 2 seconds before retrying
+            except Exception as e:
+                attempt += 1
+                log.error(f"Attempt {attempt} failed for {filepath}: due to an unexpected error: {e}", rank0_only=False)
+                if attempt >= self.max_attempt:
+                    raise  # Re-raise the exception after max attempt
+                time.sleep(2)  # Wait for 2 seconds before retrying
+
+        raise ConnectionError("Unable to head {} from. {} attempts tried.".format(filepath, attempt))
+
+    def get(self, filepath: str, offset: Optional[int] = None, size: Optional[int] = None) -> bytes:
+        raw_filepath = filepath
+        filepath = self._check_path(filepath)
+
+        read_offset: Optional[int] = None
+        read_size: Optional[int] = None
+        byte_range: Optional[str] = None
+        if offset is not None or size is not None:
+            read_offset = offset or 0
+            assert read_offset >= 0, "Read offset must be ≥ 0"
+
+            # Try not to incur a remote call to get the file size. This can heavily slow down ranged reads.
+            #
+            # This means we won't always validate the read offset or read size against the file size.
+            read_size = size or (self.size(filepath=raw_filepath) - read_offset)
+            assert read_size >= 1, "Read size must be ≥ 1 or read offset must be < file size"
+
+            byte_range = f"bytes={read_offset}-{read_offset + read_size - 1}"
+
+        if self._mc_kv_store and self._mc_kv_store.available:
+            if self._mc_kv_store.has(filepath):
+                chunk: bytes = self._mc_kv_store.get(filepath)
+                if read_offset is not None and read_size is not None:
+                    return chunk[read_offset : read_offset + read_size]
+                else:
+                    return chunk
 
         attempt = 0
         while attempt < self.max_attempt:
             try:
                 buffer = io.BytesIO()
-                self._client.download_fileobj(
-                    Bucket=filepath.split("/")[0],
-                    Key="/".join(filepath.split("/")[1:]),
-                    Fileobj=buffer,
-                )
+                if byte_range is None:
+                    self._client.download_fileobj(
+                        Bucket=filepath.split("/")[0],
+                        Key="/".join(filepath.split("/")[1:]),
+                        Fileobj=buffer,
+                    )
+                else:
+                    # The boto S3 Transfer Manager doesn't support ranged reads yet.
+                    #
+                    # https://github.com/boto/boto3/issues/1215
+                    # https://github.com/boto/s3transfer/issues/248
+                    resp = self._client.get_object(
+                        Bucket=filepath.split("/")[0],
+                        Key="/".join(filepath.split("/")[1:]),
+                        Range=byte_range,
+                    )
+                    buffer.write(resp["Body"].read())
                 buffer.seek(0)
-                if self._mc_kv_store and self._mc_kv_store.available:
-                    self._mc_kv_store.put(filepath, buffer.read())
+                # Only cache full reads.
+                if byte_range is None:
+                    if self._mc_kv_store and self._mc_kv_store.available:
+                        self._mc_kv_store.put(filepath, buffer.read())
+                        buffer.seek(0)
 
                 return buffer.read()
             except Exception as e:
@@ -312,29 +380,6 @@ class Boto3Client:
                 log.error(f"Got an exception: attempt={attempt} - {e} - {filepath}", rank0_only=False)
 
         raise ConnectionError("Unable to read {} from. {} attempts tried.".format(filepath, attempt))
-
-    def _get_file_size(self, bucket, key, max_retries=10):
-        retries = 0
-        while retries < max_retries:
-            try:
-                # Try to get the file size
-                file_size = self._client.head_object(Bucket=bucket, Key=key)["ContentLength"]
-                return file_size  # Return file size if successful
-            except ClientError as e:
-                retries += 1
-                log.error(f"Attempt {retries} failed for s3://{bucket}/{key}: {e}", rank0_only=False)
-                if retries >= max_retries:
-                    raise  # Re-raise the exception after max retries
-                time.sleep(2)  # Wait for 2 seconds before retrying
-            except Exception as e:
-                retries += 1
-                log.error(
-                    f"Attempt {retries} failed for s3://{bucket}/{key}: due to an unexpected error: {e}",
-                    rank0_only=False,
-                )
-                if retries >= max_retries:
-                    raise  # Re-raise the exception after max retries
-                time.sleep(2)  # Wait for 2 seconds before retrying
 
     def put(self, obj, filepath):
         filepath = self._check_path(filepath)
@@ -528,7 +573,7 @@ class Boto3Client:
             else:
                 break
 
-    def list(self, filepath: str, exclude_prefix: str = None) -> Generator[str, None, None]:
+    def list(self, filepath: str, exclude_prefix: Optional[str] = None) -> Generator[str, None, None]:
         """
         List all keys in an S3 bucket with a given prefix, excluding files that start with
         specified prefix.

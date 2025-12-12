@@ -159,16 +159,20 @@ class ModelKey:
 
 
 MODEL_CHECKPOINTS = {
-    ModelKey(variant=ModelVariant.DEPTH): get_checkpoint_by_uuid("0f214f66-ae98-43cf-ab25-d65d09a7e68f"),
-    ModelKey(variant=ModelVariant.EDGE): get_checkpoint_by_uuid("ecd0ba00-d598-4f94-aa09-e8627899c431"),
-    ModelKey(variant=ModelVariant.SEG): get_checkpoint_by_uuid("fcab44fe-6fe7-492e-b9c6-67ef8c1a52ab"),
-    ModelKey(variant=ModelVariant.VIS): get_checkpoint_by_uuid("20d9fd0b-af4c-4cca-ad0b-f9b45f0805f1"),
+    ModelKey(variant=ModelVariant.DEPTH): get_checkpoint_by_uuid("626e6618-bfcd-4d9a-a077-1409e2ce353f"),
+    ModelKey(variant=ModelVariant.EDGE): get_checkpoint_by_uuid("61f5694b-0ad5-4ecd-8ad7-c8545627d125"),
+    ModelKey(variant=ModelVariant.SEG): get_checkpoint_by_uuid("5136ef49-6d8d-42e8-8abf-7dac722a304a"),
+    ModelKey(variant=ModelVariant.VIS): get_checkpoint_by_uuid("ba2f44f2-c726-4fe7-949f-597069d9b91c"),
     ModelKey(variant=ModelVariant.AUTO_MULTIVIEW): get_checkpoint_by_uuid("4ecc66e9-df19-4aed-9802-0d11e057287a"),
 }
 
 MODEL_KEYS = {k.name: k for k in MODEL_CHECKPOINTS.keys()}
 
 BASE_MODEL_VARIANTS = [ModelVariant.EDGE, ModelVariant.DEPTH, ModelVariant.SEG, ModelVariant.VIS]
+
+# Base experiment that all singleview control types inherit from
+# This is the shared architecture/training config for all BASE_MODEL_VARIANTS
+DEFAULT_BASE_EXPERIMENT = "vid2vid_2B_control_720p_t24_control_layer4_cr1pt1_embedding_rectified_flow"
 
 
 # pyrefly: ignore  # invalid-annotation
@@ -438,14 +442,21 @@ CONTROL_KEYS = ["edge", "vis", "depth", "seg"]
 
 class InferenceArguments(CommonInferenceArguments):
     video_path: ResolvedFilePath
-    """Requied. Path to input video. {num_conditional_frames} random frames from this are used a style reference for the output.
-    Control videos and masks computed on-the-fly are based on this video .
+    """Required. Path to input video. Control videos and masks computed on-the-fly are based on this video.
     """
+    max_frames: pydantic.PositiveInt | None = None
+    """Number of frames to read from {video_path}. Must be less than or equal to the number of frames in {video_path}. 
+    Defaults is None, which means the entire {video_path}."""
+    context_frame_index: pydantic.PositiveInt | None = None
+    """Index of a frame in the input video to use as image context. If provided, this image is used as a style reference for the output."""
+    """Index of a frame in the input video to use as image context. If provided, this image is used as a style reference for the output."""
     image_context_path: ResolvedFilePath | None = None
-    """Path to an image file. If provided, this image is used as a style reference for the output instead of {video_path}"""
-    num_conditional_frames: Literal[0, 1, 2] = 1
-    """Number of input frames from {video_path} to condition generation on. 0 means we condition on prompt only"""
+    """Path to an image file. If provided, this image is used as a style reference for the output. Ignored if {context_frame_index} is provided.
+    If None and {context_frame_idx} is not provided, use a random frame from the input video."""
 
+    num_conditional_frames: Literal[0, 1, 2] = 1
+    """Used for chunk-wise long video generation. Number of frames from the previously-generated chunk to condition the next chunk on. 
+    Always 0 for the first chunk, and defaults to 1 for the following chunks."""
     resolution: str = "720"
     """Output video resolution (e.g., '720', '480')"""
     sigma_max: str | None = None

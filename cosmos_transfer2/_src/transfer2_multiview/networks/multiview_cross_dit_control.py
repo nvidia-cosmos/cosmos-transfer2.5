@@ -243,7 +243,9 @@ class MultiViewCrossControlDiT(MultiViewCrossDiT):
             reshard_after_forward = i < len(self.control_blocks) - 1
             fully_shard(block, mesh=mesh, reshard_after_forward=reshard_after_forward)
 
-    def enable_context_parallel(self, process_group: Optional[ProcessGroup] = None):
+    def enable_context_parallel(self, process_group: Optional[ProcessGroup] = None, cp_comm_type: str = ""):
+        # will not use cp_comm_type. for compatibility
+
         # pos_embedder
         for pos_embedder in self.pos_embedder_options.values():
             pos_embedder.enable_context_parallel(process_group=process_group)
