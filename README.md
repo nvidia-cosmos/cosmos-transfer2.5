@@ -11,6 +11,7 @@ NVIDIA Cosmos™ is a platform purpose-built for physical AI, featuring state-of
 Cosmos World Foundation Models come in three model types which can all be customized in post-training: [cosmos-predict](https://github.com/nvidia-cosmos/cosmos-predict2.5), [cosmos-transfer](https://github.com/nvidia-cosmos/cosmos-transfer2.5), and [cosmos-reason](https://github.com/nvidia-cosmos/cosmos-reason1).
 
 ## News
+* [December 12, 2025] Released updated checkpoints for [Cosmos-Transfer2.5-2B](https://huggingface.co/nvidia/Cosmos-Transfer2.5-2B) (blur, depth, segmentation, edge), fixed an issue with autoregressive multiview when num_conditional_frames == 0, optimized control video rendering, refreshed documentation, and added a new post-training example for [single-view](docs/post-training_singleview.md) edge/depth/seg/blur modalities.
 * [November 25, 2025] Added Blackwell + ARM inference support, Auto/Multiview code fixes, along with fixes for the help menu and CLI overrides, improved guardrail offloading, and LFS enablement for large assets.
 * [November 11, 2025] Refactored the Cosmos-Transfer2.5-2B Auto/Multiview code, and updated the Auto/Multiview checkpoints in Hugging Face.
 * [November 7, 2025] We added autoregressive sliding window generation mode for generating longer videos. We also added a new multiview cross-attention module, upgraded dependencies to improve support for Blackwell, and updated inference examples and documentation.
