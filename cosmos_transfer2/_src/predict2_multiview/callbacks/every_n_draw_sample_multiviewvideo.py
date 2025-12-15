@@ -364,7 +364,7 @@ class EveryNDrawSampleMultiviewVideo(EveryNDrawSample):
         if self.fix_batch is not None:
             data_batch = misc.to(self.fix_batch, **model.tensor_kwargs)
         tag = "ema" if self.is_ema else "reg"
-        raw_data, x0, condition = model.get_data_and_condition(data_batch)
+        raw_data, x0, condition = model.get_data_and_condition(data_batch)[:3]
         if self.use_negative_prompt:
             batch_size = x0.shape[0]
             data_batch["neg_t5_text_embeddings"] = misc.to(
