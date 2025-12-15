@@ -52,7 +52,7 @@ WORKDIR /workspace
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=bind,source=docker/nightly-requirements.txt,target=requirements.txt \
     --mount=type=bind,source=packages,target=packages \
-    pip install -r requirements.txt
+    pip install --no-deps -r requirements.txt
 
 ENTRYPOINT ["/workspace/docker/nightly-entrypoint.sh"]
 

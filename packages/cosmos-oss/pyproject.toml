@@ -126,6 +126,7 @@ cu128_torch27 = [
 # Match nvcr.io/nvidia/pytorch:25.10-py3
 cu130_torch29 = [
   "cosmos-cuda", # Sentinel package
+  "decord",
   "flash-attn==2.7.4.post1",
   "natten==0.21.0",
   "transformer-engine==2.8.0",
