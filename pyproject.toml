@@ -52,6 +52,7 @@ dependencies = [
 gradio = ["cosmos-oss[gradio]"]
 cu128 = ["cosmos-oss[cu128_torch27]"]
 cu130 = ["cosmos-oss[cu130_torch29]"]
+local = ["cosmos-oss[local]"]
 
 [dependency-groups]
 dev = ["cosmos-oss[dev,gradio]"]
