@@ -70,6 +70,8 @@ CUDA Variants:
 * `--extra=cu128`: CUDA 12.8
 * `--extra=cu130`: CUDA 13.0
 
+> CUDA 13.0 is EXPERIMENTAL and has a known OOM issue on H100. We recommend using the nightly Docker container for Blackwell support.
+
 ### Docker container
 
 Please make sure you have access to Docker on your machine and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) is installed.
