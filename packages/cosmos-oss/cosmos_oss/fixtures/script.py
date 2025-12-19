@@ -48,8 +48,16 @@ class ScriptRunner:
 
     @property
     def output_dir(self) -> Path:
-        relative_path = self.tmp_path.relative_to(self.tmp_path_factory.getbasetemp())
-        return (Path("outputs/pytest") / relative_path).resolve()
+        test_name = self.request.node.name
+
+        if "[" in test_name and "]" in test_name:
+            base_part, param_part = test_name.split("[", 1)
+            param_part = param_part.rstrip("]").replace("/", "_").replace("-", "_")
+            sanitized_name = f"{base_part}_{param_part}"
+        else:
+            sanitized_name = test_name.replace("/", "_").replace("-", "_")
+
+        return (Path("outputs/pytest") / sanitized_name).resolve()
 
     def get_env(
         self,

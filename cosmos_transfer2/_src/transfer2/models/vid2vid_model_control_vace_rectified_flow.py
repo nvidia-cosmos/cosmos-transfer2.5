@@ -30,6 +30,7 @@ from cosmos_transfer2._src.imaginaire.checkpointer.s3_filesystem import S3Storag
 from cosmos_transfer2._src.imaginaire.flags import INTERNAL
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyDict
 from cosmos_transfer2._src.imaginaire.utils import log
+from cosmos_transfer2._src.imaginaire.utils.distributed import get_rank, get_world_size
 from cosmos_transfer2._src.imaginaire.utils.easy_io import easy_io
 from cosmos_transfer2._src.predict2.checkpointer.dcp import ModelWrapper
 from cosmos_transfer2._src.predict2.conditioner import DataType
@@ -281,10 +282,41 @@ class ControlVideo2WorldModelRectifiedFlow(Video2WorldModelRectifiedFlow):
                 "parallel_state is not initialized, context parallel should be turned off."
             )
 
+        world_size = get_world_size()
+        rank = get_rank()
+
         def velocity_fn(noise: torch.Tensor, noise_x: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
             noise_x = noise_x.to(**self.tensor_kwargs)
-            cond_v = self.denoise(noise, noise_x, timestep, condition)
-            uncond_v = self.denoise(noise, noise_x, timestep, uncondition)
+            """
+            Use CFG parallel with 2 independent CP groups, each performing one denoising step.
+            It allows for better scaling, as we get an additional 2x scaling increase. For example if standard
+            inference of Cosmos-Transfer2 model hits a scaling wall at 32 GPUs with 8.4s inference time and using 64 GPUs
+            provides no additional benefit, we can enable CFG-parallelism to scale the model to 64 GPUs with 4.2s inference time.
+            """
+            if getattr(self.net, "cfg_parallel", False):
+                second_cp_start_rank = world_size // 2
+
+                if rank < second_cp_start_rank:
+                    cond_v = self.denoise(noise, noise_x, timestep, condition)
+                else:
+                    uncond_v = self.denoise(noise, noise_x, timestep, uncondition)
+
+                rec_tensor = torch.empty_like(cond_v if rank < second_cp_start_rank else uncond_v)
+                if rank < second_cp_start_rank:
+                    torch.distributed.isend(cond_v, dst=second_cp_start_rank + rank)
+                    res = torch.distributed.irecv(rec_tensor, src=second_cp_start_rank + rank)
+                    res.wait()
+                    uncond_v = rec_tensor
+
+                else:
+                    torch.distributed.irecv(rec_tensor, src=rank - second_cp_start_rank)
+                    res = torch.distributed.isend(uncond_v, dst=rank - second_cp_start_rank)
+                    res.wait()
+                    cond_v = rec_tensor
+            else:
+                # Standard path without CFG parallelism
+                cond_v = self.denoise(noise, noise_x, timestep, condition)
+                uncond_v = self.denoise(noise, noise_x, timestep, uncondition)
             velocity_pred = cond_v + guidance * (cond_v - uncond_v)
             return velocity_pred
 

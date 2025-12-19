@@ -16,6 +16,7 @@
 import math
 from typing import Any, List, Literal, Optional, Tuple, Union
 
+import megatron.core.parallel_state as parallel_state
 import torch
 import torch.amp as amp
 import torch.nn as nn
@@ -24,6 +25,7 @@ from einops import rearrange
 from torch.distributed import ProcessGroup, get_process_group_ranks
 from torchvision import transforms
 
+from cosmos_transfer2._src.imaginaire.utils.graph import create_cuda_graph
 from cosmos_transfer2._src.predict2.conditioner import DataType
 from cosmos_transfer2._src.predict2.networks.minimal_v4_dit import (
     Attention,
@@ -542,6 +544,7 @@ class MinimalV4LVGControlVaceDiT(MiniTrainDITImageContext):
         separate_embedders: bool = False,
         use_after_proj_for_multi_branch: bool = True,
         timestep_scale: float = 1.0,  # Add timestep scaling for rectified flow
+        use_cuda_graphs: bool = False,
         **kwargs,
     ):
         """
@@ -550,6 +553,7 @@ class MinimalV4LVGControlVaceDiT(MiniTrainDITImageContext):
         condition_strategy: How the control blocks correspond to the base model blocks. "first_n" conditions first n base model blocks.
             "spaced" conditions every vace_block_every_n base model block. E.g. vace_block_every_n=2, condition_strategy="spaced" means control block 0
             controls base block 0 and 2, control block 1 controls base block 2, etc.
+        use_cuda_graphs (bool, optional): Whether to use CUDA Graphs for inference. Defaults to False.
         """
 
         assert "in_channels" in kwargs, "in_channels must be provided"
@@ -560,6 +564,10 @@ class MinimalV4LVGControlVaceDiT(MiniTrainDITImageContext):
         self.num_control_branches = num_control_branches
         self.use_after_proj_for_multi_branch = use_after_proj_for_multi_branch
         self.timestep_scale = timestep_scale  # Store timestep scale for rectified flow
+        self.use_cuda_graphs = use_cuda_graphs
+        self.cuda_graphs = {}
+        self.controlnet_cuda_graphs = {}
+        self.cfg_parallel = False
         super().__init__(
             *args,
             crossattn_emb_channels=crossattn_emb_channels,
@@ -655,6 +663,7 @@ class MinimalV4LVGControlVaceDiT(MiniTrainDITImageContext):
                                 hint_dim=hint_nf[-1] if use_input_hint_block else None,
                                 use_after_proj=not use_after_proj_for_multi_branch,
                                 use_wan_fp32_strategy=self.use_wan_fp32_strategy,
+                                use_cuda_graphs=self.use_cuda_graphs,
                             )
                             for i in self.control_layers
                         ]
@@ -682,6 +691,7 @@ class MinimalV4LVGControlVaceDiT(MiniTrainDITImageContext):
                         block_id=i,
                         hint_dim=hint_nf[-1] if use_input_hint_block else None,
                         use_wan_fp32_strategy=self.use_wan_fp32_strategy,
+                        use_cuda_graphs=self.use_cuda_graphs,
                     )
                     for i in self.control_layers
                 ]
@@ -818,7 +828,7 @@ class MinimalV4LVGControlVaceDiT(MiniTrainDITImageContext):
     def disable_context_parallel(self):
         # pos_embedder
         self.pos_embedder.disable_context_parallel()
-
+        self.cfg_parallel = False
         if self.extra_per_block_abs_pos_emb:
             self.extra_pos_embedder.disable_context_parallel()
 
@@ -847,34 +857,49 @@ class MinimalV4LVGControlVaceDiT(MiniTrainDITImageContext):
 
         self._is_context_parallel_enabled = False
 
-    def enable_context_parallel(self, process_group: Optional[ProcessGroup] = None):
+    def enable_context_parallel(
+        self, process_group: Optional[ProcessGroup] = None, cfg_parallel: bool = False, cp_comm_type="p2p"
+    ):
         # pos_embedder: shared between base and control branch
+        if (
+            not self.cfg_parallel
+        ):  # If cfg_parallel is enabled, we don't overwrite it. disable_context_parallel should be used first instead.
+            self.cfg_parallel = cfg_parallel
+        if self._is_context_parallel_enabled:
+            return
         self.pos_embedder.enable_context_parallel(process_group=process_group)
         if self.extra_per_block_abs_pos_emb:
             self.extra_pos_embedder.enable_context_parallel(process_group=process_group)
 
         # attention
         cp_ranks = get_process_group_ranks(process_group)
+        if cp_comm_type == "a2a+p2p":
+            cp_group = parallel_state.get_hierarchical_context_parallel_groups()
+        else:
+            cp_group = process_group
         for block in self.blocks:
             block.self_attn.set_context_parallel_group(
-                process_group=process_group,
+                process_group=cp_group,
                 ranks=cp_ranks,
                 stream=torch.cuda.Stream(),
+                cp_comm_type=cp_comm_type,
             )
         if self.num_control_branches > 1:
             for nc in range(self.num_control_branches):
                 for block in getattr(self, f"control_blocks_{nc}"):
                     block.self_attn.set_context_parallel_group(
-                        process_group=process_group,
+                        process_group=cp_group,
                         ranks=cp_ranks,
                         stream=torch.cuda.Stream(),
+                        cp_comm_type=cp_comm_type,
                     )
         else:
             for block in self.control_blocks:
                 block.self_attn.set_context_parallel_group(
-                    process_group=process_group,
+                    process_group=cp_group,
                     ranks=cp_ranks,
                     stream=torch.cuda.Stream(),
+                    cp_comm_type=cp_comm_type,
                 )
 
         self._is_context_parallel_enabled = True
@@ -894,6 +919,7 @@ class MinimalV4LVGControlVaceDiT(MiniTrainDITImageContext):
         **kwargs,
     ) -> torch.Tensor | List[torch.Tensor] | Tuple[torch.Tensor, List[torch.Tensor]]:
         del kwargs
+        assert not (self.training and self.use_cuda_graphs), "CUDA Graphs are supported only for inference"
         # control branch forward
         # Get the original shape
         B, C, T, H, W = x_B_C_T_H_W.shape
@@ -1061,29 +1087,65 @@ class MinimalV4LVGControlVaceDiT(MiniTrainDITImageContext):
                 hints = torch.unbind(control_B_T_H_W_D_sum)[:-1]  # list of layerwise control modulations
                 control_context_scale = 1.0  # already scaled hints by control_context_scale
         else:
-            for block in self.control_blocks:
-                control_B_T_H_W_D = block(
-                    c=control_B_T_H_W_D,
-                    x_B_T_H_W_D=x_B_T_H_W_D_for_control,
-                    emb_B_T_D=t_embedding_B_T_D_for_control,
-                    crossattn_emb=context_input,
-                    rope_emb_L_1_1_D=rope_emb_L_1_1_D_for_control,
-                    adaln_lora_B_T_3D=adaln_lora_B_T_3D_for_control,
-                    extra_per_block_pos_emb=extra_pos_emb_B_T_H_W_D_or_T_H_W_B_D_for_control,
+            control_block_kwargs = {
+                "emb_B_T_D": t_embedding_B_T_D_for_control,
+                "crossattn_emb": context_input,
+                "rope_emb_L_1_1_D": rope_emb_L_1_1_D_for_control,
+                "adaln_lora_B_T_3D": adaln_lora_B_T_3D_for_control,
+                "extra_per_block_pos_emb": extra_pos_emb_B_T_H_W_D_or_T_H_W_B_D_for_control,
+            }
+            if self.use_cuda_graphs:
+                shapes_key = create_cuda_graph(
+                    self.controlnet_cuda_graphs,
+                    self.control_blocks,
+                    [control_B_T_H_W_D, x_B_T_H_W_D_for_control],
+                    control_block_kwargs,
                 )
+                cg_control_blocks = self.controlnet_cuda_graphs[shapes_key]
+            else:
+                cg_control_blocks = self.control_blocks
+            for i, block in enumerate(self.control_blocks):
+                if self.use_cuda_graphs:
+                    control_B_T_H_W_D, all_c = block.pre_forward(control_B_T_H_W_D, x_B_T_H_W_D)
+                control_B_T_H_W_D = cg_control_blocks[i](
+                    control_B_T_H_W_D,
+                    x_B_T_H_W_D_for_control,
+                    **control_block_kwargs,
+                )
+                if self.use_cuda_graphs:
+                    control_B_T_H_W_D = block.post_forward(control_B_T_H_W_D, all_c)
             hints = torch.unbind(control_B_T_H_W_D)[:-1]  # list of layerwise control modulations
             control_context_scale = control_context_scale[0]
 
-        for block in self.blocks:
+        if isinstance(control_context_scale, float):
+            control_context_scale = torch.tensor(
+                control_context_scale, device=x_B_C_T_H_W.device, dtype=x_B_C_T_H_W.dtype
+            )
+        block_kwargs = {
+            "emb_B_T_D": t_embedding_B_T_D,
+            "crossattn_emb": context_input,
+            "rope_emb_L_1_1_D": rope_emb_L_1_1_D,
+            "adaln_lora_B_T_3D": adaln_lora_B_T_3D,
+            "extra_per_block_pos_emb": extra_pos_emb_B_T_H_W_D_or_T_H_W_B_D,
+            "control_context_scale": control_context_scale,
+        }
+        if self.use_cuda_graphs:
+            hints = torch.stack(hints)
+            shapes_key = create_cuda_graph(
+                self.cuda_graphs,
+                self.blocks,
+                [x_B_T_H_W_D, hints],
+                block_kwargs,
+            )
+            cg_blocks = self.cuda_graphs[shapes_key]
+        else:
+            cg_blocks = self.blocks
+
+        for block in cg_blocks:
             x_B_T_H_W_D = block(
-                x_B_T_H_W_D=x_B_T_H_W_D,
-                hints=hints,
-                control_context_scale=control_context_scale,
-                emb_B_T_D=t_embedding_B_T_D,
-                crossattn_emb=context_input,
-                rope_emb_L_1_1_D=rope_emb_L_1_1_D,
-                adaln_lora_B_T_3D=adaln_lora_B_T_3D,
-                extra_per_block_pos_emb=extra_pos_emb_B_T_H_W_D_or_T_H_W_B_D,
+                x_B_T_H_W_D,
+                hints,
+                **block_kwargs,
             )
 
         x_B_T_H_W_O = self.final_layer(x_B_T_H_W_D, t_embedding_B_T_D, adaln_lora_B_T_3D=adaln_lora_B_T_3D)

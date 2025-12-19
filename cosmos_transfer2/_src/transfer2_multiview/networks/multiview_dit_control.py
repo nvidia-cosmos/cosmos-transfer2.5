@@ -388,6 +388,9 @@ class MultiViewControlDiT(MinimalV4LVGControlVaceDiT):
             fully_shard(self.img_context_proj, mesh=mesh, reshard_after_forward=False)
 
     def enable_context_parallel(self, process_group: Optional[ProcessGroup] = None, cp_comm_type: str = "p2p"):
+        if self._is_context_parallel_enabled:
+            return
+        log.info(f"Enable context parallel for MultiViewControlDiT for cp_comm_type: {cp_comm_type}")
         # pos_embedder
         for pos_embedder in self.pos_embedder_options.values():
             pos_embedder.enable_context_parallel(process_group=process_group)
@@ -397,16 +400,20 @@ class MultiViewControlDiT(MinimalV4LVGControlVaceDiT):
 
         # attention
         cp_ranks = get_process_group_ranks(process_group)
+        if cp_comm_type == "a2a+p2p":
+            cp_group = parallel_state.get_hierarchical_context_parallel_groups()
+        else:
+            cp_group = process_group
         for block in self.blocks:
             block.set_context_parallel_group(
-                process_group=process_group,
+                process_group=cp_group,
                 ranks=cp_ranks,
                 stream=torch.cuda.Stream(),
                 cp_comm_type=cp_comm_type,
             )
         for block in self.control_blocks:
             block.self_attn.set_context_parallel_group(
-                process_group=process_group, ranks=cp_ranks, stream=torch.cuda.Stream(), cp_comm_type=cp_comm_type
+                process_group=cp_group, ranks=cp_ranks, stream=torch.cuda.Stream(), cp_comm_type=cp_comm_type
             )
 
         self._is_context_parallel_enabled = True

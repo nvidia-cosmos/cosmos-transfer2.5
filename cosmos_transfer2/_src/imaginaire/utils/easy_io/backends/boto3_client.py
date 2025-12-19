@@ -261,6 +261,16 @@ def download_parts_to_s3(args: tuple[range, int, str, str, dict[str, Any], str])
 
 
 class Boto3Client:
+    """
+    This class:
+
+    - Provides higher-level S3 operations.
+    - Serves as a wrapper around boto3.client in order to make boto3.client serializable.
+        - It's required to use spawn method of creating DataLoader workers,
+          which is in turn required to avoid segfaults when using Triton,
+          e.g. for torch.compile or custom kernels.
+    """
+
     def __init__(
         self,
         s3_credential_path: str,
@@ -273,19 +283,32 @@ class Boto3Client:
             "dev",
             "stg",
         ], f"Credential file not found: {s3_credential_path}"
-        with auto.open_auth(s3_credential_path, "r") as f:
-            conf = auto.json_load_auth(f)
 
-        s3_config = S3Config(
+        # Keep track of S3 client constructor parameters so it can be recreated when pickling.
+        with auto.open_auth(s3_credential_path, "r") as f:
+            self._s3_cred_info = auto.json_load_auth(f)
+        self._s3_config = S3Config(
             signature_version="s3v4",
             s3={"addressing_style": "virtual"},
             response_checksum_validation="when_required",
             request_checksum_calculation="when_required",
         )
-
-        self._client = boto3.client("s3", **conf, config=s3_config)
-        self._s3_cred_info = conf
+        self._init_client()
         self._mc_kv_store = None
+
+    def _init_client(self):
+        """Initialize the S3 client."""
+        self._client = boto3.client("s3", **self._s3_cred_info, config=self._s3_config)
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # S3 client isn't pickleable.
+        del state["_client"]
+        return state
+
+    def __setstate__(self, state: dict[str, Any]):
+        self.__dict__.update(state)
+        self._init_client()
 
     def size(self, filepath: str) -> int:
         filepath = self._check_path(filepath)

@@ -449,7 +449,6 @@ class InferenceArguments(CommonInferenceArguments):
     Defaults is None, which means the entire {video_path}."""
     context_frame_index: pydantic.PositiveInt | None = None
     """Index of a frame in the input video to use as image context. If provided, this image is used as a style reference for the output."""
-    """Index of a frame in the input video to use as image context. If provided, this image is used as a style reference for the output."""
     image_context_path: ResolvedFilePath | None = None
     """Path to an image file. If provided, this image is used as a style reference for the output. Ignored if {context_frame_index} is provided.
     If None and {context_frame_idx} is not provided, use a random frame from the input video."""
@@ -494,6 +493,11 @@ class InferenceArguments(CommonInferenceArguments):
     def model_post_init(self, __context) -> None:
         if len(self.hint_keys) == 0:
             raise ValueError("No controls provided, please provide at least one control key (edge, blur, depth, seg)")
+
+        if "vis" in self.hint_keys and self.image_context_path:
+            raise ValueError(
+                "vis control and image_context_path are both used to transfer style. Using these modes together leads to conflicts. Please only provide one"
+            )
 
     @cached_property
     def control_weight_dict(self) -> str:

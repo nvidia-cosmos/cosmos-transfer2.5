@@ -94,7 +94,7 @@ class MultiViewControlVideo2WorldCondition(
             cp_size = len(cp_ranks)
             # Perform spatial split only when it's required, i.e. temporal split is not enough.
             # Refer to "find_split" definition for more details.
-            use_spatial_split = cp_size > self.state_t
+            use_spatial_split = cp_size > self.state_t or self.state_t % cp_size != 0
             after_split_shape = (
                 find_split(gt_frames_B_C_T_H_W.shape, cp_size, view_factor=n_views) if use_spatial_split else None
             )

@@ -65,6 +65,9 @@ class ControlVideo2WorldInference:
         wan_cp_grid: tuple[int, int] = (-1, -1),
         benchmark_timer: Optional[misc.TrainingTimer] = None,
         cache_text_encoder: bool = True,
+        use_cuda_graphs: bool = False,
+        cfg_parallel: bool = False,
+        hierarchical_cp: bool = False,
     ):
         """
         Initializes the ControlVideo2WorldInference class.
@@ -82,6 +85,9 @@ class ControlVideo2WorldInference:
             skip_load_model (bool): Whether to skip loading model from checkpoint for multi-control models.
             use_cp_wan (bool, optional): Whether to use parallel tokenizer. Defaults to False.
             wan_cp_grid (tuple[int, int], optional): The grid for parallel tokenizer. Used only when use_cp_wan is True. Defaults to (1, cp_size).
+            use_cuda_graphs (bool, optional): Whether to use CUDA Graphs for inference. Defaults to False.
+            cfg_parallel (bool, optional): Whether to parallelize Classifier Free Guidance.
+            hierarchical_cp (bool, optional): Whether to use hierarchical CP algorithm.
         """
         self.registered_exp_name = registered_exp_name
         self.checkpoint_path = checkpoint_paths if isinstance(checkpoint_paths, str) else checkpoint_paths[0]
@@ -92,8 +98,12 @@ class ControlVideo2WorldInference:
             exp_override_opts = []
         # no need to load base model separately at inference
         exp_override_opts.append("model.config.base_load_from=null")
+        if use_cuda_graphs:
+            exp_override_opts.append("model.config.net.use_cuda_graphs=True")
         if not INTERNAL:
             exp_override_opts.append("~data_train")
+        if hierarchical_cp:
+            exp_override_opts.append("model.config.net.atten_backend='transformer_engine'")
         # Load the model and config. Each trained model's config is composed by
         # loading a pre-registered experiment config, and then (optionally) overriding with some command-line
         # arguments. That is done in experiment_list.py. Here we simply replicate that process.
@@ -143,8 +153,9 @@ class ControlVideo2WorldInference:
         self.text_encoder_class = model.text_encoder_class
 
         if process_group is not None:
-            log.info("Enabling CP in base model\n")
-            model.net.enable_context_parallel(process_group)
+            cp_comm_type = "a2a+p2p" if hierarchical_cp else "p2p"
+            log.info(f"Enabling CP in base model with {cp_comm_type}\n")
+            model.net.enable_context_parallel(process_group, cfg_parallel=cfg_parallel, cp_comm_type=cp_comm_type)
 
             cp_size = process_group.size()
 
@@ -387,6 +398,7 @@ class ControlVideo2WorldInference:
             prev_output = torch.zeros_like(input_frames[:, :num_video_frames_per_chunk]).to(torch.uint8).cuda()[None]
 
         # --------Start of chunk-wise long video generation--------
+        self.model.eval()
         for chunk_id in range(num_chunks):
             log.info(f"Generating chunk {chunk_id + 1}/{num_chunks}")
             with _maybe_get_timer(self.benchmark_timer, "generate_chunk"):
@@ -476,7 +488,7 @@ class ControlVideo2WorldInference:
                         sigma_max=sigma_max,
                         num_steps=num_steps,
                     )
-                video = self.model.decode(sample).cpu()  # Shape: (1, C, T, H, W)
+                video = self.model.decode(sample)  # Shape: (1, C, T, H, W)
 
                 # For visualization: concatenate condition and input videos with generated video
                 video_cat = video
@@ -493,22 +505,22 @@ class ControlVideo2WorldInference:
 
                     # Store control input for this chunk
                     if chunk_id == 0:
-                        all_control_chunks[key].append(control_input.cpu())
+                        all_control_chunks[key].append(control_input)
                     else:
                         # For subsequent chunks, only append the non-overlapping frames
-                        all_control_chunks[key].append(control_input[:, :, num_conditional_frames:, :, :].cpu())
+                        all_control_chunks[key].append(control_input[:, :, num_conditional_frames:, :, :])
 
                     if show_control_condition:
-                        conditions += [control_input.cpu()]
+                        conditions += [control_input]
 
                 if show_control_condition:
                     video_cat = torch.cat([*conditions, video_cat], dim=-1)
 
                 if chunk_id == 0:
-                    all_chunks.append(video_cat.cpu())
+                    all_chunks.append(video_cat)
                 else:
                     # For subsequent chunks, only append the non-overlapping frames
-                    all_chunks.append(video_cat[:, :, num_conditional_frames:, :, :].cpu())
+                    all_chunks.append(video_cat[:, :, num_conditional_frames:, :, :])
 
                 # For next chunk, use last conditional_frames as input
                 if chunk_id < num_chunks - 1:  # Don't need to prepare next input for last chunk
@@ -539,6 +551,7 @@ class ControlVideo2WorldInference:
             # Keep only the original number of frames
             full_video = full_video[:, :, :num_total_frames, :, :]
 
+            full_video = full_video.cpu()
             # Concatenate all control chunks and trim to original frames
             for key in hint_key:
                 if all_control_chunks[key]:

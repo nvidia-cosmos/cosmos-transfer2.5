@@ -1013,7 +1013,7 @@ def compile_tokenizer_if_enabled(pipeline: Any, compilation_mode: str) -> None:
     """
     compile_tokenizer = compilation_mode != "none"
 
-    if not compile_tokenizer or compilation_mode not in ["moderate", "aggressive", "none"]:
+    if not compile_tokenizer or compilation_mode not in ["moderate", "aggressive", "aggressive_cuda_graphs", "none"]:
         log.info("Tokenizer compilation disabled")
         return
 
@@ -1046,8 +1046,13 @@ def compile_tokenizer_if_enabled(pipeline: Any, compilation_mode: str) -> None:
             log.info(f"Compiling tokenizer {method_name} method")
             return torch.compile(method, dynamic=False, **kwargs)
 
-    if compilation_mode in ["moderate", "aggressive"]:
-        pipeline.model.tokenizer.encode = compile_method(pipeline.model.tokenizer.encode, "encode")
+    torch_compile_mode = "default" if compilation_mode != "aggressive_cuda_graphs" else "reduce-overhead"
+    if compilation_mode != "none":
+        pipeline.model.tokenizer.encode = compile_method(
+            pipeline.model.tokenizer.encode, "encode", mode=torch_compile_mode
+        )
         log.info("Tokenizer compilation active. Expect some overhead on the first use.")
-    if compilation_mode == "aggressive":
-        pipeline.model.tokenizer.decode = compile_method(pipeline.model.tokenizer.decode, "decode")
+    if compilation_mode in ["aggressive", "aggressive_cuda_graphs"]:
+        pipeline.model.tokenizer.decode = compile_method(
+            pipeline.model.tokenizer.decode, "decode", mode=torch_compile_mode
+        )

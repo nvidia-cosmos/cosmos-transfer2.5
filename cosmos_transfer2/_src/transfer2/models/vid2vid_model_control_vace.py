@@ -29,6 +29,7 @@ from torch.distributed.checkpoint.default_planner import DefaultLoadPlanner
 from cosmos_transfer2._src.imaginaire.checkpointer.s3_filesystem import S3StorageReader
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyDict
 from cosmos_transfer2._src.imaginaire.utils import log
+from cosmos_transfer2._src.imaginaire.utils.distributed import get_rank, get_world_size
 from cosmos_transfer2._src.predict2.checkpointer.dcp import ModelWrapper
 from cosmos_transfer2._src.predict2.conditioner import DataType
 from cosmos_transfer2._src.predict2.models.video2world_model import (
@@ -282,10 +283,42 @@ class ControlVideo2WorldModel(Video2WorldModel):
                 "parallel_state is not initialized, context parallel should be turned off."
             )
 
+        world_size = get_world_size()
+        rank = get_rank()
+
         def x0_fn(noise_x: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
             noise_x = noise_x.to(**self.tensor_kwargs)
-            cond_x0 = self.denoise(noise_x, sigma, condition).x0
-            uncond_x0 = self.denoise(noise_x, sigma, uncondition).x0
+            """
+            Use CFG parallel with 2 independent CP groups, each performing one denoising step.
+            It allows for better scaling, as we get an additional 2x scaling increase. For example if standard
+            inference of Cosmos-Transfer2 model hits a scaling wall at 32 GPUs with 8.4s inference time and using 64 GPUs
+            provides no additional benefit, we can enable CFG-parallelism to scale the model to 64 GPUs with 4.2s inference time.
+            """
+            if getattr(self.net, "cfg_parallel", False):
+                second_cp_start_rank = world_size // 2
+
+                if rank < second_cp_start_rank:
+                    cond_x0 = self.denoise(noise_x, sigma, condition).x0
+                else:
+                    uncond_x0 = self.denoise(noise_x, sigma, uncondition).x0
+
+                rec_tensor = torch.empty_like(cond_x0 if rank < second_cp_start_rank else uncond_x0)
+                if rank < second_cp_start_rank:
+                    torch.distributed.isend(cond_x0, dst=second_cp_start_rank + rank)
+                    res = torch.distributed.irecv(rec_tensor, src=second_cp_start_rank + rank)
+                    res.wait()
+                    uncond_x0 = rec_tensor
+
+                else:
+                    torch.distributed.irecv(rec_tensor, src=rank - second_cp_start_rank)
+                    res = torch.distributed.isend(uncond_x0, dst=rank - second_cp_start_rank)
+                    res.wait()
+                    cond_x0 = rec_tensor
+            else:
+                # Standard path without CFG parallelism
+                cond_x0 = self.denoise(noise_x, sigma, condition).x0
+                uncond_x0 = self.denoise(noise_x, sigma, uncondition).x0
+
             raw_x0 = cond_x0 + guidance * (cond_x0 - uncond_x0)
             if "guided_image" in data_batch:
                 # replacement trick that enables inpainting with base model

@@ -21,12 +21,14 @@ from typing import Any, Dict, Optional, Tuple
 
 import omegaconf
 import torch
+from einops import rearrange
 from hydra.core.config_store import ConfigStore
+from torch.distributed import get_process_group_ranks
 
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyDict
 from cosmos_transfer2._src.imaginaire.utils import log
-from cosmos_transfer2._src.imaginaire.utils.context_parallel import broadcast_split_tensor
+from cosmos_transfer2._src.imaginaire.utils.context_parallel import broadcast_split_tensor, find_split
 from cosmos_transfer2._src.predict2.conditioner import BooleanFlag, GeneralConditioner, ReMapkey, TextAttr
 from cosmos_transfer2._src.predict2.configs.video2world.defaults.conditioner import (
     Video2WorldCondition,
@@ -69,12 +71,25 @@ class ControlVideo2WorldCondition(Video2WorldCondition):
         # Handle control tensor broadcasting
         latent_control_input = self.latent_control_input
         if latent_control_input is not None and process_group is not None:
+            cp_ranks = get_process_group_ranks(process_group)
+            cp_size = len(cp_ranks)
+            use_spatial_split = cp_size > latent_control_input.shape[2] or latent_control_input.shape[2] % cp_size != 0
+            after_split_shape = find_split(latent_control_input.shape, cp_size) if use_spatial_split else None
             if latent_control_input.dim() == 5:  # B, C, T, H, W
                 _, _, T, _, _ = latent_control_input.shape
                 if T > 1 and process_group.size() > 1:
+                    if use_spatial_split:
+                        latent_control_input = rearrange(latent_control_input, "b c t h w -> b c (t h w)")
                     latent_control_input = broadcast_split_tensor(
                         latent_control_input, seq_dim=2, process_group=process_group
                     )
+                    if use_spatial_split:
+                        latent_control_input = rearrange(
+                            latent_control_input,
+                            "b c (t h w) -> b c t h w",
+                            t=after_split_shape[0],
+                            h=after_split_shape[1],
+                        )
         control_context_scale = self.control_context_scale
         if isinstance(control_context_scale, torch.Tensor) and process_group is not None:
             if control_context_scale.dim() >= 5:  # B, T, H, W, D or N, B, T, H, W, D
