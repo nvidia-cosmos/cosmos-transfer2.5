@@ -11,6 +11,7 @@ NVIDIA Cosmos™ is a platform purpose-built for physical AI, featuring state-of
 Cosmos World Foundation Models come in three model types which can all be customized in post-training: [cosmos-predict](https://github.com/nvidia-cosmos/cosmos-predict2.5), [cosmos-transfer](https://github.com/nvidia-cosmos/cosmos-transfer2.5), and [cosmos-reason](https://github.com/nvidia-cosmos/cosmos-reason1).
 
 ## News
+* [December 19, 2025] Released Image2Image and ImagePrompt capabilities. See the inference guide [here](docs/inference_image.md).
 * [December 12, 2025] Released updated checkpoints for [Cosmos-Transfer2.5-2B](https://huggingface.co/nvidia/Cosmos-Transfer2.5-2B) (blur, depth, segmentation, edge), fixed an issue with autoregressive multiview when num_conditional_frames == 0, optimized control video rendering, refreshed documentation, and added a new post-training example for [single-view](docs/post-training_singleview.md) edge/depth/seg/blur modalities.
 * [November 25, 2025] Added Blackwell + ARM inference support, Auto/Multiview code fixes, along with fixes for the help menu and CLI overrides, improved guardrail offloading, and LFS enablement for large assets.
 * [November 11, 2025] Refactored the Cosmos-Transfer2.5-2B Auto/Multiview code, and updated the Auto/Multiview checkpoints in Hugging Face.
@@ -114,6 +115,7 @@ Cosmos-Transfer supports data generation in multiple industry verticals, outline
 * [Setup Guide](docs/setup.md)
 * [Inference](docs/inference.md)
   * [Auto Multiview](docs/inference_auto_multiview.md)
+  * [Image Inference](docs/inference_image.md)
 * [Post-training](docs/post-training.md)
   * [Single View](docs/post-training_singleview.md)
   * [Auto Multiview](docs/post-training_auto_multiview.md)
