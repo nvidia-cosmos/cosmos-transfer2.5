@@ -278,6 +278,7 @@ class MultiviewInference:
                 )
             else:
                 log.info(f"------ Generating video ------")
+                batch["num_conditional_frames"] = num_conditional_frames
                 video = self.pipe.generate_from_batch(
                     batch,
                     guidance=sample.guidance,
