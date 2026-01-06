@@ -214,7 +214,7 @@ class ControlVideo2WorldInference:
         if self.model.config.text_encoder_config is not None and self.model.config.text_encoder_config.compute_online:
             self.model.inplace_compute_text_embeddings_online(data_batch)
 
-        raw_data, x0, condition = self.model.get_data_and_condition(data_batch)
+        raw_data, x0, condition = self.model.get_data_and_condition(data_batch)[:3]
 
         self.model.eval()
         sample = self.model.generate_samples_from_batch(
