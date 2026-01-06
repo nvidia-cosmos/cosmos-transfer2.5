@@ -185,9 +185,7 @@ class MultiviewInference:
 
         # Calculate number of video frames to load
         assert self.pipe.config.model.config.state_t >= 1
-        chunk_size = (
-            1 + (self.pipe.config.model.config.state_t - 1) * 4
-        )  # tokenizer downsamples by 4x in temporal dimension
+        chunk_size = self.pipe.model.tokenizer.get_pixel_num_frames(self.pipe.config.model.config.state_t)
         num_video_frames_per_view = chunk_size
         if sample.enable_autoregressive:
             num_video_frames_per_view += (num_video_frames_per_view - sample.chunk_overlap) * (sample.num_chunks - 1)
@@ -278,6 +276,16 @@ class MultiviewInference:
                 )
             else:
                 log.info(f"------ Generating video ------")
+                if isinstance(num_conditional_frames, list):
+                    num_conditional_latent_frames = [
+                        self.pipe.model.tokenizer.get_latent_num_frames(pixel_frames)
+                        for pixel_frames in num_conditional_frames
+                    ]
+                else:
+                    num_conditional_latent_frames = self.pipe.model.tokenizer.get_latent_num_frames(
+                        num_conditional_frames
+                    )
+                batch["num_conditional_frames"] = num_conditional_latent_frames
                 video = self.pipe.generate_from_batch(
                     batch,
                     guidance=sample.guidance,
