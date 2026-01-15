@@ -162,7 +162,7 @@ class MultiviewInference:
         input_video_file_dict = {}
         control_video_file_dict = {}
         fps = set()
-        min_available_frames = float('inf')
+        min_available_frames = float("inf")
         for key, value in sample.input_and_control_paths.items():
             if "_input" in key and value is not None:
                 input_video_file_dict[key.removesuffix("_input")] = value
