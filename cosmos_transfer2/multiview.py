@@ -162,20 +162,18 @@ class MultiviewInference:
         input_video_file_dict = {}
         control_video_file_dict = {}
         fps = set()
-        min_available_frames = float("inf")
+        min_control_frames = float("inf")
         for key, value in sample.input_and_control_paths.items():
             if "_input" in key and value is not None:
                 input_video_file_dict[key.removesuffix("_input")] = value
                 assert value  # make mypy happy
-                vr = decord.VideoReader(value.as_posix())
-                fps.add(vr.get_avg_fps())
-                min_available_frames = min(min_available_frames, len(vr))
+                fps.add(decord.VideoReader(value.as_posix()).get_avg_fps())
             elif "_control" in key:
                 control_video_file_dict[key.removesuffix("_control")] = value
                 assert value  # make mypy happy
                 vr = decord.VideoReader(value.as_posix())
                 fps.add(vr.get_avg_fps())
-                min_available_frames = min(min_available_frames, len(vr))
+                min_control_frames = min(min_control_frames, len(vr))
 
         if len(fps) != 1:
             raise ValueError(f"Control and video files have inconsistent FPS: {fps}")
@@ -193,25 +191,27 @@ class MultiviewInference:
         chunk_size = self.pipe.model.tokenizer.get_pixel_num_frames(self.pipe.config.model.config.state_t)
 
         # Check if have enough frames after downsampling for even one chunk
-        available_frames_after_downsample = int(min_available_frames) // fps_downsample_factor
-        if available_frames_after_downsample < chunk_size:
+        available_control_frames_after_downsample = int(min_control_frames) // fps_downsample_factor
+        if available_control_frames_after_downsample < chunk_size:
             raise ValueError(
-                f"Not enough frames in input videos. Need at least {chunk_size} frames after "
+                f"Not enough frames in control videos. Need at least {chunk_size} frames after "
                 f"downsampling (fps_downsample_factor={fps_downsample_factor}), but only have "
-                f"{available_frames_after_downsample} frames (from {int(min_available_frames)} source frames). "
+                f"{available_control_frames_after_downsample} frames (from {int(min_control_frames)} source frames). "
             )
 
         # Clamp num_chunks in autoregressive mode to what's available. This makes it easy for a user to set a high
-        # num_chunks value and let the input length limit the actual number of chunks.
+        # num_chunks value and let the control length limit the actual number of chunks.
         effective_num_chunks = sample.num_chunks
         if sample.enable_autoregressive:
-            max_chunks = 1 + (available_frames_after_downsample - chunk_size) // (chunk_size - sample.chunk_overlap)
+            max_chunks = 1 + (available_control_frames_after_downsample - chunk_size) // (
+                chunk_size - sample.chunk_overlap
+            )
             max_chunks = max(1, max_chunks)  # At least 1 chunk
 
             if sample.num_chunks > max_chunks:
                 log.warning(
                     f"Requested num_chunks={sample.num_chunks} requires more frames than available. "
-                    f"Clamping to max_chunks={max_chunks} (available_frames={available_frames_after_downsample}, "
+                    f"Clamping to max_chunks={max_chunks} (available_frames={available_control_frames_after_downsample}, "
                     f"chunk_size={chunk_size}, overlap={sample.chunk_overlap})"
                 )
                 effective_num_chunks = max_chunks
