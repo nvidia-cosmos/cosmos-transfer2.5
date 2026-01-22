@@ -103,14 +103,15 @@ class RDSHQLoader(SceneDataLoader):
             return False
 
         # Check for key RDS-HQ attribute directories
-        required_attrs = ["pose", "vehicle_pose", "ftheta_intrinsic"]
-        optional_attrs = ["all_object_info", "3d_lanelines", "3d_lanes", "3d_road_boundaries"]
+        # pose is required; vehicle_pose and ftheta_intrinsic are optional (can use defaults)
+        core_attrs = ["pose", "vehicle_pose"]
+        optional_attrs = ["all_object_info", "3d_lanelines", "3d_lanes", "3d_road_boundaries", "ftheta_intrinsic"]
 
-        found_required = sum(1 for attr in required_attrs if (path / attr).exists())
+        found_core = sum(1 for attr in core_attrs if (path / attr).exists())
         found_optional = sum(1 for attr in optional_attrs if (path / attr).exists())
 
-        # Need at least 2 required attributes and 1 optional to be confident
-        return found_required >= 2 and found_optional >= 1
+        # Need at least 1 core attribute (pose or vehicle_pose) and 1 optional to be confident
+        return found_core >= 1 and found_optional >= 1
 
     def load(
         self,
@@ -167,7 +168,7 @@ class RDSHQLoader(SceneDataLoader):
         )
 
         # Load vehicle poses and camera poses
-        self._load_poses(scene_data, data_root, clip_id, max_frames)
+        self._load_poses(scene_data, data_root, clip_id, max_frames, camera_names)
 
         # Load camera calibrations
         self._load_camera_calibrations(scene_data, data_root, clip_id, camera_names, resize_resolution_hw)
@@ -181,6 +182,10 @@ class RDSHQLoader(SceneDataLoader):
         # Update duration
         if scene_data.ego_poses:
             scene_data.duration_seconds = len(scene_data.ego_poses) / scene_data.frame_rate
+        elif scene_data.camera_poses:
+            # Use first camera's pose count for duration
+            first_cam = next(iter(scene_data.camera_poses))
+            scene_data.duration_seconds = len(scene_data.camera_poses[first_cam]) / scene_data.frame_rate
 
         return scene_data
 
@@ -209,38 +214,90 @@ class RDSHQLoader(SceneDataLoader):
         data_root: Path,
         clip_id: str,
         max_frames: int,
+        camera_names: Optional[List[str]] = None,
     ) -> None:
-        """Load vehicle poses (ego poses)."""
+        """Load ego and camera poses from data files.
+
+        Supports two modes:
+        1. Traditional: Load vehicle_pose as ego-to-world transforms, camera-to-world
+           is computed at render time via ego_pose @ camera_extrinsics.
+        2. Direct: When vehicle_pose is unavailable, load per-camera camera-to-world
+           poses directly and set metadata["uses_per_camera_poses"] = True.
+
+        Args:
+            scene_data: Scene data container to populate.
+            data_root: Root directory containing pose data.
+            clip_id: Clip identifier for file lookup.
+            max_frames: Maximum frames to load (-1 for all).
+            camera_names: Camera names to load poses for (required for direct mode).
+        """
         vehicle_pose_file = data_root / "vehicle_pose" / f"{clip_id}.tar"
-        if not vehicle_pose_file.exists():
-            logger.warning(f"Vehicle pose file not found: {vehicle_pose_file}")
+        pose_file = data_root / "pose" / f"{clip_id}.tar"
+
+        if vehicle_pose_file.exists():
+            # Use vehicle_pose directly
+            data = get_sample(vehicle_pose_file)
+            pose_keys = sorted([k for k in data.keys() if k.endswith(".vehicle_pose.npy")])
+
+            if max_frames > 0:
+                pose_keys = pose_keys[:max_frames]
+
+            for key in pose_keys:
+                frame_idx = int(key.split(".")[0])
+                pose_matrix = data[key]  # 4x4 transformation matrix
+
+                translation = pose_matrix[:3, 3]
+                rotation_matrix = pose_matrix[:3, :3]
+                rotation_quat = Rotation.from_matrix(rotation_matrix).as_quat().astype(np.float32)
+
+                ego_pose = EgoPose(
+                    timestamp=round(frame_idx * 1_000_000 / scene_data.frame_rate),
+                    position=translation,
+                    orientation=rotation_quat,
+                )
+                scene_data.ego_poses.append(ego_pose)
+
+            logger.debug(f"Loaded {len(scene_data.ego_poses)} ego poses from vehicle_pose")
+
+        elif pose_file.exists():
+            # Load per-camera poses directly (Drive-Dreams style)
+            logger.info("vehicle_pose not found, loading per-camera poses directly")
+            data = get_sample(pose_file)
+
+            # Load poses for each requested camera
+            cameras_loaded = []
+            if camera_names:
+                for cam_name in camera_names:
+                    cam_keys = sorted([k for k in data.keys() if k.endswith(f".pose.{cam_name}.npy")])
+                    if cam_keys:
+                        if max_frames > 0:
+                            cam_keys = cam_keys[:max_frames]
+                        poses = np.stack([data[k] for k in cam_keys])
+                        scene_data.camera_poses[cam_name] = poses.astype(np.float32)
+                        cameras_loaded.append(cam_name)
+
+            if not cameras_loaded:
+                logger.warning("No camera poses found")
+                return
+
+            # Create dummy ego poses for frame count (use first camera as reference)
+            first_cam = cameras_loaded[0]
+            num_frames = len(scene_data.camera_poses[first_cam])
+            for frame_idx in range(num_frames):
+                ego_pose = EgoPose(
+                    timestamp=round(frame_idx * 1_000_000 / scene_data.frame_rate),
+                    position=np.zeros(3, dtype=np.float32),
+                    orientation=np.array([0, 0, 0, 1], dtype=np.float32),
+                )
+                scene_data.ego_poses.append(ego_pose)
+
+            logger.debug(f"Loaded per-camera poses for {len(cameras_loaded)} cameras, {num_frames} frames")
+            scene_data.metadata["uses_per_camera_poses"] = True
+
+        else:
+            logger.warning(f"Neither vehicle_pose nor pose file found for {clip_id}")
             return
 
-        data = get_sample(vehicle_pose_file)
-
-        # Get all vehicle pose keys and sort by frame index
-        pose_keys = sorted([k for k in data.keys() if k.endswith(".vehicle_pose.npy")])
-
-        if max_frames > 0:
-            pose_keys = pose_keys[:max_frames]
-
-        for key in pose_keys:
-            frame_idx = int(key.split(".")[0])
-            pose_matrix = data[key]  # 4x4 transformation matrix
-
-            # Extract translation and rotation
-            translation = pose_matrix[:3, 3]
-            rotation_matrix = pose_matrix[:3, :3]
-            rotation_quat = Rotation.from_matrix(rotation_matrix).as_quat().astype(np.float32)
-
-            ego_pose = EgoPose(
-                timestamp=round(frame_idx * 1_000_000 / scene_data.frame_rate),
-                position=translation,
-                orientation=rotation_quat,
-            )
-            scene_data.ego_poses.append(ego_pose)
-
-        logger.debug(f"Loaded {len(scene_data.ego_poses)} ego poses")
         scene_data.metadata["coordinate_frame"] = "flu"
 
     def _load_camera_calibrations(
@@ -251,28 +308,56 @@ class RDSHQLoader(SceneDataLoader):
         camera_names: List[str],
         resize_hw: Optional[Tuple[int, int]],
     ) -> None:
-        """Load camera calibrations."""
-        # Load FTheta intrinsics
+        """Load camera intrinsics and compute extrinsics.
+
+        Loads FTheta camera intrinsics from clip-specific or default intrinsic files.
+        Computes camera-to-vehicle extrinsics when vehicle_pose is available by
+        inverting the ego-to-world transform and applying it to camera-to-world.
+        When vehicle_pose is unavailable, uses identity extrinsics (camera poses
+        will be used directly via metadata["uses_per_camera_poses"]).
+
+        Args:
+            scene_data: Scene data container to populate.
+            data_root: Root directory containing calibration data.
+            clip_id: Clip identifier for file lookup.
+            camera_names: List of camera names to load calibrations for.
+            resize_hw: Optional (height, width) tuple to resize camera models.
+        """
+        # Load FTheta intrinsics (with fallback to default)
         intrinsic_file = data_root / "ftheta_intrinsic" / f"{clip_id}.tar"
-        if not intrinsic_file.exists():
-            logger.warning(f"Intrinsic file not found: {intrinsic_file}")
-            return
+        use_default_intrinsics = False
 
-        intrinsic_data = get_sample(intrinsic_file)
+        if intrinsic_file.exists():
+            intrinsic_data = get_sample(intrinsic_file)
+        else:
+            # Fallback to default intrinsics
+            default_intrinsic_file = Path(__file__).parent / "default_ftheta_intrinsic.tar"
+            if default_intrinsic_file.exists():
+                logger.warning(f"Intrinsic file not found: {intrinsic_file}")
+                logger.info(f"Using default ftheta intrinsics from: {default_intrinsic_file}")
+                intrinsic_data = get_sample(default_intrinsic_file)
+                use_default_intrinsics = True
+            else:
+                logger.error(f"Neither clip intrinsics nor default intrinsics found")
+                return
 
-        # Load camera poses for extrinsics
+        # Load camera poses
         pose_file = data_root / "pose" / f"{clip_id}.tar"
         pose_data = get_sample(pose_file) if pose_file.exists() else {}
 
-        # Load vehicle poses to compute camera_to_vehicle consistently
+        # Load vehicle poses (optional - for computing extrinsics)
         vehicle_pose_file = data_root / "vehicle_pose" / f"{clip_id}.tar"
         vehicle_pose_data = get_sample(vehicle_pose_file) if vehicle_pose_file.exists() else {}
+        has_vehicle_pose = bool(vehicle_pose_data)
 
         for camera_name in camera_names:
             # Get intrinsic parameters
             intrinsic_key = f"ftheta_intrinsic.{camera_name}.npy"
             if intrinsic_key not in intrinsic_data:
-                logger.warning(f"Intrinsic not found for {camera_name}")
+                if use_default_intrinsics:
+                    logger.warning(f"Intrinsic not found for {camera_name} in default intrinsics, skipping")
+                else:
+                    logger.warning(f"Intrinsic not found for {camera_name}")
                 continue
 
             params = intrinsic_data[intrinsic_key]
@@ -289,30 +374,35 @@ class RDSHQLoader(SceneDataLoader):
             else:
                 linear_cde = np.array([1.0, 0.0, 0.0])
 
-            # Derive camera_to_vehicle using matched-frame camera and vehicle poses
+            # Compute camera extrinsics (camera_to_vehicle)
             camera_to_vehicle = np.eye(4, dtype=np.float32)
-            # Find the earliest available camera pose key for this camera
+
+            # Find camera pose keys
             cam_pose_keys = (
                 [k for k in pose_data.keys() if k.endswith(f".pose.{camera_name}.npy")]
                 if isinstance(pose_data, dict)
                 else []
             )
-            if cam_pose_keys:
+
+            if cam_pose_keys and has_vehicle_pose:
+                # Derive extrinsics from pose and vehicle_pose
                 cam_pose_keys.sort()
                 first_cam_key = cam_pose_keys[0]
                 frame_token = first_cam_key.split(".")[0]
                 cam_to_world = pose_data[first_cam_key]
                 veh_key = f"{frame_token}.vehicle_pose.npy"
-                if isinstance(vehicle_pose_data, dict) and veh_key in vehicle_pose_data:
+                if veh_key in vehicle_pose_data:
                     ego_to_world = vehicle_pose_data[veh_key]
                     vehicle_to_world_inv = np.linalg.inv(ego_to_world)
                     camera_to_vehicle = (vehicle_to_world_inv @ cam_to_world).astype(np.float32)
                 else:
-                    logger.warning(
-                        f"Vehicle pose for frame {frame_token} not found when deriving extrinsics for {camera_name}; using identity"
-                    )
+                    logger.debug(f"Using identity extrinsics for {camera_name} (no matching vehicle pose)")
+            elif cam_pose_keys:
+                # No vehicle_pose available - use identity extrinsics
+                # (pose will be used directly as camera-to-world in rendering)
+                logger.debug(f"Using identity extrinsics for {camera_name} (no vehicle_pose)")
             else:
-                logger.warning(f"No camera pose entries found for {camera_name}; using identity extrinsics")
+                logger.debug(f"Using identity extrinsics for {camera_name} (no camera pose entries)")
 
             camera_model = FThetaCamera(
                 cx=float(cx),
