@@ -263,18 +263,22 @@ class RDSHQLoader(SceneDataLoader):
             # Load poses for each requested camera
             cameras_loaded = []
             frame_indices = None
-            if camera_names:
-                for cam_name in camera_names:
-                    cam_keys = sorted([k for k in data.keys() if k.endswith(f".pose.{cam_name}.npy")])
-                    if cam_keys:
-                        if max_frames > 0:
-                            cam_keys = cam_keys[:max_frames]
-                        # Extract frame indices from keys (format: {frame_idx:06d}.pose.{cam_name}.npy)
-                        if frame_indices is None:
-                            frame_indices = [int(k.split(".")[0]) for k in cam_keys]
-                        poses = np.stack([data[k] for k in cam_keys])
-                        scene_data.camera_poses[cam_name] = poses.astype(np.float32)
-                        cameras_loaded.append(cam_name)
+            for cam_name in camera_names or []:
+                cam_keys = sorted([k for k in data.keys() if k.endswith(f".pose.{cam_name}.npy")])
+                if not cam_keys:
+                    continue
+
+                if max_frames > 0:
+                    cam_keys = cam_keys[:max_frames]
+
+                # Extract frame indices from keys (format: {frame_idx:06d}.pose.{cam_name}.npy)
+                # Use first camera's frame indices for all cameras (they should match)
+                if frame_indices is None:
+                    frame_indices = [int(k.split(".")[0]) for k in cam_keys]
+
+                poses = np.stack([data[k] for k in cam_keys])
+                scene_data.camera_poses[cam_name] = poses.astype(np.float32)
+                cameras_loaded.append(cam_name)
 
             if not cameras_loaded:
                 logger.warning("No camera poses found")
