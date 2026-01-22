@@ -182,10 +182,6 @@ class RDSHQLoader(SceneDataLoader):
         # Update duration
         if scene_data.ego_poses:
             scene_data.duration_seconds = len(scene_data.ego_poses) / scene_data.frame_rate
-        elif scene_data.camera_poses:
-            # Use first camera's pose count for duration
-            first_cam = next(iter(scene_data.camera_poses))
-            scene_data.duration_seconds = len(scene_data.camera_poses[first_cam]) / scene_data.frame_rate
 
         return scene_data
 
@@ -266,12 +262,16 @@ class RDSHQLoader(SceneDataLoader):
 
             # Load poses for each requested camera
             cameras_loaded = []
+            frame_indices = None
             if camera_names:
                 for cam_name in camera_names:
                     cam_keys = sorted([k for k in data.keys() if k.endswith(f".pose.{cam_name}.npy")])
                     if cam_keys:
                         if max_frames > 0:
                             cam_keys = cam_keys[:max_frames]
+                        # Extract frame indices from keys (format: {frame_idx:06d}.pose.{cam_name}.npy)
+                        if frame_indices is None:
+                            frame_indices = [int(k.split(".")[0]) for k in cam_keys]
                         poses = np.stack([data[k] for k in cam_keys])
                         scene_data.camera_poses[cam_name] = poses.astype(np.float32)
                         cameras_loaded.append(cam_name)
@@ -280,17 +280,19 @@ class RDSHQLoader(SceneDataLoader):
                 logger.warning("No camera poses found")
                 return
 
-            # Create dummy ego poses for frame count (use first camera as reference)
-            first_cam = cameras_loaded[0]
-            num_frames = len(scene_data.camera_poses[first_cam])
-            for frame_idx in range(num_frames):
-                ego_pose = EgoPose(
-                    timestamp=round(frame_idx * 1_000_000 / scene_data.frame_rate),
-                    position=np.zeros(3, dtype=np.float32),
-                    orientation=np.array([0, 0, 0, 1], dtype=np.float32),
-                )
-                scene_data.ego_poses.append(ego_pose)
+            # Create dummy ego poses for frame count and timestamps
+            # Position/orientation are not used when uses_per_camera_poses=True,
+            # but timestamps are needed for dynamic object interpolation
+            if frame_indices:
+                for frame_idx in frame_indices:
+                    ego_pose = EgoPose(
+                        timestamp=round(frame_idx * 1_000_000 / scene_data.frame_rate),
+                        position=np.zeros(3, dtype=np.float32),
+                        orientation=np.array([0, 0, 0, 1], dtype=np.float32),
+                    )
+                    scene_data.ego_poses.append(ego_pose)
 
+            num_frames = len(scene_data.camera_poses[cameras_loaded[0]])
             logger.debug(f"Loaded per-camera poses for {len(cameras_loaded)} cameras, {num_frames} frames")
             scene_data.metadata["uses_per_camera_poses"] = True
 
