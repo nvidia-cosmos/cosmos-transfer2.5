@@ -31,6 +31,7 @@ from cosmos_transfer2._src.predict2.conditioner import ReMapkey, Text2WorldCondi
 from cosmos_transfer2._src.predict2_multiview.conditioner import MVTextAttr
 from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.conditioner import MultiViewCondition
 from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.defaults.conditioner import (
+    _SHARED_CONFIG,
     _SHARED_CONFIG_AV,
     ControlVideo2WorldCondition,
     ControlVideo2WorldConditioner,
@@ -222,8 +223,33 @@ _SHARED_CONFIG_AV_PER_VIEW_DROPOUT["text"] = L(MVTextAttr)(
     use_empty_string=False,
 )
 
-MultiViewVideoPredictionControlConditionerPerViewDropout: LazyDict = L(MultiViewControlVideo2WorldConditioner)(
+MultiViewVideoPredictionControlConditionerPerViewDropout_AV: LazyDict = L(MultiViewControlVideo2WorldConditioner)(
     **_SHARED_CONFIG_AV_PER_VIEW_DROPOUT,
+    # Add multiview-specific config
+    view_indices_B_T=L(ReMapkey)(
+        input_key="latent_view_indices_B_T",
+        output_key="view_indices_B_T",
+        dropout_rate=0.0,
+        dtype=None,
+    ),
+    ref_cam_view_idx_sample_position=L(ReMapkey)(
+        input_key="ref_cam_view_idx_sample_position",
+        output_key="ref_cam_view_idx_sample_position",
+        dropout_rate=0.0,
+        dtype=None,
+    ),
+)
+
+
+_SHARED_CONFIG_PER_VIEW_DROPOUT = copy.deepcopy(_SHARED_CONFIG)
+_SHARED_CONFIG_PER_VIEW_DROPOUT["text"] = L(MVTextAttr)(
+    input_key=["t5_text_embeddings"],
+    dropout_rate=0.2,
+    use_empty_string=False,
+)
+
+MultiViewVideoPredictionControlConditionerPerViewDropout: LazyDict = L(MultiViewControlVideo2WorldConditioner)(
+    **_SHARED_CONFIG_PER_VIEW_DROPOUT,
     # Add multiview-specific config
     view_indices_B_T=L(ReMapkey)(
         input_key="latent_view_indices_B_T",
@@ -300,6 +326,12 @@ def register_conditioner():
         node=MultiViewVideoPredictionControlConditioner,
     )
 
+    cs.store(
+        group="conditioner",
+        package="model.config.conditioner",
+        name="video_prediction_multiview_control_conditioner_per_view_dropout_av",
+        node=MultiViewVideoPredictionControlConditionerPerViewDropout_AV,
+    )
     cs.store(
         group="conditioner",
         package="model.config.conditioner",

@@ -63,6 +63,16 @@ sample_request_multicontrol = {
 }
 
 
+sample_request_edge_distilled = {
+    "name": "robot_edge_distilled",
+    "prompt_path": os.path.join(asset_dir, "robot_example/robot_prompt.txt"),
+    "video_path": os.path.join(asset_dir, "robot_example/robot_input.mp4"),
+    "guidance": 3,
+    "num_steps": 4,
+    "seed": 1,
+    "edge": {"control_path": os.path.join(asset_dir, "robot_example/edge/robot_edge.mp4"), "control_weight": 1.0},
+}
+
 sample_request_mv = {
     "name": "multiview_control2world",
     "prompt_path": os.path.join(asset_dir, "multiview_example/prompt.txt"),

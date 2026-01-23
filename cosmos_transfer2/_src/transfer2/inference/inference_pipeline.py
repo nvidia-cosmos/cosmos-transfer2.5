@@ -24,9 +24,14 @@ import torch
 from cosmos_transfer2._src.imaginaire.flags import INTERNAL
 from cosmos_transfer2._src.imaginaire.utils import distributed, log, misc
 from cosmos_transfer2._src.imaginaire.utils.easy_io import easy_io
+from cosmos_transfer2._src.interactive.utils.model_loader import (
+    load_model_from_checkpoint as load_model_interactive,
+)
 from cosmos_transfer2._src.predict2.datasets.utils import VIDEO_RES_SIZE_INFO
 from cosmos_transfer2._src.predict2.models.video2world_model import NUM_CONDITIONAL_FRAMES_KEY
-from cosmos_transfer2._src.predict2.utils.model_loader import load_model_from_checkpoint
+from cosmos_transfer2._src.predict2.utils.model_loader import (
+    load_model_from_checkpoint as load_model_predict2,
+)
 from cosmos_transfer2._src.transfer2.datasets.augmentors.control_input import get_augmentor_for_eval
 from cosmos_transfer2._src.transfer2.inference.utils import (
     get_t5_from_prompt,
@@ -68,6 +73,7 @@ class ControlVideo2WorldInference:
         use_cuda_graphs: bool = False,
         cfg_parallel: bool = False,
         hierarchical_cp: bool = False,
+        config_file: str = "cosmos_transfer2/_src/transfer2/configs/vid2vid_transfer/config.py",
     ):
         """
         Initializes the ControlVideo2WorldInference class.
@@ -97,27 +103,42 @@ class ControlVideo2WorldInference:
         if exp_override_opts is None:
             exp_override_opts = []
         # no need to load base model separately at inference
-        exp_override_opts.append("model.config.base_load_from=null")
+        exp_override_opts.append("++model.config.base_load_from=null")
         if use_cuda_graphs:
             exp_override_opts.append("model.config.net.use_cuda_graphs=True")
-        if not INTERNAL:
+        # data_train is training-only; distilled interactive inference does not define it,
+        # so avoid deleting it for interactive configs to prevent Hydra errors.
+        if not INTERNAL and (not config_file or "interactive" not in config_file):
             exp_override_opts.append("~data_train")
         if hierarchical_cp:
             exp_override_opts.append("model.config.net.atten_backend='transformer_engine'")
         # Load the model and config. Each trained model's config is composed by
         # loading a pre-registered experiment config, and then (optionally) overriding with some command-line
         # arguments. That is done in experiment_list.py. Here we simply replicate that process.
-        model, config = load_model_from_checkpoint(
-            experiment_name=self.registered_exp_name,
-            s3_checkpoint_dir=self.checkpoint_path,
-            config_file="cosmos_transfer2/_src/transfer2/configs/vid2vid_transfer/config.py",
-            load_ema_to_reg=True,
-            local_cache_dir=(
-                cache_dir if not checkpoint_paths else None
-            ),  # for multi-control models, need to load other branches before caching
-            experiment_opts=exp_override_opts,
-            cache_text_encoder=self.cache_text_encoder,
-        )
+        # Use interactive loader for distilled models (interactive config), predict2 loader otherwise
+        if config_file and "interactive" in config_file:
+            model, config = load_model_interactive(
+                experiment_name=self.registered_exp_name,
+                s3_checkpoint_dir=self.checkpoint_path,
+                config_file=config_file,
+                load_ema_to_reg=True,
+                local_cache_dir=(
+                    cache_dir if not checkpoint_paths else None
+                ),  # for multi-control models, need to load other branches before caching
+                experiment_opts=exp_override_opts,
+            )
+        else:
+            model, config = load_model_predict2(
+                experiment_name=self.registered_exp_name,
+                s3_checkpoint_dir=self.checkpoint_path,
+                config_file=config_file,
+                load_ema_to_reg=True,
+                local_cache_dir=(
+                    cache_dir if not checkpoint_paths else None
+                ),  # for multi-control models, need to load other branches before caching
+                experiment_opts=exp_override_opts,
+                cache_text_encoder=self.cache_text_encoder,
+            )
         if (
             isinstance(checkpoint_paths, list) and len(checkpoint_paths) > 1 and not skip_load_model
         ):  # load other branches for multi-control models
@@ -150,7 +171,12 @@ class ControlVideo2WorldInference:
             }
             model.load_base_model(load_ema_to_reg=True)
 
-        self.text_encoder_class = model.text_encoder_class
+        # Get text_encoder_class from model or config depending on model type
+        if hasattr(model, "text_encoder_class"):
+            self.text_encoder_class = model.text_encoder_class
+        else:
+            # For distilled models (DMD2Model), get from config
+            self.text_encoder_class = config.model.config.text_encoder_class
 
         if process_group is not None:
             cp_comm_type = "a2a+p2p" if hierarchical_cp else "p2p"
@@ -304,7 +330,6 @@ class ControlVideo2WorldInference:
         negative_prompt: str | None = None,
         max_frames: int | None = None,
         context_frame_idx: int | None = None,
-        distillation: str = "none",
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, torch.Tensor], int, tuple[int, int]]:
         """
         Generates a video based on an input video and text prompt.
@@ -467,41 +492,32 @@ class ControlVideo2WorldInference:
                 seed = random.randint(0, 1000000)
                 log.info(f"Seed: {seed}")
 
-                # Generate and decode video
-                if distillation == "dmd2":
-                    log.info("Generating samples using DMD2 distillation...")
-                    sample = self.model.generate_samples_from_batch_dmd2(
-                        data_batch,
-                        n_sample=1,
-                        num_steps=num_steps,
-                        guidance=guidance,
-                        seed=seed,
-                    )
-                else:
-                    sample = self.model.generate_samples_from_batch(
-                        data_batch,
-                        n_sample=1,
-                        guidance=guidance,
-                        seed=seed,
-                        is_negative_prompt=negative_prompt is not None,
-                        x_sigma_max=x_sigma_max,
-                        sigma_max=sigma_max,
-                        num_steps=num_steps,
-                    )
-                video = self.model.decode(sample)  # Shape: (1, C, T, H, W)
+                sample = self.model.generate_samples_from_batch(
+                    data_batch,
+                    n_sample=1,
+                    guidance=guidance,
+                    seed=seed,
+                    is_negative_prompt=negative_prompt is not None,
+                    x_sigma_max=x_sigma_max,
+                    sigma_max=sigma_max,
+                    num_steps=num_steps,
+                )
+                video = self.model.decode(sample).cpu()  # Shape: (1, C, T, H, W)
 
                 # For visualization: concatenate condition and input videos with generated video
                 video_cat = video
                 conditions = []
                 if show_input and input_frames is not None:
                     x0 = uint8_to_normalized_float(cur_input_frames, dtype=torch.bfloat16)[None]
+                    x0 = x0.to(device=video_cat.device)
                     video_cat = torch.cat([x0, video_cat], dim=-1)
 
                 # Accumulate control inputs for each chunk
                 for key in hint_key:
                     control_input = data_batch["control_input_" + key]
                     if f"control_input_{key}_mask" in data_batch:
-                        control_input = (control_input + 1) / 2 * data_batch[f"control_input_{key}_mask"] * 2 - 1
+                        mask = data_batch[f"control_input_{key}_mask"].to(device=control_input.device)
+                        control_input = (control_input + 1) / 2 * mask * 2 - 1
 
                     # Store control input for this chunk
                     if chunk_id == 0:
@@ -511,7 +527,7 @@ class ControlVideo2WorldInference:
                         all_control_chunks[key].append(control_input[:, :, num_conditional_frames:, :, :])
 
                     if show_control_condition:
-                        conditions += [control_input]
+                        conditions += [control_input.to(device=video_cat.device)]
 
                 if show_control_condition:
                     video_cat = torch.cat([*conditions, video_cat], dim=-1)

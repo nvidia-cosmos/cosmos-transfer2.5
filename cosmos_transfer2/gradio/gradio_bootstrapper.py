@@ -16,8 +16,7 @@ import gc
 
 import torch
 from cosmos_gradio.deployment_env import DeploymentEnv
-from cosmos_gradio.gradio_app.gradio_app import GradioApp
-from cosmos_gradio.gradio_app.gradio_ui import create_gradio_UI
+from cosmos_gradio.gradio_app.gradio_server import launch_gradio_server
 from loguru import logger as log
 
 from cosmos_transfer2.gradio.model_config import Config as ModelConfig
@@ -80,6 +79,7 @@ if __name__ == "__main__":
         "vis": "create_control2world",
         "depth": "create_control2world",
         "edge": "create_control2world",
+        "edge/distilled": "create_control2world",
         "seg": "create_control2world",
         "multicontrol": "create_control2world",
         "multiview": "create_multiview",
@@ -89,34 +89,22 @@ if __name__ == "__main__":
         "vis": validate_control2world,
         "depth": validate_control2world,
         "edge": validate_control2world,
+        "edge/distilled": validate_control2world,
         "seg": validate_control2world,
         "multicontrol": validate_control2world,
         "multiview": validate_multiview,
     }
 
-    app = GradioApp(
-        num_gpus=deploy_cfg.num_gpus,
-        validator=validators[deploy_cfg.model_name],
+    launch_gradio_server(
         factory_module="cosmos_transfer2.gradio.gradio_bootstrapper",
         factory_function=factory_function[deploy_cfg.model_name],
+        validator=validators[deploy_cfg.model_name],
+        num_gpus=deploy_cfg.num_gpus,
         output_dir=deploy_cfg.output_dir,
-    )
-
-    interface = create_gradio_UI(
-        app.infer,
-        header=model_cfg.header[deploy_cfg.model_name],
-        default_request=model_cfg.default_request[deploy_cfg.model_name],
-        help_text=model_cfg.help_text[deploy_cfg.model_name],
         uploads_dir=deploy_cfg.uploads_dir,
-        output_dir=deploy_cfg.output_dir,
         log_file=deploy_cfg.log_file,
-    )
-
-    interface.launch(
-        server_name="0.0.0.0",
-        server_port=8080,
-        share=False,
-        debug=True,
-        max_file_size="500MB",
+        default_request=model_cfg.default_request[deploy_cfg.model_name],
+        header=model_cfg.header[deploy_cfg.model_name],
+        help_text=model_cfg.help_text[deploy_cfg.model_name],
         allowed_paths=deploy_cfg.allowed_paths,
     )

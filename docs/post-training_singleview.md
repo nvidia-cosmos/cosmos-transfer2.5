@@ -222,42 +222,71 @@ datasets/your_dataset/
 **Skip for edge/vis** - these are computed on-the-fly during training
 
 **For depth:**
-Depth control requires pre-computed depth maps. You need to generate depth videos using external tools like:
-- [Video-Depth-Anything](https://github.com/DepthAnything/Video-Depth-Anything)
-
-Save depth videos as `.mp4` files in `datasets/your_dataset/depth/` with the same filenames as your input videos.
-
-**For seg:**
-Segmentation control requires pre-computed segmentation masks. You can use the built-in SAM2 pipeline:
+Depth control requires pre-computed depth maps. Use the built-in DepthAnything V2 pipeline:
 
 ```bash
-# Using text prompt (recommended)
-python cosmos_transfer2/_src/transfer2/auxiliary/sam2/sam2_pipeline.py \
-    --input_video datasets/your_dataset/videos/video1.mp4 \
-    --output_tensor datasets/your_dataset/seg/video1.pickle \
-    --mode prompt \
-    --prompt "person, car, building"
 
-# Using points
-python cosmos_transfer2/_src/transfer2/auxiliary/sam2/sam2_pipeline.py \
+# Generate depth video for a single video
+python cosmos_transfer2/_src/transfer2/auxiliary/depth_anything/depth_pipeline.py \
     --input_video datasets/your_dataset/videos/video1.mp4 \
-    --output_tensor datasets/your_dataset/seg/video1.pickle \
-    --mode points \
-    --points "200,300;100,150" \
-    --labels "1,1"
+    --output_video datasets/your_dataset/depth/video1.mp4 \
+    --encoder vits
 
-# Using bounding box
-python cosmos_transfer2/_src/transfer2/auxiliary/sam2/sam2_pipeline.py \
-    --input_video datasets/your_dataset/videos/video1.mp4 \
-    --output_tensor datasets/your_dataset/seg/video1.pickle \
-    --mode box \
-    --box "300,0,500,400"
+# Process multiple videos (example loop)
+for video in datasets/your_dataset/videos/*.mp4; do
+    basename=$(basename "$video")
+    python cosmos_transfer2/_src/transfer2/auxiliary/depth_anything/depth_pipeline.py \
+        --input_video "$video" \
+        --output_video "datasets/your_dataset/depth/$basename" \
+        --encoder vits
+done
 ```
 
-Alternatively, you can use external tools:
-- [SAM2](https://github.com/facebookresearch/segment-anything-2) - Official implementation
+**Parameters**:
+- `--input_video`: Path to input RGB video
+- `--output_video`: Path to save depth video (MP4 format)
+- `--encoder`: Model size (`vits` for small/fast, `vitl` for large/accurate)
 
-Save segmentation data in `datasets/your_dataset/seg/` with the same filenames as your input videos.
+**Output**: Grayscale depth video in MP4 format, same resolution and frame count as input.
+
+**For seg:**
+Segmentation control requires pre-computed segmentation masks. Use the built-in SAM2 pipeline:
+
+```bash
+# Generate segmentation video using text prompts (recommended)
+python cosmos_transfer2/_src/transfer2/auxiliary/sam2/sam2_pipeline.py \
+    --input_video datasets/your_dataset/videos/video1.mp4 \
+    --output_video datasets/your_dataset/seg/video1.mp4 \
+    --mode prompt \
+    --prompt "person, car, vehicle, building, tree, road, sky" \
+    --visualize
+
+# Process multiple videos (example loop)
+for video in datasets/your_dataset/videos/*.mp4; do
+    basename=$(basename "$video")
+    python cosmos_transfer2/_src/transfer2/auxiliary/sam2/sam2_pipeline.py \
+        --input_video "$video" \
+        --output_video "datasets/your_dataset/seg/$basename" \
+        --mode prompt \
+        --prompt "person, car, vehicle, building, tree, road, sky" \
+        --visualize
+done
+```
+
+**Segmentation modes**:
+1. **Prompt mode** (recommended): `--mode prompt --prompt "person, car, building"`
+2. **Box mode**: `--mode box --box "300,0,500,400"`
+3. **Points mode**: `--mode points --points "200,300" --labels "1"`
+
+**Parameters**:
+- `--input_video`: Path to input RGB video
+- `--output_video`: Path to save segmentation video (MP4 format)
+- `--mode`: Segmentation mode (`prompt`, `box`, or `points`)
+- `--prompt`: Text description of objects to segment (for prompt mode)
+- `--visualize`: Required flag to enable video output
+
+**Output**: Color-coded segmentation video in MP4 format where each object instance has a unique color.
+
 
 ### 4. Final Verification
 

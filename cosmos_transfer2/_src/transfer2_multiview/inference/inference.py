@@ -201,7 +201,6 @@ class ControlVideo2WorldInference:
         seed: int,
         num_steps: int,
         use_negative_prompt: bool,
-        distillation: str = "",
     ):
         """Generate video tensor from batch.
 
@@ -226,7 +225,6 @@ class ControlVideo2WorldInference:
             seed=seed,  # Fixed seed for reproducibility
             num_steps=num_steps,
             is_negative_prompt=use_negative_prompt,
-            distillation=distillation,
         )
         # (bsz = 1, c = 3, t = n_camera * t, h, w)
         return ((self.model.decode(sample) + 1.0) / 2.0).clamp(0, 1)
@@ -242,7 +240,6 @@ class ControlVideo2WorldInference:
         num_conditional_frames: int | list[int],
         num_steps: int,
         use_negative_prompt: bool,
-        distillation: str = "",
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Generate video using autoregressive sliding window approach.
@@ -257,7 +254,6 @@ class ControlVideo2WorldInference:
             num_conditional_frames: Number of conditional pixel frames (scalar or per-view list)
             num_steps: Number of sampling steps for the model.
             use_negative_prompt: Whether to use default negative prompt.
-            distillation: If using distilled model, pass `dmd2`.
 
         Returns:
             Tuple of (generated video tensor, control video tensor)
@@ -320,7 +316,6 @@ class ControlVideo2WorldInference:
                 seed=int(seed) + chunk_idx,
                 num_steps=num_steps,
                 use_negative_prompt=use_negative_prompt,
-                distillation=distillation,
             )[0]  # C_T_H_W
             chunk_video = einops.rearrange(chunk_video, "C (V T) H W -> V C T H W", V=n_views)
             # Store generated chunk (remove overlap from previous chunks)
