@@ -60,7 +60,7 @@ transfer2_singleview_posttrain_edge_example = dict(
     ),
     checkpoint=dict(
         save_iter=1000,
-        load_path=EDGE_CHECKPOINT.hf.path,  # pyrefly: ignore  # Use consolidated .pt file from HuggingFace
+        load_path=EDGE_CHECKPOINT.hf.path,
         load_training_state=False,
         strict_resume=False,
         load_from_object_store=dict(enabled=False),
@@ -117,7 +117,7 @@ transfer2_singleview_posttrain_depth_example = dict(
     ),
     checkpoint=dict(
         save_iter=1000,
-        load_path=DEPTH_CHECKPOINT.hf.path,  # pyrefly: ignore  # Use consolidated .pt file from HuggingFace
+        load_path=DEPTH_CHECKPOINT.hf.path,
         load_training_state=False,
         strict_resume=False,
         load_from_object_store=dict(enabled=False),
@@ -174,7 +174,7 @@ transfer2_singleview_posttrain_seg_example = dict(
     ),
     checkpoint=dict(
         save_iter=1000,
-        load_path=SEG_CHECKPOINT.hf.path,  # pyrefly: ignore  # Use consolidated .pt file from HuggingFace
+        load_path=SEG_CHECKPOINT.hf.path,
         load_training_state=False,
         strict_resume=False,
         load_from_object_store=dict(enabled=False),
@@ -231,7 +231,7 @@ transfer2_singleview_posttrain_vis_example = dict(
     ),
     checkpoint=dict(
         save_iter=1000,
-        load_path=VIS_CHECKPOINT.hf.path,  # pyrefly: ignore  # Use consolidated .pt file from HuggingFace
+        load_path=VIS_CHECKPOINT.hf.path,
         load_training_state=False,
         strict_resume=False,
         load_from_object_store=dict(enabled=False),

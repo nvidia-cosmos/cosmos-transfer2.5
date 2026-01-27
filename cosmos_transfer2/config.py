@@ -25,12 +25,15 @@ from typing import Annotated, Any, Literal, NoReturn, Optional, TypeVar
 
 import pydantic
 import tyro
+from cosmos_oss.checkpoints_transfer2 import register_checkpoints
 from pydantic_core import PydanticUndefined
 from typing_extensions import Self
 
-from cosmos_transfer2._src.imaginaire.flags import SMOKE
+from cosmos_transfer2._src.imaginaire.flags import EXPERIMENTAL_CHECKPOINTS, SMOKE
 from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_by_uuid
+
+register_checkpoints()
 
 
 @cache
@@ -149,9 +152,12 @@ class CompileMode(str, enum.Enum):
 @dataclass(frozen=True, kw_only=True)
 class ModelKey:
     variant: ModelVariant = ModelVariant.EDGE
+    distilled: bool = False
 
     @cached_property
     def name(self) -> str:
+        if self.distilled:
+            return f"{self.variant.value}/distilled"
         return self.variant.value
 
     def __str__(self) -> str:
@@ -165,6 +171,12 @@ MODEL_CHECKPOINTS = {
     ModelKey(variant=ModelVariant.VIS): get_checkpoint_by_uuid("ba2f44f2-c726-4fe7-949f-597069d9b91c"),
     ModelKey(variant=ModelVariant.AUTO_MULTIVIEW): get_checkpoint_by_uuid("4ecc66e9-df19-4aed-9802-0d11e057287a"),
 }
+if EXPERIMENTAL_CHECKPOINTS:
+    MODEL_CHECKPOINTS |= {
+        ModelKey(variant=ModelVariant.EDGE, distilled=True): get_checkpoint_by_uuid(
+            "41f07f13-f2e4-4e34-ba4c-86f595acbc20"
+        ),
+    }
 
 MODEL_KEYS = {k.name: k for k in MODEL_CHECKPOINTS.keys()}
 
@@ -208,8 +220,8 @@ class CommonSetupArguments(pydantic.BaseModel):
     """Path to the checkpoint. Override this if you have a post-training checkpoint"""
     experiment: str | None = None
     """Experiment name. Override this with your custom experiment when post-training"""
-    config_file: str = "cosmos_transfer2/_src/predict2/configs/video2world/config.py"
-    """Configuration file for the model."""
+    config_file: str = ""
+    """Configuration file for the model. Leave empty to use the default config for the selected model type."""
     context_parallel_size: pydantic.PositiveInt | None = None
     """Context parallel size. Defaults to WORLD_SIZE set by torchrun."""
     disable_guardrails: bool = True if SMOKE else False
@@ -255,6 +267,12 @@ class CommonSetupArguments(pydantic.BaseModel):
             data["checkpoint_path"] = checkpoint.path
         if data.get("experiment") is None:
             data["experiment"] = checkpoint.experiment
+        # Set config file based on model type (distilled vs non-distilled)
+        if not data.get("config_file"):
+            if model_key.distilled:
+                data["config_file"] = "cosmos_transfer2/_src/interactive/configs/registry_transfer2p5.py"
+            else:
+                data["config_file"] = "cosmos_transfer2/_src/transfer2/configs/vid2vid_transfer/config.py"
         if data.get("context_parallel_size") is None:
             data["context_parallel_size"] = int(os.environ.get("WORLD_SIZE", "1"))
         return data

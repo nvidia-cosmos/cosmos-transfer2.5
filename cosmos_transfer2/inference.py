@@ -45,14 +45,22 @@ class Control2WorldInference:
         log.debug(f"{args.__class__.__name__}({args})({batch_hint_keys})")
         self.setup_args = args
         self.batch_hint_keys = batch_hint_keys
+        self.is_distilled = args.model_key.distilled
+
+        # Get checkpoint paths - same pattern for distilled and non-distilled
         if len(self.batch_hint_keys) == 1:
             # pyrefly: ignore  # bad-argument-type
-            checkpoint = MODEL_CHECKPOINTS[ModelKey(variant=self.batch_hint_keys[0])]
+            checkpoint = MODEL_CHECKPOINTS[ModelKey(variant=self.batch_hint_keys[0], distilled=self.is_distilled)]
             self.checkpoint_list = [checkpoint.path]
             self.experiment = checkpoint.experiment
         else:
-            # pyrefly: ignore  # bad-argument-type
-            self.checkpoint_list = [MODEL_CHECKPOINTS[ModelKey(variant=key)].path for key in self.batch_hint_keys]
+            # Multi-control: use checkpoints for each hint key
+
+            self.checkpoint_list = [
+                # pyrefly: ignore [bad-argument-type]
+                MODEL_CHECKPOINTS[ModelKey(variant=key, distilled=self.is_distilled)].path
+                for key in self.batch_hint_keys
+            ]
             self.experiment = "multibranch_720p_t24_spaced_layer4_cr1pt1_rectified_flow_inference"
 
         log.debug(f"Loading keys for batch hints {self.batch_hint_keys=}")
@@ -70,6 +78,7 @@ class Control2WorldInference:
             # pyrefly: ignore  # bad-argument-type
             parallel_state.initialize_model_parallel(context_parallel_size=args.context_parallel_size)
             process_group = parallel_state.get_context_parallel_group()
+            self.device_rank = distributed.get_rank(process_group)
 
         if args.enable_guardrails and self.device_rank == 0:
             self.text_guardrail_runner = guardrail_presets.create_text_guardrail_runner(
@@ -85,17 +94,40 @@ class Control2WorldInference:
             self.video_guardrail_runner = None
 
         self.benchmark_timer = misc.TrainingTimer()
-        # Initialize the inference class
+
+        # Build experiment override options and resolve registered experiment name
+        if self.is_distilled:
+            # For distilled models, experiment is already the registered exp name
+            registered_exp_name = self.experiment
+            exp_override_opts: list[str] = []
+            # Compatible with DMD2 distilled model, whose configs are specified at
+            # imaginaire4/projects/cosmos3/interactive/configs/method_configs/config_dmd2.py
+            exp_override_opts.append("model.config.load_teacher_weights=False")
+        else:
+            # For non-distilled models, look up the experiment in EXPERIMENTS to get
+            # the registered_exp_name and command_args
+            registered_exp_name = EXPERIMENTS[self.experiment].registered_exp_name
+            exp_override_opts = EXPERIMENTS[self.experiment].command_args.copy()
+
+        # Initialize the inference pipeline - same class for both distilled and non-distilled
         self.inference_pipeline = ControlVideo2WorldInference(
-            registered_exp_name=EXPERIMENTS[self.experiment].registered_exp_name,
+            # pyrefly: ignore [bad-argument-type]
+            registered_exp_name=registered_exp_name,
             checkpoint_paths=self.checkpoint_list,
             s3_credential_path="",
-            exp_override_opts=EXPERIMENTS[self.experiment].command_args,
+            exp_override_opts=exp_override_opts,
             process_group=process_group,
             use_cp_wan=args.enable_parallel_tokenizer,
             wan_cp_grid=args.parallel_tokenizer_grid,
             benchmark_timer=self.benchmark_timer if args.benchmark else None,
+            config_file=args.config_file,
         )
+
+        # For distilled models, disable net_fake_score (not needed for inference)
+        if self.is_distilled:
+            log.info("Setting net_fake_score to None for distilled model inference")
+            # pyrefly: ignore [missing-attribute, missing-attribute, missing-attribute, missing-attribute, missing-attribute, missing-attribute]
+            self.inference_pipeline.model.net_fake_score = None
 
         compile_tokenizer_if_enabled(self.inference_pipeline, args.compile_tokenizer.value)
 
@@ -130,10 +162,10 @@ class Control2WorldInference:
             log.info("=" * 50)
             log.info("BENCHMARK RESULTS")
             log.info("=" * 50)
-            log.info(f"Benchmark runs:")
+            log.info("Benchmark runs:")
             for key, value in self.benchmark_timer.results.items():
                 log.info(f"{key}: {value} seconds")
-            log.info(f"Average times:")
+            log.info("Average times:")
             for key, value in self.benchmark_timer.compute_average_results().items():
                 log.info(f"{key}: {value:.2f} seconds")
             log.info("=" * 50)
@@ -146,8 +178,12 @@ class Control2WorldInference:
         assert sample.prompt is not None
         prompt: str = sample.prompt
 
-        assert sample.negative_prompt is not None
-        negative_prompt: str = sample.negative_prompt
+        # For distilled models, negative_prompt is not needed (CFG is distilled into the model)
+        if self.is_distilled:
+            negative_prompt = None
+        else:
+            assert sample.negative_prompt is not None
+            negative_prompt = sample.negative_prompt
 
         if self.device_rank == 0:
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -169,18 +205,19 @@ class Control2WorldInference:
                     else:
                         log.success("Passed guardrail on prompt")
 
-                    if not guardrail_presets.run_text_guardrail(
-                        negative_prompt,
-                        self.text_guardrail_runner,
-                    ):
-                        message = f"Guardrail blocked generation. Negative prompt: {negative_prompt}"
-                        log.critical(message)
-                        if self.setup_args.keep_going:
-                            return None
+                    if negative_prompt is not None:
+                        if not guardrail_presets.run_text_guardrail(
+                            negative_prompt,
+                            self.text_guardrail_runner,
+                        ):
+                            message = f"Guardrail blocked generation. Negative prompt: {negative_prompt}"
+                            log.critical(message)
+                            if self.setup_args.keep_going:
+                                return None
+                            else:
+                                raise Exception(message)
                         else:
-                            raise Exception(message)
-                    else:
-                        log.success("Passed guardrail on negative prompt")
+                            log.success("Passed guardrail on negative prompt")
                 elif self.text_guardrail_runner is None:
                     log.warning("Guardrail checks on prompt are disabled")
 
@@ -200,6 +237,8 @@ class Control2WorldInference:
             torch.cuda.synchronize()
 
         with self.benchmark_timer("generate_img2world"):
+            # For distilled models, guidance is not needed (CFG is distilled into the model)
+            guidance = None if self.is_distilled else sample.guidance
             # Run model inference
             output_video, control_video_dict, mask_video_dict, fps, _ = self.inference_pipeline.generate_img2world(
                 # pyrefly: ignore  # bad-argument-type
@@ -209,7 +248,8 @@ class Control2WorldInference:
                 image_context_path=path_to_str(sample.image_context_path),
                 context_frame_idx=sample.context_frame_index,
                 max_frames=sample.max_frames,
-                guidance=sample.guidance,
+                # pyrefly: ignore [bad-argument-type]
+                guidance=guidance,
                 seed=sample.seed,
                 resolution=sample.resolution,
                 control_weight=control_weight,

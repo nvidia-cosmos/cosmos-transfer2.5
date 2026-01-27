@@ -13,11 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from pathlib import Path
 
 import pytest
 from cosmos_oss.fixtures.script import ScriptConfig, ScriptRunner, extract_bash_commands
 from cosmos_oss.fixtures.script import script_runner as script_runner
+
+MAX_GPUS = int(os.environ.get("MAX_GPUS", "8"))
 
 _CURRENT_DIR = Path(__file__).parent.absolute()
 _SCRIPT_DIR = _CURRENT_DIR / "docs_test"
@@ -34,14 +37,15 @@ SCRIPT_CONFIGS = [
     ),
     ScriptConfig(
         script="depth_tokenizer_compile.sh",
-        levels=[2],
     ),
     ScriptConfig(
         script="depth_parallel_tokenizer.sh",
-        levels=[2],
     ),
     ScriptConfig(
         script="edge.sh",
+    ),
+    ScriptConfig(
+        script="distilled_edge.sh",
     ),
     ScriptConfig(
         script="seg.sh",
@@ -54,24 +58,28 @@ SCRIPT_CONFIGS = [
     ),
     ScriptConfig(
         script="vanilla_multicontrol.sh",
-        gpus=8,
+        gpus=MAX_GPUS,
     ),
     ScriptConfig(
         script="auto_multiview.sh",
-        gpus=8,
+        gpus=MAX_GPUS,
+    ),
+    ScriptConfig(
+        script="auto_multiview_0cond.sh",
+        gpus=MAX_GPUS,
     ),
     ScriptConfig(
         script="auto_multiview_autoregressive.sh",
-        gpus=8,
-        levels=[2],
+        gpus=MAX_GPUS,
     ),
     ScriptConfig(
         script="post-training_auto_multiview.sh",
-        gpus=8,
+        gpus=MAX_GPUS,
     ),
     ScriptConfig(
         script="post-training_singleview.sh",
-        gpus=8,
+        gpus=MAX_GPUS,
+        levels=[1, 2],
     ),
 ]
 
@@ -114,7 +122,7 @@ def test_level_1(cfg: ScriptConfig, script_runner: ScriptRunner):
 @pytest.mark.parametrize(
     "cfg",
     [
-        pytest.param(cfg, id=cfg.name, marks=[pytest.mark.gpus(8), *cfg.marks])
+        pytest.param(cfg, id=cfg.name, marks=[pytest.mark.gpus(MAX_GPUS), *cfg.marks])
         for cfg in SCRIPT_CONFIGS
         if 2 in cfg.levels
     ],

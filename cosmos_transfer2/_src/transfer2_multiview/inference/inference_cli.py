@@ -13,10 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Inference script for constructing data_batch from videos, control videos (world_scenario), and captions, 
+Inference script for constructing data_batch from videos, control videos (world_scenario / depth / seg / edge / vis), and captions,
 then running transfer2_multiview model.
 
-Expected directory structure:
+
+# mads
+
+Expected directory structure for MADS dataset:
 ```
 input_root/
 ├── videos/                                    # Input video folder
@@ -64,7 +67,7 @@ input_root/
     ├── ftheta_camera_cross_left_120fov/      # or camera_cross_left_120fov/
     └── ftheta_camera_front_tele_30fov/       # or camera_front_tele_30fov/
 
-Notes:
+Notes for MADS:
 - The videos/ folder is required (input videos)
 - The world_scenario/ folder is required (control signal videos)
 - The captions/ folder is optional; if not present, a preset default driving scene description is used
@@ -72,7 +75,7 @@ Notes:
 - video_id must be consistent across all camera folders in all three directories
 - All 7 camera views must have corresponding subfolders and files
 
-Camera view to View Index mapping:
+Camera view to View Index mapping for MADS:
 - camera_front_wide_120fov: 0
 - camera_cross_right_120fov: 1
 - camera_rear_right_70fov: 2
@@ -80,9 +83,72 @@ Camera view to View Index mapping:
 - camera_rear_left_70fov: 4
 - camera_cross_left_120fov: 5
 - camera_front_tele_30fov: 6
+
+
+# agibot
+
+Expected directory structure for Agibot dataset:
+```
+input_root/
+├── videos/                                    # Input video folder
+│   ├── head_color/                           # Head-mounted camera view
+│   │   ├── video_id_1.mp4
+│   │   ├── video_id_2.mp4
+│   │   └── ...
+│   ├── hand_left/                            # Left hand camera view
+│   │   ├── video_id_1.mp4
+│   │   ├── video_id_2.mp4
+│   │   └── ...
+│   └── hand_right/                           # Right hand camera view
+│       ├── video_id_1.mp4
+│       ├── video_id_2.mp4
+│       └── ...
+│
+├── [control_folder]/                          # Control video folder (e.g., depth, seg, edge, vis)
+│   ├── head_color/                           # Head-mounted camera control
+│   │   ├── video_id_1.mp4
+│   │   ├── video_id_2.mp4
+│   │   └── ...
+│   ├── hand_left/                            # Left hand camera control
+│   │   ├── video_id_1.mp4
+│   │   ├── video_id_2.mp4
+│   │   └── ...
+│   └── hand_right/                           # Right hand camera control
+│       ├── video_id_1.mp4
+│       ├── video_id_2.mp4
+│       └── ...
+│
+└── captions/                                  # Caption folder (optional, uses default prompt if not present)
+    ├── head_color/                           # Head-mounted camera captions
+    │   ├── video_id_1.txt
+    │   ├── video_id_2.txt
+    │   └── ...
+    ├── hand_left/                            # Left hand camera captions
+    │   ├── video_id_1.txt
+    │   ├── video_id_2.txt
+    │   └── ...
+    └── hand_right/                           # Right hand camera captions
+        ├── video_id_1.txt
+        ├── video_id_2.txt
+        └── ...
+
+Notes for Agibot:
+- The videos/ folder is required (input videos)
+- The control folder is required (control signal videos) - the folder name varies based on the control type
+- The captions/ folder is optional; if not present, a default prompt is used
+- video_id must be consistent across all camera folders in all three directories
+- All 3 camera views must have corresponding subfolders and files
+- Unlike MADS, Agibot does not use the "ftheta_" prefix for camera names
+
+Camera view to View Index mapping for Agibot:
+- head_color: 0
+- hand_left: 1
+- hand_right: 2
 ```
 
 Usage:
+
+# mads
 ```bash
 EXP=transfer2p5_2b_mv_7train7_res480p_fps10_t24_frombase2p5avfinetune_mads_only_allcaption_uniform_nofps_wm_condition_i2v_and_t2v
 ckpt_path=s3://bucket/cosmos_transfer2_multiview/cosmos2p5_mv/transfer2p5_2b_mv_7train7_res480p_fps10_t24_frombase2p5avfinetune_mads_only_allcaption_uniform_nofps_wm_condition_i2v_and_t2v-0/checkpoints/iter_000010000/
@@ -114,6 +180,53 @@ PYTHONPATH=. torchrun --nproc_per_node=8 --master_port=12341 -m cosmos_transfer2
     --stack_mode grid \
     --save_each_view \
     model.config.base_load_from=null
+
+# agibot
+# depth control
+EXP=transfer2p5_2b_mv3_res720p_t24_frombase2p5_agibot_captionprefix_tni2v_depth
+ckpt_path=s3://bucket/cosmos_transfer2_multiview/cosmos2p5_mv/transfer2p5_2b_mv3_res720p_t24_frombase2p5_agibot_captionprefix_tni2v_depth-0/checkpoints/iter_000038000/
+
+# edge control
+EXP=transfer2p5_2b_mv3_res720p_t24_frombase2p5_agibot_captionprefix_tni2v_edge
+ckpt_path=s3://bucket/cosmos_transfer2_multiview/cosmos2p5_mv/transfer2p5_2b_mv3_res720p_t24_frombase2p5_agibot_captionprefix_tni2v_edge-0/checkpoints/iter_000039000/
+
+# vis control
+EXP=transfer2p5_2b_mv3_res720p_t24_frombase2p5_agibot_captionprefix_tni2v_vis
+ckpt_path=s3://bucket/cosmos_transfer2_multiview/cosmos2p5_mv/transfer2p5_2b_mv3_res720p_t24_frombase2p5_agibot_captionprefix_tni2v_vis-0/checkpoints/iter_000029000/
+
+# seg control
+EXP=transfer2p5_2b_mv3_res720p_t24_frombase2p5_agibot_captionprefix_tni2v_seg
+ckpt_path=s3://bucket/cosmos_transfer2_multiview/cosmos2p5_mv/transfer2p5_2b_mv3_res720p_t24_frombase2p5_agibot_captionprefix_tni2v_seg-0/checkpoints/iter_000026000/
+
+# image to world
+PYTHONPATH=. torchrun --nproc_per_node=8 --master_port=12341 -m cosmos_transfer2._src.transfer2_multiview.inference.inference_cli \
+    --experiment ${EXP} \
+    --ckpt_path ${ckpt_path} \
+    --context_parallel_size 8 \
+    --input_root data/agibot/qa/ \
+    --num_conditional_frames 1 \
+    --guidance 3.0 \
+    --save_root results/transfer2_multiview_720p_i2v/ \
+    --max_samples 1 --target_height 720 --target_width 1280 \
+    --stack_mode width  \
+    --dataset agibot \
+    --add_camera_prefix \
+    model.config.base_load_from=null
+
+# text to world
+PYTHONPATH=. torchrun --nproc_per_node=8 --master_port=12341 -m cosmos_transfer2._src.transfer2_multiview.inference.inference_cli \
+    --experiment ${EXP} \
+    --ckpt_path ${ckpt_path} \
+    --context_parallel_size 8 \
+    --input_root data/agibot/qa/ \
+    --num_conditional_frames 0 \
+    --guidance 3.0 \
+    --save_root results/transfer2_multiview_720p_t2v/ \
+    --max_samples 1 --target_height 720 --target_width 1280 \
+    --stack_mode width  \
+    --dataset agibot \
+    --add_camera_prefix \
+    model.config.base_load_from=null
 ```
 """
 
@@ -131,12 +244,13 @@ from cosmos_transfer2._src.predict2_multiview.scripts.mv_visualize_helper import
     arrange_video_visualization,
     save_each_view_separately,
 )
+from cosmos_transfer2._src.transfer2.datasets.augmentors.control_input import AddControlInputBlur, AddControlInputEdge
 from cosmos_transfer2._src.transfer2_multiview.inference.inference import ControlVideo2WorldInference
 
 NUM_CONDITIONAL_FRAMES_KEY = "num_conditional_frames"
 
 # Camera name to view index mapping
-CAMERA_TO_VIEW_INDEX = {
+CAMERA_TO_VIEW_INDEX_MADS = {
     "camera_front_wide_120fov": 0,
     "camera_cross_right_120fov": 1,
     "camera_rear_right_70fov": 2,
@@ -146,10 +260,20 @@ CAMERA_TO_VIEW_INDEX = {
     "camera_front_tele_30fov": 6,
 }
 
-DEFAULT_CAMERA_ORDER = list(CAMERA_TO_VIEW_INDEX.keys())
+CAMERA_TO_VIEW_INDEX_AGIBOT = {
+    "head_color": 0,
+    "hand_left": 1,
+    "hand_right": 2,
+}
+
+CAMERA_TO_VIEW_INDEX = {
+    "mads": CAMERA_TO_VIEW_INDEX_MADS,
+    "agibot": CAMERA_TO_VIEW_INDEX_AGIBOT,
+}
+
 
 # Camera-specific caption prefixes describing camera position and orientation
-CAMERA_TO_CAPTION_PREFIX = {
+CAMERA_TO_CAPTION_PREFIX_MADS = {
     "camera_front_wide_120fov": "The video is captured from a camera mounted on a car. The camera is facing forward.",
     "camera_cross_right_120fov": "The video is captured from a camera mounted on a car. The camera is facing to the right.",
     "camera_rear_right_70fov": "The video is captured from a camera mounted on a car. The camera is facing the rear right side.",
@@ -159,10 +283,20 @@ CAMERA_TO_CAPTION_PREFIX = {
     "camera_front_tele_30fov": "The video is captured from a telephoto camera mounted on a car. The camera is facing forward.",
 }
 
+CAMERA_TO_CAPTION_PREFIX_AGIBOT = {
+    "hand_left": "The video is captured from a camera mounted on the left hand of the subject.",
+    "hand_right": "The video is captured from a camera mounted on the right hand of the subject.",
+    "head_color": "The video is captured from a camera mounted on the head of the subject, facing forward.",
+}
+CAMERA_TO_CAPTION_PREFIX = {
+    "mads": CAMERA_TO_CAPTION_PREFIX_MADS,
+    "agibot": CAMERA_TO_CAPTION_PREFIX_AGIBOT,
+}
+
 DEFAULT_DRIVING_SCENE_PROMPT = """
-A clear daytime driving scene on an open road. The weather is sunny with bright natural lighting and good visibility. 
-The sky is partly cloudy with scattered white clouds. The road surface is dry and well-maintained. 
-The overall atmosphere is calm and peaceful with moderate traffic conditions. The lighting creates clear 
+A clear daytime driving scene on an open road. The weather is sunny with bright natural lighting and good visibility.
+The sky is partly cloudy with scattered white clouds. The road surface is dry and well-maintained.
+The overall atmosphere is calm and peaceful with moderate traffic conditions. The lighting creates clear
 shadows and provides excellent contrast for safe navigation."""
 
 
@@ -247,8 +381,9 @@ def load_multiview_videos(
     target_frames: int = 93,
     target_size: tuple[int, int] = (720, 1280),
     folder_name: str = "videos",
+    args: argparse.Namespace | None = None,
 ) -> th.Tensor:
-    """
+    f"""
     Load multi-view videos from a specified folder.
 
     Args:
@@ -257,11 +392,26 @@ def load_multiview_videos(
         camera_order: List of camera names in order
         target_frames: Target number of frames per view
         target_size: Target resolution (H, W)
-        folder_name: Name of the folder containing videos (e.g., "videos" or "world_scenario")
-
+        folder_name: Name of the folder containing videos (e.g., "videos" or control_folder_name)
+        args: Arguments namespace
     Returns:
         Multi-view video tensor with shape (C, V*T, H, W)
     """
+    if folder_name == "edge":
+        add_control_input = AddControlInputEdge(
+            input_keys=["video"],
+            output_keys=["control_input_edge"],
+            use_random=False,
+            preset_strength=args.preset_edge_threshold,
+        )
+        folder_name = "videos"
+    elif folder_name == "vis":
+        add_control_input = AddControlInputBlur(
+            input_keys=["video"], output_keys=["control_input_vis"], use_random=False
+        )
+        folder_name = "videos"
+    else:
+        add_control_input = None
     videos_dir = input_root / folder_name
     video_tensors = []
 
@@ -280,6 +430,9 @@ def load_multiview_videos(
 
         # Load single view video: (C, T, H, W)
         video_tensor = load_video(str(video_path), target_frames, target_size)
+        # compute on the fly for edge and blur (vis)
+        if add_control_input is not None:
+            video_tensor = add_control_input({"video": video_tensor})[add_control_input.output_keys[0]]
         video_tensors.append(video_tensor)
 
     # Concatenate all views: (C, V*T, H, W)
@@ -289,7 +442,11 @@ def load_multiview_videos(
 
 
 def load_multiview_captions(
-    input_root: Path, video_id: str, camera_order: list[str], add_camera_prefix: bool = True
+    input_root: Path,
+    video_id: str,
+    camera_order: list[str],
+    add_camera_prefix: bool = True,
+    camera_to_caption_prefix: dict[str, str] = CAMERA_TO_CAPTION_PREFIX_MADS,
 ) -> list[str]:
     """
     Load multi-view captions. Uses default prompt if captions directory does not exist.
@@ -299,7 +456,7 @@ def load_multiview_captions(
         video_id: Video ID (filename without extension)
         camera_order: List of camera names in order
         add_camera_prefix: Whether to add camera-specific prefix to captions
-
+        camera_to_caption_prefix: Dictionary mapping camera names to caption prefixes
     Returns:
         List of captions, one per view
     """
@@ -332,8 +489,8 @@ def load_multiview_captions(
             caption = f.read().strip()
 
         # Add camera-specific prefix if enabled
-        if add_camera_prefix and camera in CAMERA_TO_CAPTION_PREFIX:
-            caption = f"{CAMERA_TO_CAPTION_PREFIX[camera]} {caption}"
+        if add_camera_prefix and camera in camera_to_caption_prefix:
+            caption = f"{camera_to_caption_prefix[camera]} {caption}"
 
         captions.append(caption)
 
@@ -348,6 +505,8 @@ def construct_data_batch(
     num_conditional_frames: int = 1,
     fps: float = 10.0,
     target_frames_per_view: int = 93,
+    camera_to_view_index: dict[str, int] = CAMERA_TO_VIEW_INDEX_MADS,
+    hint_keys: str = "hdmap_bbox",
 ) -> dict:
     """
     Construct data_batch for model inference.
@@ -360,7 +519,8 @@ def construct_data_batch(
         num_conditional_frames: Number of conditional frames
         fps: Frames per second
         target_frames_per_view: Number of frames per view
-
+        camera_to_view_index: Dictionary mapping camera names to view indices
+        hint_keys: Keys for the control input
     Returns:
         data_batch dictionary
     """
@@ -376,13 +536,13 @@ def construct_data_batch(
     # Each view's T frames all use that view's corresponding view index
     view_indices_list = []
     for camera in camera_order:
-        view_idx = CAMERA_TO_VIEW_INDEX[camera]
+        view_idx = camera_to_view_index[camera]
         view_indices_list.extend([view_idx] * T)
     view_indices = th.tensor(view_indices_list, dtype=th.int64).unsqueeze(0)  # (1, V*T)
 
     # Construct view_indices_selection: view indices of cameras in camera_order
     view_indices_selection = th.tensor(
-        [CAMERA_TO_VIEW_INDEX[camera] for camera in camera_order], dtype=th.int64
+        [camera_to_view_index[camera] for camera in camera_order], dtype=th.int64
     ).unsqueeze(0)  # (1, n_views)
 
     # Find position of front_wide_120fov in camera_order as ref_cam_view_idx_sample_position
@@ -393,7 +553,7 @@ def construct_data_batch(
     # Construct data_batch
     data_batch = {
         "video": multiview_video,
-        "control_input_hdmap_bbox": control_video,
+        f"control_input_{hint_keys}": control_video,
         "ai_caption": [captions],
         "view_indices": view_indices,  # (1, V*T), using correct view index
         "fps": th.tensor([fps], dtype=th.float64),
@@ -444,14 +604,13 @@ def parse_arguments() -> argparse.Namespace:
         default=True,
         help="Use default negative prompt for additional guidance.",
     )
-    parser.add_argument("--distillation", type=str, default="", help="Distillation type.", choices=["", "dmd2"])
     parser.add_argument("--control_weight", type=float, default=1.0, help="Control weight")
     # Input/output
     parser.add_argument(
         "--input_root",
         type=str,
         required=True,
-        help="Input root directory containing videos/, world_scenario/, and captions/ subdirectories",
+        help="Input root directory containing videos/, {control_folder_name}/, and captions/ subdirectories",
     )
     parser.add_argument("--save_root", type=str, default="results/transfer2_multiview_cli/", help="Save root")
     parser.add_argument("--max_samples", type=int, default=5, help="Maximum number of samples to generate")
@@ -499,6 +658,14 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--use_cuda_graphs", action="store_true", help="Use CUDA Graphs for the inference.")
     parser.add_argument("--hierarchical_cp", action="store_true", help="Use hierarchical CP algorithm (a2a + p2p)")
+    parser.add_argument("--dataset", type=str, default="mads", choices=["mads", "agibot"], help="Dataset")
+    parser.add_argument(
+        "--preset_edge_threshold",
+        type=str,
+        default="medium",
+        choices=["very_low", "low", "medium", "high", "very_high"],
+        help="Preset strength for the canny edge detection",
+    )
     # Experiment options
     parser.add_argument(
         "opts",
@@ -522,6 +689,8 @@ def main():
 
     args = parse_arguments()
 
+    camera_to_view_index = CAMERA_TO_VIEW_INDEX[args.dataset]
+    DEFAULT_CAMERA_ORDER = list(camera_to_view_index.keys())
     # Prepare experiment options
     experiment_opts = list(args.opts) if args.opts else []
     if args.use_cuda_graphs:
@@ -545,18 +714,18 @@ def main():
     if args.context_parallel_size > 1:
         rank0 = distributed.get_rank() == 0
 
-    # Create output directory
-    os.makedirs(args.save_root, exist_ok=True)
-
     input_root = Path(args.input_root)
     videos_dir = input_root / "videos"
-    world_scenario_dir = input_root / "world_scenario"
+    hint_keys = vid2world_cli.config.model.config.hint_keys
+    control_folder_name = "world_scenario" if args.dataset == "mads" else hint_keys
+
+    # Create output directory
+    save_root = f"{args.save_root}/{hint_keys}"
+    os.makedirs(save_root, exist_ok=True)
 
     # Verify required directories exist
     if not videos_dir.exists():
         raise FileNotFoundError(f"Videos directory not found: {videos_dir}")
-    if not world_scenario_dir.exists():
-        raise FileNotFoundError(f"World scenario directory not found: {world_scenario_dir}")
 
     # Get all video IDs (from first camera directory)
     if (videos_dir / f"ftheta_{DEFAULT_CAMERA_ORDER[0]}").exists():
@@ -582,25 +751,31 @@ def main():
                 target_frames=args.target_frames,
                 target_size=(args.target_height, args.target_width),
                 folder_name="videos",
+                args=args,
             )
             if rank0:
                 log.info(f"Loaded input multiview video: {multiview_video.shape}")
 
-            # Load multi-view control videos (world_scenario)
+            # Load multi-view control videos ({control_folder_name})
             control_video = load_multiview_videos(
                 input_root,
                 video_id,
                 DEFAULT_CAMERA_ORDER,
                 target_frames=args.target_frames,
                 target_size=(args.target_height, args.target_width),
-                folder_name="world_scenario",
+                folder_name=control_folder_name,
+                args=args,
             )
             if rank0:
-                log.info(f"Loaded control video (world_scenario): {control_video.shape}")
+                log.info(f"Loaded control video ({control_folder_name}): {control_video.shape}")
 
             # Load multi-view captions
             captions = load_multiview_captions(
-                input_root, video_id, DEFAULT_CAMERA_ORDER, add_camera_prefix=args.add_camera_prefix
+                input_root,
+                video_id,
+                DEFAULT_CAMERA_ORDER,
+                add_camera_prefix=args.add_camera_prefix,
+                camera_to_caption_prefix=CAMERA_TO_CAPTION_PREFIX[args.dataset],
             )
 
             if rank0:
@@ -616,6 +791,8 @@ def main():
                 num_conditional_frames=args.num_conditional_frames,
                 fps=args.fps,
                 target_frames_per_view=args.target_frames,
+                camera_to_view_index=camera_to_view_index,
+                hint_keys=hint_keys,
             )
 
             # Add control weight
@@ -639,7 +816,6 @@ def main():
                     chunk_size=vid2world_cli.model.tokenizer.get_pixel_num_frames(vid2world_cli.model.config.state_t),
                     chunk_overlap=args.chunk_overlap,
                     use_negative_prompt=args.use_negative_prompt,
-                    distillation=args.distillation,
                 )
 
                 th.cuda.synchronize()
@@ -656,17 +832,17 @@ def main():
                 control_arranged = arrange_video_visualization(control, data_batch, method=args.stack_mode)
 
                 if rank0:
-                    video_path = f"{args.save_root}/inference_{video_id}_video"
+                    video_path = f"{save_root}/inference_{video_id}_video"
                     save_img_or_video(video_arranged[0], video_path, fps=args.fps)
                     log.info(f"Saved video to {video_path}")
 
-                    video_path = f"{args.save_root}/inference_{video_id}_control"
+                    video_path = f"{save_root}/inference_{video_id}_control"
                     save_img_or_video(control_arranged[0], video_path, fps=args.fps)
                     log.info(f"Saved control to {video_path}")
 
                     # Save each view separately if requested (only generated video, not control)
                     if args.save_each_view:
-                        save_dir = f"{args.save_root}/inference_{video_id}"
+                        save_dir = f"{save_root}/inference_{video_id}"
                         save_each_view_separately(
                             mv_video=video[0],
                             data_batch=data_batch,
@@ -677,7 +853,7 @@ def main():
             else:
                 # Extract control video from data_batch for saving
                 control_video = (
-                    data_batch["control_input_hdmap_bbox"].float() / 255.0
+                    data_batch[f"control_input_{hint_keys}"].float() / 255.0
                 ).cpu()  # (1, 3, V*T, H, W), convert to [0,1]
 
                 # Use single-shot generation
@@ -687,26 +863,29 @@ def main():
                     seed=args.seed + i,
                     num_steps=args.num_steps,
                     use_negative_prompt=args.use_negative_prompt,
-                    distillation=args.distillation,
                 ).cpu()
 
                 # Apply visualization layout
-                video_arranged = arrange_video_visualization(video, data_batch, method=args.stack_mode)
-                control_arranged = arrange_video_visualization(control_video, data_batch, method=args.stack_mode)
+                video_arranged = arrange_video_visualization(
+                    video, data_batch, method=args.stack_mode, dataset=args.dataset
+                )
+                control_arranged = arrange_video_visualization(
+                    control_video, data_batch, method=args.stack_mode, dataset=args.dataset
+                )
 
                 # Save results
                 if rank0:
-                    video_path = f"{args.save_root}/inference_{video_id}_video"
+                    video_path = f"{save_root}/inference_{video_id}_video"
                     save_img_or_video(video_arranged[0], video_path, fps=args.fps)
                     log.info(f"Saved video to {video_path}")
 
-                    video_path = f"{args.save_root}/inference_{video_id}_control"
+                    video_path = f"{save_root}/inference_{video_id}_control"
                     save_img_or_video(control_arranged[0], video_path, fps=args.fps)
                     log.info(f"Saved control to {video_path}")
 
                     # Save each view separately if requested (only generated video, not control)
                     if args.save_each_view:
-                        save_dir = f"{args.save_root}/inference_{video_id}"
+                        save_dir = f"{save_root}/inference_{video_id}"
                         save_each_view_separately(
                             mv_video=video[0],
                             data_batch=data_batch,
