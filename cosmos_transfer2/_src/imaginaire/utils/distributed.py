@@ -46,6 +46,58 @@ except ImportError:
     print("Megatron-core is not installed.")
 
 
+def _load_libcudart():
+    """Load libcudart.so from various possible locations.
+
+    This function searches for the CUDA runtime library in multiple paths to handle
+    different installation scenarios (standard CUDA install, PyTorch bundled, Docker
+    containers with runtime-only CUDA, etc.).
+
+    Returns:
+        ctypes.CDLL: The loaded libcudart library, or None if not found.
+    """
+    import glob
+
+    # List of possible paths to search for libcudart.so
+    search_paths = [
+        # Direct name (relies on LD_LIBRARY_PATH)
+        "libcudart.so",
+        # Standard CUDA installation paths
+        "/usr/local/cuda/lib64/libcudart.so",
+        "/usr/local/cuda/lib/libcudart.so",
+        # Common system paths
+        "/usr/lib/x86_64-linux-gnu/libcudart.so",
+        "/usr/lib64/libcudart.so",
+    ]
+
+    # Try to find libcudart from PyTorch installation
+    try:
+        import torch
+
+        torch_lib_path = os.path.join(os.path.dirname(torch.__file__), "lib")
+        if os.path.exists(torch_lib_path):
+            # Look for versioned libcudart files
+            cudart_files = glob.glob(os.path.join(torch_lib_path, "libcudart.so*"))
+            search_paths.extend(cudart_files)
+    except Exception:
+        pass
+
+    # Also search for versioned files in standard CUDA paths
+    for cuda_path in ["/usr/local/cuda/lib64", "/usr/local/cuda/lib"]:
+        if os.path.exists(cuda_path):
+            cudart_files = glob.glob(os.path.join(cuda_path, "libcudart.so*"))
+            search_paths.extend(cudart_files)
+
+    # Try each path
+    for path in search_paths:
+        try:
+            return ctypes.CDLL(path)
+        except OSError:
+            continue
+
+    return None
+
+
 def init() -> int | None:
     """Initialize distributed training."""
     if dist.is_initialized():
@@ -74,11 +126,14 @@ def init() -> int | None:
             rank0_only=False,
         )
     # Increase the L2 fetch granularity for faster speed.
-    _libcudart = ctypes.CDLL("libcudart.so")
-    # Set device limit on the current device.
-    p_value = ctypes.cast((ctypes.c_int * 1)(), ctypes.POINTER(ctypes.c_int))
-    _libcudart.cudaDeviceSetLimit(ctypes.c_int(0x05), ctypes.c_int(128))
-    _libcudart.cudaDeviceGetLimit(p_value, ctypes.c_int(0x05))
+    _libcudart = _load_libcudart()
+    if _libcudart is not None:
+        # Set device limit on the current device.
+        p_value = ctypes.cast((ctypes.c_int * 1)(), ctypes.POINTER(ctypes.c_int))
+        _libcudart.cudaDeviceSetLimit(ctypes.c_int(0x05), ctypes.c_int(128))
+        _libcudart.cudaDeviceGetLimit(p_value, ctypes.c_int(0x05))
+    else:
+        log.warning("Could not load libcudart.so, skipping L2 cache optimization.")
     log.info(f"Training with {get_world_size()} GPUs.")
 
 
