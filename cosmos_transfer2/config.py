@@ -36,6 +36,7 @@ from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_
 register_checkpoints()
 
 
+
 @cache
 def is_rank0() -> bool:
     return os.environ.get("RANK", "0") == "0"
