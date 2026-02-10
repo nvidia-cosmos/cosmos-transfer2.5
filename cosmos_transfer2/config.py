@@ -505,6 +505,15 @@ class InferenceArguments(CommonInferenceArguments):
     prompt: str
     """Text prompt describing generation. Only one of {prompt} or {prompt_path} should be provided. """
 
+    guided_generation_mask: ResolvedFilePath | ResolvedDirectoryPath | None = None
+    """ Path to guided generation mask. If None, guided generation is not used.
+    """
+    guided_generation_step_threshold: int = 25
+    """ Step threshold for guided generation. """
+    guided_generation_foreground_labels: list[int] | None = None
+    """ List of label indices to treat as foreground in the mask. If None, any non-zero value is treated as foreground. 
+    """
+
     @cached_property
     def hint_keys(self) -> list[str]:
         return [key for key in CONTROL_KEYS if getattr(self, key, None) is not None]
