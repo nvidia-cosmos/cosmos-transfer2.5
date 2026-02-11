@@ -75,20 +75,20 @@ def video_to_frames(input_loc, output_loc):
         # Extract the frame
         ret, frame = cap.read()
         if not ret:
-            continue
+            break
         # Write the results back to output location.
         cv2.imwrite(output_loc + "/%#05d.jpg" % (count + 1), frame)
         count = count + 1
         # If there are no more frames left
         if count > (video_length - 1):
-            # Log the time again
-            time_end = time.time()
-            # Release the feed
-            cap.release()
-            # Print stats
-            print("Done extracting frames.\n%d frames extracted" % count)
-            print("It took %d seconds forconversion." % (time_end - time_start))
             break
+    # Log the time again
+    time_end = time.time()
+    # Release the feed
+    cap.release()
+    # Print stats
+    print("Done extracting frames.\n%d frames extracted" % count)
+    print("It took %d seconds for conversion." % (time_end - time_start))
 
 
 # Function to generate video
