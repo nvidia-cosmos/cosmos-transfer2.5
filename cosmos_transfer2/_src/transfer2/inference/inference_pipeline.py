@@ -19,9 +19,9 @@ import random
 import time
 from typing import Optional, Union
 
-import torch
 import cv2
 import numpy as np
+import torch
 
 from cosmos_transfer2._src.imaginaire.flags import INTERNAL
 from cosmos_transfer2._src.imaginaire.utils import distributed, log, misc
@@ -41,8 +41,8 @@ from cosmos_transfer2._src.transfer2.inference.utils import (
     read_and_process_control_input,
     read_and_process_image_context,
     read_and_process_video,
-    resize_video,
     reshape_output_video_to_input_resolution,
+    resize_video,
     uint8_to_normalized_float,
 )
 
@@ -308,69 +308,81 @@ class ControlVideo2WorldInference:
                 raise ValueError(f"Invalid padding mode: {padding_mode}")
         return input_frames
 
-    def _read_guided_generation_mask(self, 
-        input_path: str, 
+    def _read_guided_generation_mask(
+        self,
+        input_path: str,
         foreground_labels: list[int] | None = None,
-        h: int = 704, 
-        w: int = 1280, 
+        h: int = 704,
+        w: int = 1280,
         interpolation: int = cv2.INTER_LINEAR,
+        resolution: str = "720",
+        max_frames: int = -1,
     ) -> torch.Tensor:
         """
         Read guided generation mask from path.
         """
-        frames = np.load(input_path)
-        if "arr_0" in frames:
-            frames = frames["arr_0"]
+        if str(input_path).endswith(".mp4"):
+            control_input, _, _, _ = read_and_process_video(
+                str(input_path), resolution=resolution, max_frames=max_frames
+            )
+            guided_generation_mask = control_input.float() / 255.0  # BCTHW, range [0, 1]
+        elif str(input_path).endswith(".npz"):
+            frames = np.load(input_path)
+            if "arr_0" in frames:
+                frames = frames["arr_0"]
+            else:
+                raise ValueError(f"Unknown video mask format: {input_path} npz file does not contain 'arr_0'")
+
+            if foreground_labels is not None:
+                frames[~np.isin(frames, foreground_labels)] = 0
+
+            frames[frames > 0] = 255
+            frames = np.stack([frames, frames, frames], axis=0)[None]
+            control_input = resize_video(
+                frames.astype(np.float32), h, w, interpolation=interpolation
+            )  # BCTHW, range [0, 255]
+            guided_generation_mask = torch.from_numpy(control_input).float() / 255.0  # BCTHW, range [0, 1]
         else:
-            raise ValueError(f"Unknown video mask format: {input_path}")
+            raise ValueError(f"Unknown video mask format: {input_path} not a mp4 or npz file")
 
-        if foreground_labels is not None:
-            frames[~np.isin(frames, foreground_labels)] = 0
-
-        frames[frames>0] = 255
-        log.debug(f"video mask frames shape: {frames.shape}")
-        frames = np.stack([frames, frames, frames], axis=0)[None]
-        log.debug(f"original video mask frames: {frames.shape}")
-        control_input = resize_video(frames.astype(np.float32), h, w, interpolation=interpolation)  # BCTHW, range [0, 255]
-        guided_generation_mask = (torch.from_numpy(control_input).float()/255.0) # BCTHW, range [0, 1]
         log.debug(f"resized video mask frames: {guided_generation_mask.shape}")
 
         return guided_generation_mask
 
-    def construct_latent_weight_map(self, 
-        guided_generation_mask: torch.Tensor, 
-        h: int = 704, 
-        w: int = 1280, 
-        t: int = 16,
+    def construct_latent_weight_map(
+        self,
+        guided_generation_mask: torch.Tensor,
+        h: int = 704,
+        w: int = 1280,
+        c: int = 16,
     ) -> torch.Tensor:
         """
-         Construct latent weight map from guided generation mask.
+        Construct latent weight map from guided generation mask.
         """
         if guided_generation_mask.shape[1] == 6:
             raise NotImplementedError("Not implemented for guided generation")
 
         elif guided_generation_mask.shape[1] == 3:
             weight_map_i = [
+                torch.nn.functional.interpolate(
+                    guided_generation_mask[:, :1, :1, :, :],
+                    size=(1, h, w),
+                    mode="trilinear",
+                    align_corners=False,
+                )
+            ]
+            for wi in range(1, guided_generation_mask.shape[2], 4):
+                weight_map_i += [
                     torch.nn.functional.interpolate(
-                        guided_generation_mask[:, :1, :1, :, :],
+                        guided_generation_mask[:, :1, wi : wi + 4],
                         size=(1, h, w),
                         mode="trilinear",
                         align_corners=False,
                     )
                 ]
-            for wi in range(1, control_input.shape[2], 4):
-                weight_map_i += [
-                   torch.nn.functional.interpolate(
-                       control_input[:, :1, wi : wi + 4],
-                       size=(1, h, w),
-                       mode="trilinear",
-                       align_corners=False,
-                                   )
-               ]
-            weight_map = torch.cat(weight_map_i, dim=2).repeat(1, 16, 1, 1, 1)
-      
-        return weight_map
+            weight_map = torch.cat(weight_map_i, dim=2).repeat(1, c, 1, 1, 1)
 
+        return weight_map
 
     @torch.no_grad()
     def generate_img2world(
@@ -437,8 +449,14 @@ class ControlVideo2WorldInference:
             raise ValueError("Input video is empty")
 
         if guided_generation_mask is not None:
-            guided_generation_mask = self._read_guided_generation_mask(guided_generation_mask,
-            h=input_frames.shape[2], w=input_frames.shape[3]).squeeze(0)
+            guided_generation_mask = self._read_guided_generation_mask(
+                guided_generation_mask,
+                h=input_frames.shape[2],
+                w=input_frames.shape[3],
+                foreground_labels=guided_generation_foreground_labels,
+                resolution=resolution,
+                max_frames=max_frames,
+            ).squeeze(0)
 
         # Get text context embeddings
         log.info("Computing prompt text embeddings...")
@@ -491,9 +509,8 @@ class ControlVideo2WorldInference:
             input_frames = self._pad_input_frames(input_frames, num_total_frames, num_video_frames_per_chunk)
             if guided_generation_mask is not None:
                 guided_generation_mask = self._pad_input_frames(
-                    guided_generation_mask, 
-                    num_total_frames, 
-                    num_video_frames_per_chunk)
+                    guided_generation_mask, num_total_frames, num_video_frames_per_chunk
+                )
             all_chunks, time_per_chunk = [], []
             # Initialize control_video_dict to accumulate control inputs across chunks
             control_video_dict = {}
@@ -524,25 +541,25 @@ class ControlVideo2WorldInference:
                             non_blocking=True
                         )
                         x0 = self.model.encode(x0).contiguous()
-                        x_sigma_max = self.model.get_x_from_clean(x0, sigma_max, seed=(seed + chunk_id))
+                        if sigma_max is not None:
+                            x_sigma_max = self.model.get_x_from_clean(x0, sigma_max, seed=(seed + chunk_id))
 
                         if guided_generation_mask is not None:
-                            _, _, T, H, W = x0.shape
+                            _, C, T, H, W = x0.shape
                             cur_guided_generation_mask = guided_generation_mask[:, chunk_start_frame:chunk_end_frame]
                             cur_guided_generation_mask = self._pad_input_frames(
-                                cur_guided_generation_mask, cur_guided_generation_mask.shape[1], num_video_frames_per_chunk
+                                cur_guided_generation_mask,
+                                cur_guided_generation_mask.shape[1],
+                                num_video_frames_per_chunk,
                             )
                             x_sigma_mask = self.construct_latent_weight_map(
-                            cur_guided_generation_mask.unsqueeze(0),  h=H, w=W, t=T).cuda(
-                                non_blocking=True
-                            )
+                                cur_guided_generation_mask.unsqueeze(0), h=H, w=W, c=C
+                            ).cuda(non_blocking=True)
                             x0_spatial_condition = {
-                                    "x0": x0,
-                                    "x_sigma_mask": x_sigma_mask,
-                                    "step_threshold": guided_generation_step_threshold,
-                                }
-
-
+                                "x0": x0,
+                                "x_sigma_mask": x_sigma_mask,
+                                "step_threshold": guided_generation_step_threshold,
+                            }
 
                 if isinstance(text_embeddings, list):
                     text_emb_idx = min(chunk_id, len(text_embeddings) - 1)
@@ -585,6 +602,8 @@ class ControlVideo2WorldInference:
                     data_batch[NUM_CONDITIONAL_FRAMES_KEY] = (
                         1 + (num_conditional_frames - 1) // 4
                     )  # tokenizer temporal compression is 4x
+                if guided_generation_mask is not None:
+                    data_batch["x0_spatial_condition"] = x0_spatial_condition
 
                 random.seed(seed)
                 seed = random.randint(0, 1000000)
@@ -599,7 +618,6 @@ class ControlVideo2WorldInference:
                     x_sigma_max=x_sigma_max,
                     sigma_max=sigma_max,
                     num_steps=num_steps,
-                    x0_spatial_condition=x0_spatial_condition,
                 )
                 video = self.model.decode(sample).cpu()  # Shape: (1, C, T, H, W)
 

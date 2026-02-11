@@ -184,10 +184,10 @@ class Control2WorldInference:
         else:
             assert sample.negative_prompt is not None
             negative_prompt = sample.negative_prompt
-        
-        guided_generation_mask: str = sample.guided_generation_mask
-        guided_generation_step_threshold: int = sample.guided_generation_step_threshold
-        guided_generation_foreground_labels: list[int] | None = sample.guided_generation_foreground_labels
+
+        guided_generation_mask = sample.guided_generation_mask
+        guided_generation_step_threshold = sample.guided_generation_step_threshold
+        guided_generation_foreground_labels = sample.guided_generation_foreground_labels
 
         if self.device_rank == 0:
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -270,6 +270,7 @@ class Control2WorldInference:
                 num_conditional_frames=sample.num_conditional_frames,
                 num_video_frames_per_chunk=sample.num_video_frames_per_chunk,
                 num_steps=sample.num_steps,
+                # pyrefly: ignore  # bad-argument-type
                 guided_generation_mask=guided_generation_mask,
                 guided_generation_step_threshold=guided_generation_step_threshold,
                 guided_generation_foreground_labels=guided_generation_foreground_labels,

@@ -20,6 +20,7 @@ import attrs
 import torch
 import torch.distributed.checkpoint as dcp
 import torch.nn as nn
+import tqdm
 from einops import rearrange
 from megatron.core import parallel_state
 from torch import Tensor
@@ -29,7 +30,12 @@ from torch.distributed.checkpoint.default_planner import DefaultLoadPlanner
 from cosmos_transfer2._src.imaginaire.checkpointer.s3_filesystem import S3StorageReader
 from cosmos_transfer2._src.imaginaire.flags import INTERNAL
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyDict
-from cosmos_transfer2._src.imaginaire.utils import log
+from cosmos_transfer2._src.imaginaire.utils import log, misc
+from cosmos_transfer2._src.imaginaire.utils.context_parallel import (
+    broadcast_split_tensor,
+    cat_outputs_cp,
+    find_split,
+)
 from cosmos_transfer2._src.imaginaire.utils.distributed import get_rank, get_world_size
 from cosmos_transfer2._src.imaginaire.utils.easy_io import easy_io
 from cosmos_transfer2._src.predict2.checkpointer.dcp import ModelWrapper
@@ -206,28 +212,6 @@ class ControlVideo2WorldModelRectifiedFlow(Video2WorldModelRectifiedFlow):
                 zero_latent_state = torch.zeros_like(latent_state).to(**self.tensor_kwargs)
             latent_control_input.append(zero_latent_state)
         return latent_control_input
-    
-    def broadcast_x0_spatial_condition(self, x0_spatial_condition: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        """
-        Broadcast x0_spatial_condition tensor for model parallelism.
-        """
-        cp_group = self.get_context_parallel_group()
-        x0 = x0_spatial_condition["x0"]
-        x_sigma_mask = x0_spatial_condition["x_sigma_mask"]
-        # Handle x0_spatial_condition tensor broadcasting
-        if cp_group is not None:
-            if x0.dim() == 5:  # B, C, T, H, W
-                _, _, T, _, _ = x0.shape
-                if T > 1 and cp_group.size() > 1:
-                    x0 = broadcast_split_tensor(
-                        x0, seq_dim=2, process_group=cp_group
-                    )
-                    x_sigma_mask = broadcast_split_tensor(
-                        x_sigma_mask, seq_dim=2, process_group=cp_group
-                    )
-        x0_spatial_condition["x0"] = x0
-        x0_spatial_condition["x_sigma_mask"] = x_sigma_mask
-        return x0_spatial_condition
 
     def denoise(self, noise: torch.Tensor, xt_B_C_T_H_W: torch.Tensor, timesteps_B_T: torch.Tensor, condition):
         """
@@ -341,7 +325,7 @@ class ControlVideo2WorldModelRectifiedFlow(Video2WorldModelRectifiedFlow):
             return velocity_pred
 
         return velocity_fn
-    
+
     @torch.no_grad()
     def generate_samples_from_batch(
         self,
@@ -426,13 +410,15 @@ class ControlVideo2WorldModelRectifiedFlow(Video2WorldModelRectifiedFlow):
             if x0_spatial_condition is not None:
                 x0 = broadcast_split_tensor(x0, seq_dim=2, process_group=self.get_context_parallel_group())
                 x_sigma_mask = broadcast_split_tensor(
-                    x_sigma_mask, seq_dim=2, process_group=self.get_context_parallel_group())
+                    x_sigma_mask, seq_dim=2, process_group=self.get_context_parallel_group()
+                )
             if use_spatial_split:
                 noise = rearrange(noise, "b c (t h w) -> b c t h w", t=after_split_shape[0], h=after_split_shape[1])
                 if x0_spatial_condition is not None:
                     x0 = rearrange(x0, "b c (t h w) -> b c t h w", t=after_split_shape[0], h=after_split_shape[1])
                     x_sigma_mask = rearrange(
-                        x_sigma_mask, "b c (t h w) -> b c t h w", t=after_split_shape[0], h=after_split_shape[1])
+                        x_sigma_mask, "b c (t h w) -> b c t h w", t=after_split_shape[0], h=after_split_shape[1]
+                    )
 
         latents = noise
 
@@ -448,8 +434,8 @@ class ControlVideo2WorldModelRectifiedFlow(Video2WorldModelRectifiedFlow):
             timestep = torch.stack(timestep)
             if x0_spatial_condition is not None and num_step <= step_threshold:
                 sigma = sigmas[num_step]
-                cur_x0 = x0 * (1-sigma) + noise * sigma
-                latent_model_input = cur_x0 * x_sigma_mask + latent_model_input * (1 - x_sigma_mask)  
+                cur_x0 = x0 * (1 - sigma) + noise * sigma
+                latent_model_input = cur_x0 * x_sigma_mask + latent_model_input * (1 - x_sigma_mask)
                 if get_rank() == 0:
                     log.debug(f"denoising with guided generation at step {num_step}")
 
