@@ -105,13 +105,13 @@ Parameters can be specified as json:
   </tr>
   <tr>
     <td valign="middle" width="33%">
-      <video src="https://developer.download.nvidia.cn/assets/Clara/i4h/cosmos_tutorials/humanoid_input.mp4" width="100%" controls></video>
+      <video src="https://github.com/user-attachments/assets/9fb7f172-97a9-4ab1-92e6-cf4ba1b6656f" width="100%" controls></video>
     </td>
     <td valign="middle" width="33%">
-      <video src="https://developer.download.nvidia.cn/assets/Clara/i4h/cosmos_tutorials/humanoid_seg.mp4" width="100%" controls></video>
+      <video src="https://github.com/user-attachments/assets/55ebd525-6226-4dfd-9219-956e33f988e1" width="100%" controls></video>
     </td>
     <td valign="middle" width="33%">
-      <video src="https://developer.download.nvidia.cn/assets/Clara/i4h/cosmos_tutorials/humanoid_guided_mask.mp4" width="100%" controls></video>
+      <video src="https://github.com/user-attachments/assets/7caf916b-59ea-490e-a63a-484dd29cbdbe" width="100%" controls></video>
     </td>
   </tr>
 </table>
@@ -123,7 +123,7 @@ Parameters can be specified as json:
   </tr>
   <tr>
     <td valign="middle" width="60%">
-      <video src="https://developer.download.nvidia.cn/assets/Clara/i4h/cosmos_tutorials/humanoid_seg_guided_ouput.mp4" width="60%" controls></video>
+      <video src="https://github.com/user-attachments/assets/7ee3e5ff-1b36-47ee-99e2-45c77041f555" width="60%" controls></video>
     </td>
   </tr>
 </table>
