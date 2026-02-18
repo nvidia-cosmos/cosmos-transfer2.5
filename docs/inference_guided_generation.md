@@ -1,17 +1,17 @@
 # Cosmos-Transfer2.5-2B: World Generation with Guided Generation
-This guide provides instructions on running inference with guided generation. The Guided generation enables domain 
-randomization by transferring simulation videos to realistic-looking footage while maintaining structural consistency 
-through various control inputs, without any additional model training. Instead of allowing the model to 
-freely reinterpret the entire scene, we encode simulation frames into the model’s latent space and apply spatial 
-constraints during the denoising process. This selectively anchors important regions—such as surgical tools, robotic 
-arms, or human phantoms—while leaving the rest of the scene unconstrained. As a result, the model can enhance 
-global realism (lighting, textures, background complexity) while preserving the geometric structure and 
+This guide provides instructions on running inference with guided generation. The Guided generation enables domain
+randomization by transferring simulation videos to realistic-looking footage while maintaining structural consistency
+through various control inputs, without any additional model training. Instead of allowing the model to
+freely reinterpret the entire scene, we encode simulation frames into the model’s latent space and apply spatial
+constraints during the denoising process. This selectively anchors important regions—such as surgical tools, robotic
+arms, or human phantoms—while leaving the rest of the scene unconstrained. As a result, the model can enhance
+global realism (lighting, textures, background complexity) while preserving the geometric structure and
 identity of critical foreground elements.
 
 ### Pre-requisites
 Follow the [Setup guide](setup.md) for environment setup, checkpoint download and hardware requirements.
 
-## Inference with Pre-trained Cosmos-Transfer2.5 Models
+## Guided Generation Inference with Pre-trained Cosmos-Transfer2.5 Models
 
 Individual control variants can be run on a single GPU:
 ```bash
@@ -55,7 +55,7 @@ Parameters can be specified as json:
     // Path to the binary mask video indicating the foreground elements for guided generation
     "guided_generation_mask": "assets/humanoid_example/humanoid_guided_mask.mp4",
 
-    // Number of steps for guided generation. Using more guidance steps provides stronger guidance of foreground 
+    // Number of steps for guided generation. Using more guidance steps provides stronger guidance of foreground
     // elements in the generated videos. By default, 25 steps are used for guided generation.
     "guided_generation_step_threshold": 25,
 
@@ -128,3 +128,43 @@ Parameters can be specified as json:
   </tr>
 </table>
 
+## Image-to-Image
+
+We also provide an Image-to-Image example parameter file:
+
+```bash
+python examples/inference.py -i assets/image_example/image2image_guided.json -o outputs/image2image_guided
+```
+
+### Example Input
+
+<table>
+  <tr>
+    <th>Input Image</th>
+    <th>Input Edge Control</th>
+    <th>Guided Generation Mask</th>
+  </tr>
+  <tr>
+    <td valign="middle" width="33%">
+      <image src="https://github.com/user-attachments/assets/31a836d1-2dcc-4b3f-bb88-e6320b62c9c2" width="100%" controls></image>
+    </td>
+    <td valign="middle" width="33%">
+      <image src="https://github.com/user-attachments/assets/1a8f526d-baa8-4b53-b2fe-f203f75c56c0" width="100%" controls></image>
+    </td>
+    <td valign="middle" width="33%">
+      <image src="https://github.com/user-attachments/assets/1272086d-504a-426c-9ebb-a890ea12cbe5" width="100%" controls></image>
+    </td>
+  </tr>
+</table>
+
+### Example Output
+<table>
+  <tr>
+    <th>Output Image</th>
+  </tr>
+  <tr>
+    <td valign="middle" width="60%">
+      <image src="https://github.com/user-attachments/assets/36e66752-5492-47d7-9c0e-28c725c53cc7" width="60%" controls></image>
+    </td>
+  </tr>
+</table>

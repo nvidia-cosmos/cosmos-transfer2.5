@@ -316,24 +316,43 @@ class ControlVideo2WorldInference:
         w: int = 1280,
         interpolation: int = cv2.INTER_LINEAR,
         resolution: str = "720",
-        max_frames: int = -1,
+        max_frames: int | None = None,
     ) -> torch.Tensor:
         """
         Read guided generation mask from path.
+        Args:
+            input_path (str): Path to guided generation mask. Must be a mp4 or npz file. If a npz file, it must contain
+                an 'arr_0' key with shape (T, H, W).
+            foreground_labels (list[int], optional): List of label indices to treat as foreground in the mask.
+                If None, any non-zero value is treated as foreground. Must be provided and not empty if provided. It is
+                effective only when npz file is used for the input_path.
+            h (int, optional): Height of the guided generation mask. Defaults to 704.
+            w (int, optional): Width of the guided generation mask. Defaults to 1280.
+            interpolation (int, optional): Interpolation method to use for resizing the guided generation mask. Defaults
+                to cv2.INTER_LINEAR.
+            resolution (str, optional): Resolution of the guided generation mask. Defaults to "720".
+            max_frames (int, optional): Maximum number of frames to read from the guided generation mask. Defaults to
+                None. If provided, only the first max_frames frames will be read from the file.
+        Returns:
+            torch.Tensor: Guided generation mask tensor (BCTHW, range [0, 1]).
         """
         if str(input_path).endswith(".mp4"):
             control_input, _, _, _ = read_and_process_video(
                 str(input_path), resolution=resolution, max_frames=max_frames
             )
             guided_generation_mask = control_input.float() / 255.0  # BCTHW, range [0, 1]
+            if foreground_labels is not None:
+                log.warning("foreground_labels is ignored for mp4 format")
         elif str(input_path).endswith(".npz"):
             frames = np.load(input_path)
             if "arr_0" in frames:
-                frames = frames["arr_0"]
+                frames = frames["arr_0"][:max_frames] if max_frames is not None else frames["arr_0"]
             else:
                 raise ValueError(f"Unknown video mask format: {input_path} npz file does not contain 'arr_0'")
 
             if foreground_labels is not None:
+                assert len(foreground_labels) > 0, "foreground_labels must be provided and not empty"
+                # set any labels not in foreground_labels to 0
                 frames[~np.isin(frames, foreground_labels)] = 0
 
             frames[frames > 0] = 255
@@ -358,29 +377,35 @@ class ControlVideo2WorldInference:
     ) -> torch.Tensor:
         """
         Construct latent weight map from guided generation mask.
+        Args:
+            guided_generation_mask (torch.Tensor): Guided generation mask tensor (B, 3, T, H, W).
+            h (int, optional): Height of the latent weight map. Defaults to 704.
+            w (int, optional): Width of the latent weight map. Defaults to 1280.
+            c (int, optional): Number of channels of the latent weight map. Defaults to 16.
+        Returns:
+            torch.Tensor: Latent weight map tensor (B, c, T, H, W).
         """
-        if guided_generation_mask.shape[1] == 6:
-            raise NotImplementedError("Not implemented for guided generation")
+        assert guided_generation_mask.shape[1] == 3, f"guided_generation_mask must have 3 channels,"
+        f"but got {guided_generation_mask.shape[1]}."
 
-        elif guided_generation_mask.shape[1] == 3:
-            weight_map_i = [
+        weight_map_i = [
+            torch.nn.functional.interpolate(
+                guided_generation_mask[:, :1, :1, :, :],
+                size=(1, h, w),
+                mode="trilinear",
+                align_corners=False,
+            )
+        ]
+        for wi in range(1, guided_generation_mask.shape[2], 4):
+            weight_map_i += [
                 torch.nn.functional.interpolate(
-                    guided_generation_mask[:, :1, :1, :, :],
+                    guided_generation_mask[:, :1, wi : wi + 4],
                     size=(1, h, w),
                     mode="trilinear",
                     align_corners=False,
                 )
             ]
-            for wi in range(1, guided_generation_mask.shape[2], 4):
-                weight_map_i += [
-                    torch.nn.functional.interpolate(
-                        guided_generation_mask[:, :1, wi : wi + 4],
-                        size=(1, h, w),
-                        mode="trilinear",
-                        align_corners=False,
-                    )
-                ]
-            weight_map = torch.cat(weight_map_i, dim=2).repeat(1, c, 1, 1, 1)
+        weight_map = torch.cat(weight_map_i, dim=2).repeat(1, c, 1, 1, 1)
 
         return weight_map
 
