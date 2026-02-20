@@ -1404,7 +1404,7 @@ requires-dist = [
     { name = "pyrefly", marker = "extra == 'dev'", specifier = "==0.39.2" },
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.1" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.2.1" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pytest-custom-exit-code", marker = "extra == 'dev'", specifier = ">=0.3.0" },
     { name = "pytest-env", marker = "extra == 'dev'", specifier = ">=1.1.5" },
     { name = "pytest-instafail", marker = "extra == 'dev'", specifier = ">=0.5.0" },

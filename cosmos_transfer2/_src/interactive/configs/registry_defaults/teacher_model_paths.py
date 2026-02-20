@@ -89,3 +89,17 @@ TRANSFER2_DEPTH_TEACHER_CKPT_2B_RELEASE = dict(
     load_path="s3://bucket/cosmos_transfer2/vid2vid_2B_control/depth_720p_t24_spaced_layer4_cr1pt1_sdev2_lowsigma0.05_nonuniform_hqv4p1_20250823_64N_rectified_flow/checkpoints/iter_000028000/model",
     credentials="credentials/s3_checkpoint.secret",
 )
+
+# ================================================
+# Action-conditioned Predict2.5 2B released checkpoints
+# ================================================
+ACTION_CONDITIONED_TEACHER_CKPT_2B_256X320 = dict(
+    load_path="s3://bucket/cosmos_predict2_action_conditioned/action_conditional/cosmos_predict2p5_2B_reason_embeddings_action_conditioned_rectified_flow_bridge_13frame_256x320/checkpoints/iter_000016000/model",
+    credentials="credentials/s3_checkpoint.secret",
+)
+
+# (Not publicly released) Action-conditioned model on GR1 dataset
+ACTION_CONDITIONED_TEACHER_CKPT_2B_GROOT1 = dict(
+    load_path="s3://bucket/cosmos_predict2_action_conditioned/action_conditional/cosmos_predict2p5_2B_action_conditioned_gr00t_gr1_customized_13frame_full_16nodes/checkpoints/iter_000014000/model",
+    credentials="credentials/s3_checkpoint.secret",
+)

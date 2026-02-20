@@ -362,6 +362,7 @@ _SHARED_CONFIG_AV["control_input_hdmap_bbox"] = L(ReMapkey)(
     dtype=None,
 )
 
+
 VideoPredictionControlConditioner: LazyDict = L(ControlVideo2WorldConditioner)(
     **_SHARED_CONFIG,
 )

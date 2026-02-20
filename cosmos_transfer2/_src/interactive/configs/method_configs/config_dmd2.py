@@ -62,6 +62,7 @@ class DMD2Config(Cosmos2InteractiveModelConfig):
     net_fake_score: LazyDict | None = None
     net_teacher: LazyDict | None = None
     teacher_load_from: LazyDict | None = None
+    student_load_from: LazyDict | None = None
 
     # ---------------- Optimizers ----------------
     optimizer_discriminator_config: LazyDict = L(get_base_optimizer)(

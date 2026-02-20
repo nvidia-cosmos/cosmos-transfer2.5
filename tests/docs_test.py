@@ -20,6 +20,8 @@ import pytest
 from cosmos_oss.fixtures.script import ScriptConfig, ScriptRunner, extract_bash_commands
 from cosmos_oss.fixtures.script import script_runner as script_runner
 
+from cosmos_transfer2._src.imaginaire.flags import EXPERIMENTAL_CHECKPOINTS
+
 MAX_GPUS = int(os.environ.get("MAX_GPUS", "8"))
 
 _CURRENT_DIR = Path(__file__).parent.absolute()
@@ -29,7 +31,18 @@ _DOCS_DIR = _CURRENT_DIR.parent / "docs"
 INFERENCE_DOCS = sorted([f.name for f in _DOCS_DIR.glob("inference*.md")])
 POSTTRAINING_DOCS = sorted([f.name for f in _DOCS_DIR.glob("post-training_*.md")])
 
-DOCS_CONFIG = [ScriptConfig(script=doc) for doc in INFERENCE_DOCS]
+# Docs that require experimental checkpoints
+EXPERIMENTAL_DOCS = {"inference_plenoptic.md"}
+
+DOCS_CONFIG = [
+    ScriptConfig(
+        script=doc,
+        marks=[pytest.mark.skipif(not EXPERIMENTAL_CHECKPOINTS, reason="Requires EXPERIMENTAL_CHECKPOINTS")]
+        if doc in EXPERIMENTAL_DOCS
+        else [],
+    )
+    for doc in INFERENCE_DOCS
+]
 
 SCRIPT_CONFIGS = [
     ScriptConfig(
@@ -73,13 +86,64 @@ SCRIPT_CONFIGS = [
         gpus=MAX_GPUS,
     ),
     ScriptConfig(
+        script="robot_multiview_agibot_depth.sh",
+        gpus=MAX_GPUS,
+        levels=[1, 2],  # Requires 4+ GPUs, skip level 0
+    ),
+    ScriptConfig(
+        script="robot_multiview_agibot_edge.sh",
+        gpus=MAX_GPUS,
+        levels=[1, 2],  # Requires 4+ GPUs, skip level 0
+    ),
+    ScriptConfig(
+        script="robot_multiview_agibot_vis.sh",
+        gpus=MAX_GPUS,
+        levels=[1, 2],  # Requires 4+ GPUs, skip level 0
+    ),
+    ScriptConfig(
+        script="robot_multiview_agibot_seg.sh",
+        gpus=MAX_GPUS,
+        levels=[1, 2],  # Requires 4+ GPUs, skip level 0
+    ),
+    ScriptConfig(
         script="post-training_auto_multiview.sh",
         gpus=MAX_GPUS,
     ),
     ScriptConfig(
         script="post-training_singleview.sh",
         gpus=MAX_GPUS,
-        levels=[1, 2],
+    ),
+    ScriptConfig(
+        script="post-training_agibot_multiview.sh",
+        gpus=MAX_GPUS,
+        levels=[1, 2],  # Requires 4+ GPUs (context parallelism), skip level 0
+    ),
+    ScriptConfig(
+        script="plenoptic.sh",
+        gpus=MAX_GPUS,
+        levels=[1],
+        marks=[pytest.mark.skipif(not EXPERIMENTAL_CHECKPOINTS, reason="Requires EXPERIMENTAL_CHECKPOINTS")],
+    ),
+    ScriptConfig(
+        script="plenoptic_batch.sh",
+        gpus=MAX_GPUS,
+        levels=[2],
+        marks=[pytest.mark.skipif(not EXPERIMENTAL_CHECKPOINTS, reason="Requires EXPERIMENTAL_CHECKPOINTS")],
+    ),
+]
+
+DOC_CONFIGS = [
+    ScriptConfig(
+        script="inference.md",
+    ),
+    ScriptConfig(
+        script="inference_auto_multiview.md",
+    ),
+    ScriptConfig(
+        script="inference_image.md",
+    ),
+    ScriptConfig(
+        script="inference_robot_multiview_control.md",
     ),
 ]
 
@@ -93,12 +157,12 @@ def test_level_0(cfg: ScriptConfig, script_runner: ScriptRunner):
     script_runner.run(f"{_SCRIPT_DIR}/{cfg.script}", script_runner.env_level_0)
 
 
-@pytest.mark.level(0)
+@pytest.mark.level(2)
 @pytest.mark.gpus(1)
 @pytest.mark.parametrize(
-    "cfg", [pytest.param(cfg, id=cfg.name, marks=cfg.marks) for cfg in DOCS_CONFIG if 0 in cfg.levels]
+    "cfg", [pytest.param(cfg, id=cfg.name, marks=cfg.marks) for cfg in DOC_CONFIGS if 0 in cfg.levels]
 )
-def test_docs(cfg: ScriptConfig, script_runner: ScriptRunner, tmp_path: Path):
+def test_doc(cfg: ScriptConfig, script_runner: ScriptRunner, tmp_path: Path):
     """Test individual doc commands."""
     md_path = _DOCS_DIR / cfg.script
     script_path = generate_script_from_doc(md_path, tmp_path)

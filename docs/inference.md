@@ -30,6 +30,8 @@ The following table shows generation times(*) across different NVIDIA GPU hardwa
 
 ## Inference with Pre-trained Cosmos-Transfer2.5 Models
 
+**For more detailed guidance about the control modalities and examples, checkout our Cosmos Cookbook [Control-Modalities](https://nvidia-cosmos.github.io/cosmos-cookbook/core_concepts/control_modalities/overview.html) recipe.**
+
 Individual control variants can be run on a single GPU:
 ```bash
 python examples/inference.py -i assets/robot_example/depth/robot_depth_spec.json -o outputs/depth
@@ -49,6 +51,7 @@ We provide example parameter files for each individual control variant along wit
 | Segmentation | `assets/robot_example/seg/robot_seg_spec.json` |
 | Blur | `assets/robot_example/vis/robot_vis_spec.json` |
 | Multi-control | `assets/robot_example/multicontrol/robot_multicontrol_spec.json` |
+| Distilled/Edge | `assets/robot_example/distilled/edge/robot_edge_spec.json`   |
 
 For an explanation of all the available parameters run:
 ```bash
@@ -118,6 +121,38 @@ If you would like the control inputs to only be used for some regions, you can d
         "control_weight": 0.5
     }
 }
+```
+
+If you would like to run inference with distilled model, we need 2 changes on top of Transfer 2.5 inference: (1) specify the sampling steps `num_steps` in the JSON file (or `--num-steps` in the CLI), where the distilled model is trained with 4 sampling steps; (2) specify `--model=edge/distilled` in the inference command. Note that the distilled model is intended for short videos (strictly 93 sampled frames).
+
+Example json file for edge distilled Transfer 2.5 model:
+```jsonc
+{
+    "name": "robot_edge",
+    "prompt_path": "/path/to/prompt/robot_prompt.txt",
+    "video_path": "/path/to/input/robot_input.mp4",
+    "guidance": 3,
+    "num_steps": 4,
+    "edge": {
+        "control_path": "/path/to/edge/robot_edge.mp4",
+        "control_weight": 1.0
+    }
+}
+```
+
+Example command to run edge distilled Transfer 2.5 inference:
+```
+# 8 GPUs
+torchrun --nproc_per_node=8 --master_port=12341 examples/inference.py \
+    -i assets/robot_example/distilled/edge/robot_edge_spec.json \
+    -o outputs/distilled/edge \
+    --model=edge/distilled
+
+# 1 GPU
+python examples/inference.py \
+    -i assets/robot_example/distilled/edge/robot_edge_spec.json \
+    -o outputs/distilled/edge \
+    --model=edge/distilled
 ```
 
 ## Outputs

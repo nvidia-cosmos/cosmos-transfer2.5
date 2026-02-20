@@ -143,6 +143,7 @@ def get_executor(
     user: Optional[str] = None,
     extra_env_vars: Optional[dict] = None,
     user_fp: Optional[str] = None,
+    account: Optional[str] = None,
 ):
     import launcher
 
@@ -177,7 +178,7 @@ def get_executor(
         IMAGINAIRE_OUTPUT_ROOT=os.path.join(user_fp, "imaginaire4-output"),
         IMAGINAIRE_CACHE_DIR=os.path.join(user_fp, "imaginaire4-cache"),
         TORCH_HOME=os.path.join(user_fp, "imaginaire4-cache"),
-        ENABLE_ONELOGGER="True" if cluster == "aws" else "False",
+        ENABLE_ONELOGGER=os.environ.get("ENABLE_ONELOGGER", "True" if cluster == "aws" else "False"),
         **extra_env_vars,
     )
 
@@ -188,7 +189,7 @@ def get_executor(
             docker_image=docker_image,
             cluster=CLUSTERS[cluster.lower()]["cluster_name"],
             partition=partition,
-            account=CLUSTERS[cluster.lower()]["account"],
+            account=account if account else CLUSTERS[cluster.lower()]["account"],
             num_gpus=8,
             num_nodes=nnode,
             exclude_nodes=CLUSTERS[cluster.lower()]["exclude_nodes"],

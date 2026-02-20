@@ -143,3 +143,4 @@ For detailed training examples and configuration options, see:
 
 - [Control2World Post-Training for Single View](./post-training_singleview.md)
 - [Control2World Post-Training for HDMap Multiview](./post-training_auto_multiview.md)
+- [Agibot 3-View (head_color, hand_left, hand_right) Post-Training](./post-training_agibot_multiview.md)
