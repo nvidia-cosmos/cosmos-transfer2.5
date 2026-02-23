@@ -85,6 +85,7 @@ class Cosmos2InteractiveModelConfig:
     condition_postprocessor: LazyDict | None = None
 
     # ---------------- misc ----------------
+    use_neg_prompt_str: bool = False
     neg_embed_path: str = ""
     neg_prompt_str: str = (
         "The video captures a game playing, with bad crappy graphics and cartoonish frames. "

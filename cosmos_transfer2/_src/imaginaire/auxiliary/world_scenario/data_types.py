@@ -368,6 +368,7 @@ class DynamicObject:
 
         # Interpolation within range
         idx = np.searchsorted(self.timestamps, timestamp)
+        idx = max(idx, 1)  # when idx is 0, force it to 1 for interpolation logic below
 
         t0, t1 = self.timestamps[idx - 1], self.timestamps[idx]
         alpha = (timestamp - t0) / (t1 - t0) if t1 != t0 else 0.0

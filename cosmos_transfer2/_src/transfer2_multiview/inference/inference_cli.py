@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Inference script for constructing data_batch from videos, control videos (world_scenario / depth / seg / edge / vis), and captions,
+Inference script for constructing data_batch from videos, control videos (world_scenario / depth / seg / edge / vis), and captions (recommended),
 then running transfer2_multiview model.
 
 
@@ -52,7 +52,7 @@ input_root/
 │   ├── ftheta_camera_cross_left_120fov/      # or camera_cross_left_120fov/
 │   └── ftheta_camera_front_tele_30fov/       # or camera_front_tele_30fov/
 │
-└── captions/                                  # Caption folder (optional, uses default prompt if not present)
+└── captions/                                  # Caption folder (recommended, uses default prompt if not present)
     ├── ftheta_camera_front_wide_120fov/      # or camera_front_wide_120fov/
     │   ├── video_id_1.txt
     │   ├── video_id_2.txt
@@ -70,7 +70,7 @@ input_root/
 Notes for MADS:
 - The videos/ folder is required (input videos)
 - The world_scenario/ folder is required (control signal videos)
-- The captions/ folder is optional; if not present, a preset default driving scene description is used
+- The captions/ folder is recommended for best quality; if not present, a preset default driving scene description is used
 - Each camera's subfolder name supports two formats: "ftheta_{camera_name}" or "{camera_name}"
 - video_id must be consistent across all camera folders in all three directories
 - All 7 camera views must have corresponding subfolders and files
@@ -118,7 +118,7 @@ input_root/
 │       ├── video_id_2.mp4
 │       └── ...
 │
-└── captions/                                  # Caption folder (optional, uses default prompt if not present)
+└── captions/                                  # Caption folder (recommended, uses default prompt if not present)
     ├── head_color/                           # Head-mounted camera captions
     │   ├── video_id_1.txt
     │   ├── video_id_2.txt
@@ -203,7 +203,7 @@ PYTHONPATH=. torchrun --nproc_per_node=8 --master_port=12341 -m cosmos_transfer2
     --experiment ${EXP} \
     --ckpt_path ${ckpt_path} \
     --context_parallel_size 8 \
-    --input_root data/agibot/qa/ \
+    --input_root /project/cosmos/fangyinw/data/agibot/qa/ \
     --num_conditional_frames 1 \
     --guidance 3.0 \
     --save_root results/transfer2_multiview_720p_i2v/ \
@@ -218,7 +218,7 @@ PYTHONPATH=. torchrun --nproc_per_node=8 --master_port=12341 -m cosmos_transfer2
     --experiment ${EXP} \
     --ckpt_path ${ckpt_path} \
     --context_parallel_size 8 \
-    --input_root data/agibot/qa/ \
+    --input_root /project/cosmos/fangyinw/data/agibot/qa/ \
     --num_conditional_frames 0 \
     --guidance 3.0 \
     --save_root results/transfer2_multiview_720p_t2v/ \
@@ -407,7 +407,10 @@ def load_multiview_videos(
         folder_name = "videos"
     elif folder_name == "vis":
         add_control_input = AddControlInputBlur(
-            input_keys=["video"], output_keys=["control_input_vis"], use_random=False
+            input_keys=["video"],
+            output_keys=["control_input_vis"],
+            use_random=False,
+            downup_preset=args.preset_blur_strength,
         )
         folder_name = "videos"
     else:
@@ -451,6 +454,9 @@ def load_multiview_captions(
     """
     Load multi-view captions. Uses default prompt if captions directory does not exist.
 
+    Note: Captions are strongly recommended for best results as the model was trained with
+    meaningful text descriptions. If not provided, a generic fallback is used.
+
     Args:
         input_root: Input root directory
         video_id: Video ID (filename without extension)
@@ -462,10 +468,11 @@ def load_multiview_captions(
     """
     captions_dir = input_root / "captions"
 
-    # If captions directory does not exist, use default prompt
+    # If captions directory does not exist, use default prompt (not recommended for best quality)
     if not captions_dir.exists():
         log.warning(
-            f"Captions directory not found: {captions_dir}. Using default driving scene prompt for all cameras."
+            f"Captions directory not found: {captions_dir}. Using default driving scene prompt for all cameras. "
+            f"For best results, provide meaningful captions."
         )
         return [DEFAULT_DRIVING_SCENE_PROMPT] * len(camera_order)
 
@@ -571,6 +578,362 @@ def construct_data_batch(
     }
 
     return data_batch
+
+
+# New helper function to load multiview videos from direct camera paths
+def load_multiview_videos_from_paths(
+    camera_paths: dict[str, Path],
+    camera_order: list[str],
+    target_frames: int = 93,
+    target_size: tuple[int, int] = (720, 1280),
+    is_control: bool = False,
+    control_type: str | None = None,
+    args: object | None = None,
+) -> th.Tensor:
+    """
+    Load multi-view videos from direct camera paths.
+
+    Args:
+        camera_paths: Dictionary mapping camera names to video file paths
+        camera_order: List of camera names in order
+        target_frames: Target number of frames per view
+        target_size: Target resolution (H, W)
+        is_control: Whether these are control videos
+        control_type: Type of control (edge, vis, depth, seg) - only used if is_control=True
+        args: Arguments namespace for control generation (edge/vis)
+
+    Returns:
+        Multi-view video tensor with shape (C, V*T, H, W)
+    """
+    # Setup control generators if needed
+    add_control_input = None
+    if is_control and control_type in ["edge", "vis"]:
+        if control_type == "edge":
+            from cosmos_transfer2._src.transfer2.datasets.augmentors.control_input import AddControlInputEdge
+
+            add_control_input = AddControlInputEdge(
+                input_keys=["video"],
+                output_keys=["control_input_edge"],
+                use_random=False,
+                preset_strength=args.preset_edge_threshold if args else "medium",
+            )
+        elif control_type == "vis":
+            from cosmos_transfer2._src.transfer2.datasets.augmentors.control_input import AddControlInputBlur
+
+            add_control_input = AddControlInputBlur(
+                input_keys=["video"],
+                output_keys=["control_input_vis"],
+                use_random=False,
+                downup_preset=args.preset_blur_strength if args else "medium",
+            )
+
+    video_tensors = []
+    for camera in camera_order:
+        video_path = camera_paths[camera]
+
+        if video_path is None:
+            if is_control and control_type in ["edge", "vis"]:
+                # Will be computed from input video
+                continue
+            else:
+                raise ValueError(f"Missing video path for camera: {camera}")
+
+        if not video_path.exists():
+            raise FileNotFoundError(f"Video not found: {video_path}")
+
+        # Load single view video: (C, T, H, W)
+        video_tensor = load_video(str(video_path), target_frames, target_size)
+
+        # Compute control on-the-fly for edge/vis
+        if add_control_input is not None:
+            result = add_control_input({"video": video_tensor})
+            if control_type == "edge":
+                video_tensor = result["control_input_edge"]
+            elif control_type == "vis":
+                video_tensor = result["control_input_vis"]
+
+        video_tensors.append(video_tensor)
+
+    # Stack all views: (C, V*T, H, W)
+    multiview_video = th.cat(video_tensors, dim=1)
+    return multiview_video
+
+
+def generate_multiview_control_video(
+    vid2world_cli: "ControlVideo2WorldInference",
+    camera_order: list[str],
+    camera_to_view_index: dict[str, int],
+    camera_to_caption_prefix: dict[str, str],
+    control_type: str,
+    target_frames: int,
+    target_size: tuple[int, int],
+    num_conditional_frames: int,
+    fps: float,
+    preset_edge_threshold: str,
+    preset_blur_strength: str,
+    add_camera_prefix: bool,
+    guidance: float,
+    seed: int,
+    num_steps: int,
+    use_negative_prompt: bool,
+    control_weight: float = 1.0,
+    enable_autoregressive: bool = False,
+    chunk_overlap: int = 1,
+    # New parameters for direct path-based loading (for agibot)
+    camera_input_paths: dict[str, Path | None] | None = None,
+    camera_control_paths: dict[str, Path | None] | None = None,
+    # Old parameters for video_id-based loading (backward compatibility)
+    input_root: Path | None = None,
+    video_id: str | None = None,
+    # Caption loading parameters
+    prompt_override: str | None = None,
+    input_root_for_captions: Path | None = None,
+) -> tuple[th.Tensor, dict]:
+    """
+    High-level API to generate control-conditioned multiview video.
+
+    This function wraps the complete inference pipeline into a single call:
+    1. Load multiview input videos
+    2. Load multiview control videos (or generate on-the-fly for edge/vis)
+    3. Load multiview captions
+    4. Construct data batch
+    5. Run inference
+
+    This provides a clean interface similar to Video2WorldInference.generate_vid2world()
+    for control-conditioned models.
+
+    Args:
+        vid2world_cli: ControlVideo2WorldInference instance
+        input_root: Root directory containing videos/, captions/ folders
+        video_id: Video ID (filename without extension)
+        camera_order: List of camera names in order
+        camera_to_view_index: Dictionary mapping camera names to view indices
+        camera_to_caption_prefix: Dictionary mapping camera names to caption prefixes
+        control_type: Control type (depth, edge, vis, seg)
+        target_frames: Number of frames per view (chunk size for autoregressive mode)
+        target_size: (height, width) tuple
+        num_conditional_frames: Number of conditional frames
+        fps: Frames per second
+        preset_edge_threshold: Edge detection threshold preset ("very_low", "low", "medium", "high", "very_high")
+        preset_blur_strength: Blur strength preset ("very_low", "low", "medium", "high", "very_high")
+        add_camera_prefix: Whether to add camera-specific prefix to captions
+        guidance: Classifier-free guidance scale
+        seed: Random seed
+        num_steps: Number of diffusion steps
+        use_negative_prompt: Whether to use negative prompt
+        control_weight: Control signal weight (default 1.0)
+        enable_autoregressive: Enable autoregressive generation for longer videos (default False)
+        chunk_overlap: Number of overlapping frames between chunks in autoregressive mode (default 1)
+
+    Returns:
+        Tuple of (generated_video, data_batch)
+        - generated_video: Generated video tensor on CPU with shape (1, C, V*T, H, W)
+        - data_batch: Data batch dictionary used for inference
+    """
+
+    # Create args namespace for control generators (edge/vis)
+    class Args:
+        pass
+
+    args = Args()
+    args.preset_edge_threshold = preset_edge_threshold
+    args.preset_blur_strength = preset_blur_strength
+
+    # Determine which loading mode to use
+    if camera_input_paths is not None:
+        # New path-based loading mode (for agibot)
+
+        # For edge/vis controls, pass input video paths (control computed on-the-fly)
+        # For depth/seg controls, use the provided control paths
+        if control_type in ["edge", "vis"]:
+            control_paths_to_use = camera_input_paths  # Will generate control from input
+        else:
+            if camera_control_paths is None:
+                raise ValueError(f"camera_control_paths required for control_type='{control_type}'")
+            control_paths_to_use = camera_control_paths
+
+        # T2V optimization: if num_conditional_frames=0 and control type is depth/seg,
+        # input videos are optional - use control videos as mock input
+        if num_conditional_frames == 0 and control_type in ["depth", "seg"]:
+            # Check if input paths are actually provided
+            has_input_paths = all(
+                camera_input_paths.get(cam) is not None and Path(camera_input_paths[cam]).exists()
+                for cam in camera_order
+            )
+            if not has_input_paths:
+                log.info(
+                    f"T2V mode with {control_type} control: using control videos as mock input "
+                    f"(input videos not provided or not found)"
+                )
+                camera_input_paths = control_paths_to_use
+
+        multiview_video = load_multiview_videos_from_paths(
+            camera_paths=camera_input_paths,
+            camera_order=camera_order,
+            target_frames=target_frames,
+            target_size=target_size,
+            is_control=False,
+            control_type=None,
+            args=args,
+        )
+
+        control_video = load_multiview_videos_from_paths(
+            camera_paths=control_paths_to_use,
+            camera_order=camera_order,
+            target_frames=target_frames,
+            target_size=target_size,
+            is_control=True,
+            control_type=control_type,
+            args=args,
+        )
+
+        # For path-based mode, handle captions with priority:
+        # 1. prompt_override (if provided)
+        # 2. caption files (if input_root_for_captions provided)
+        # 3. camera prefix (fallback)
+        if prompt_override:
+            # Use the override prompt for all cameras
+            captions = [prompt_override] * len(camera_order)
+        elif input_root_for_captions is not None:
+            # Try to load captions from files
+            # Derive video_id from the first input path (assume all cameras have same base name)
+            first_input_path = camera_input_paths[camera_order[0]]
+            # Extract video_id: remove camera suffix and file extension
+            # e.g., "296_656371_chunk0_head_color_rgb.mp4" -> "296_656371_chunk0"
+            video_id_from_path = first_input_path.stem
+            for cam in camera_order:
+                # Remove camera-specific suffix (e.g., "_head_color_rgb", "_hand_left_rgb")
+                video_id_from_path = video_id_from_path.replace(f"_{cam}_rgb", "").replace(f"_{cam}", "")
+
+            captions_dir = input_root_for_captions / "captions"
+            if captions_dir.exists():
+                captions = []
+                for camera in camera_order:
+                    caption_path = captions_dir / f"{video_id_from_path}_{camera}.txt"
+                    if caption_path.exists():
+                        with open(caption_path, "r", encoding="utf-8") as f:
+                            caption = f.read().strip()
+                        # Add camera-specific prefix if enabled
+                        if add_camera_prefix and camera in camera_to_caption_prefix:
+                            caption = f"{camera_to_caption_prefix[camera]} {caption}"
+                        captions.append(caption)
+                    else:
+                        # Caption file not found, use camera prefix as fallback
+                        if add_camera_prefix:
+                            captions.append(f"{camera_to_caption_prefix[camera]} ")
+                        else:
+                            captions.append("")
+                        log.warning(f"Caption file not found: {caption_path}. Using camera prefix as fallback.")
+            else:
+                # Captions directory doesn't exist, use camera prefix
+                log.warning(
+                    f"Captions directory not found: {captions_dir}. Using camera prefix as fallback. "
+                    f"For best results, provide captions."
+                )
+                if add_camera_prefix:
+                    captions = [f"{camera_to_caption_prefix[cam]} " for cam in camera_order]
+                else:
+                    captions = [""] * len(camera_order)
+        else:
+            # No prompt override or caption loading - use camera prefix only
+            if add_camera_prefix:
+                captions = [f"{camera_to_caption_prefix[cam]} " for cam in camera_order]
+            else:
+                captions = [""] * len(camera_order)
+    else:
+        # Old video_id-based loading mode (backward compatibility)
+        if input_root is None or video_id is None:
+            raise ValueError(
+                "Either (camera_input_paths, camera_control_paths) or (input_root, video_id) must be provided"
+            )
+
+        # Load multiview input videos (C, V*T, H, W)
+        multiview_video = load_multiview_videos(
+            input_root=input_root,
+            video_id=video_id,
+            camera_order=camera_order,
+            target_frames=target_frames,
+            target_size=target_size,
+            folder_name="videos",
+            args=args,
+        )
+
+        # Load multiview control videos (C, V*T, H, W)
+        # For edge/vis: generated on-the-fly from input videos
+        # For depth/seg: loaded from disk
+        control_video = load_multiview_videos(
+            input_root=input_root,
+            video_id=video_id,
+            camera_order=camera_order,
+            target_frames=target_frames,
+            target_size=target_size,
+            folder_name=control_type,
+            args=args,
+        )
+
+        # Load multiview captions
+        captions = load_multiview_captions(
+            input_root=input_root,
+            video_id=video_id,
+            camera_order=camera_order,
+            add_camera_prefix=add_camera_prefix,
+            camera_to_caption_prefix=camera_to_caption_prefix,
+        )
+
+    # Construct data batch
+    data_batch = construct_data_batch(
+        multiview_video=multiview_video,
+        control_video=control_video,
+        captions=captions,
+        camera_order=camera_order,
+        num_conditional_frames=num_conditional_frames,
+        fps=fps,
+        target_frames_per_view=target_frames,
+        camera_to_view_index=camera_to_view_index,
+        hint_keys=control_type,
+    )
+
+    # Add control weight
+    data_batch["control_weight"] = control_weight
+
+    # Run inference
+    if enable_autoregressive:
+        # Get chunk size from model config
+        chunk_size = vid2world_cli.model.tokenizer.get_pixel_num_frames(vid2world_cli.model.config.state_t)
+        n_views = len(camera_order)
+
+        # Get hint_keys (control type) from model config or use control_type
+        hint_keys = getattr(vid2world_cli.config.model.config, "hint_keys", control_type)
+
+        # Remove num_conditional_frames from batch - it should be passed as an argument
+        # to generate_autoregressive_from_batch, not included in the batch
+        if "num_conditional_frames" in data_batch:
+            del data_batch["num_conditional_frames"]
+
+        video, control = vid2world_cli.generate_autoregressive_from_batch(
+            data_batch,
+            n_views=n_views,
+            chunk_overlap=chunk_overlap,
+            chunk_size=chunk_size,
+            guidance=guidance,
+            seed=seed,
+            num_conditional_frames=num_conditional_frames,
+            num_steps=num_steps,
+            use_negative_prompt=use_negative_prompt,
+            hint_keys=hint_keys,
+        )
+        # Add batch dimension for consistency with non-autoregressive path
+        video = video.unsqueeze(0).cpu()
+    else:
+        video = vid2world_cli.generate_from_batch(
+            data_batch,
+            guidance=guidance,
+            seed=seed,
+            num_steps=num_steps,
+            use_negative_prompt=use_negative_prompt,
+        ).cpu()
+
+    return video, data_batch
 
 
 def parse_arguments() -> argparse.Namespace:

@@ -27,6 +27,7 @@ from hydra.core.config_store import ConfigStore  # type: ignore[import]
 
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyDict
 from cosmos_transfer2._src.interactive.configs.registry_defaults.teacher_model_paths import (
+    ACTION_CONDITIONED_TEACHER_CKPT_2B_256X320,
     TEACHER_CKPT_720_T24_CR1PT1_PRETRAINED_RF_RELEASE,
     TEACHER_CKPT_720_T24_CR1PT1_RL_RELEASE_14B,
 )
@@ -40,6 +41,7 @@ from cosmos_transfer2._src.predict2.text_encoders.text_encoder import EmbeddingC
 def make_experiment(
     name: str,
     dataset_name: str | None = None,
+    data_train: str = "image_cosmos_pretrain_and_synthetic_20250520_video_cosmos_pretrainvideo_20250806_dedup_accumulated_and_high_quality_v3_202505_s3",
     model: str = "fsdp_dmd2_model_trigflow",
     net: str = "cosmos_v1_2B_student",
     net_teacher: str = "cosmos_v1_2B_teacher",
@@ -56,9 +58,7 @@ def make_experiment(
         {"/net_teacher@model.config.net_teacher": net_teacher},
         {"/net_fake_score@model.config.net_fake_score": net_fake_score},
         {"/net_discriminator_head@model.config.net_discriminator_head": net_discriminator_head},
-        {
-            "override /data_train": "image_cosmos_pretrain_and_synthetic_20250520_video_cosmos_pretrainvideo_20250806_dedup_accumulated_and_high_quality_v3_202505_s3"
-        },
+        {"override /data_train": data_train},
         {"override /conditioner": conditioner},
         {"override /condition_postprocessor": condition_postprocessor},
         {"override /ckpt_type": "dcp_distill"},
@@ -275,6 +275,136 @@ dmd2_trigflow_distill_cosmos_predict2_2B_bidirectional_TnI2V = make_experiment(
     ),
 )
 
+# Bridge dataset - 13 frame prediction at 256x320 resolution
+dmd2_trigflow_distill_cosmos_predict2_2B_action_conditioned_bridge_13frame_256x320 = make_experiment(
+    name="dmd2_trigflow_distill_cosmos_predict2_2B_action_conditioned_bridge_13frame_256x320",
+    data_train="bridge_13frame_480_640_train",
+    net="cosmos_v1_2B_action_chunk_conditioned_student",
+    net_teacher="cosmos_v1_2B_action_chunk_conditioned_teacher",
+    net_fake_score="cosmos_v1_2B_action_chunk_conditioned_fake_score",
+    conditioner="action_conditioned_video_conditioner",
+    resolution="256",
+    cp_size=1,
+    overrides=dict(
+        model=dict(
+            config=dict(
+                state_t=4,
+                use_clean_cond_timesteps=False,
+                conditional_frames_probs={0: 0.0, 1: 1.0, 2: 0.0},
+                min_num_conditional_frames=1,
+                max_num_conditional_frames=1,
+                net=dict(
+                    action_dim=7,
+                    num_action_per_chunk=12,
+                    temporal_compression_ratio=4,
+                    crossattn_emb_channels=1024,
+                ),
+                net_fake_score=dict(
+                    action_dim=7,
+                    num_action_per_chunk=12,
+                    temporal_compression_ratio=4,
+                    crossattn_emb_channels=1024,
+                ),
+                net_teacher=dict(
+                    action_dim=7,
+                    num_action_per_chunk=12,
+                    temporal_compression_ratio=4,
+                    crossattn_emb_channels=1024,
+                ),
+                teacher_load_from=ACTION_CONDITIONED_TEACHER_CKPT_2B_256X320,
+                teacher_guidance=0,
+                student_update_freq=10,
+            ),
+        ),
+        dataloader_train=dict(
+            batch_size=1,
+            sampler=dict(
+                dataset=dict(
+                    video_size=[256, 320],
+                    num_action_per_chunk=12,
+                    fps_downsample_ratio=1,
+                    gripper_rescale_factor=1,
+                ),
+            ),
+            dataset=dict(
+                video_size=[256, 320],
+                num_action_per_chunk=12,
+                fps_downsample_ratio=1,
+                gripper_rescale_factor=1,
+            ),
+        ),
+    ),
+)
+# Remove the nested dataloaders structure inherited from base make_experiment
+del dmd2_trigflow_distill_cosmos_predict2_2B_action_conditioned_bridge_13frame_256x320["dataloader_train"][
+    "dataloaders"
+]
+
+# Bridge dataset - 13 frame prediction at 480x640 resolution (if you have a 480p teacher)
+dmd2_trigflow_distill_cosmos_predict2_2B_action_conditioned_bridge_13frame_480x640 = make_experiment(
+    name="dmd2_trigflow_distill_cosmos_predict2_2B_action_conditioned_bridge_13frame_480x640",
+    data_train="bridge_13frame_480_640_train",
+    net="cosmos_v1_2B_action_chunk_conditioned_student",
+    net_teacher="cosmos_v1_2B_action_chunk_conditioned_teacher",
+    net_fake_score="cosmos_v1_2B_action_chunk_conditioned_fake_score",
+    conditioner="action_conditioned_video_conditioner",
+    resolution="480",
+    cp_size=1,
+    # NOTE: Update this to your 480p teacher checkpoint if you have one
+    overrides=dict(
+        model=dict(
+            config=dict(
+                state_t=4,
+                use_clean_cond_timesteps=False,
+                conditional_frames_probs={0: 0.0, 1: 1.0, 2: 0.0},
+                min_num_conditional_frames=1,
+                max_num_conditional_frames=1,
+                net=dict(
+                    action_dim=7,
+                    num_action_per_chunk=12,
+                    temporal_compression_ratio=4,
+                    crossattn_emb_channels=1024,
+                ),
+                net_fake_score=dict(
+                    action_dim=7,
+                    num_action_per_chunk=12,
+                    temporal_compression_ratio=4,
+                    crossattn_emb_channels=1024,
+                ),
+                net_teacher=dict(
+                    action_dim=7,
+                    num_action_per_chunk=12,
+                    temporal_compression_ratio=4,
+                    crossattn_emb_channels=1024,
+                ),
+                teacher_load_from=ACTION_CONDITIONED_TEACHER_CKPT_2B_256X320,
+                teacher_guidance=0,
+                student_update_freq=10,
+            ),
+        ),
+        dataloader_train=dict(
+            batch_size=1,
+            sampler=dict(
+                dataset=dict(
+                    video_size=[480, 640],
+                    num_action_per_chunk=12,
+                    fps_downsample_ratio=1,
+                    gripper_rescale_factor=1,
+                ),
+            ),
+            dataset=dict(
+                video_size=[480, 640],
+                num_action_per_chunk=12,
+                fps_downsample_ratio=1,
+                gripper_rescale_factor=1,
+            ),
+        ),
+    ),
+)
+# Remove the nested dataloaders structure inherited from base make_experiment
+del dmd2_trigflow_distill_cosmos_predict2_2B_action_conditioned_bridge_13frame_480x640["dataloader_train"][
+    "dataloaders"
+]
 
 ##########################################################
 # 14B experiments
@@ -327,5 +457,7 @@ torchrun --nproc_per_node=4 --master_port=12340 -m scripts.train --config=cosmos
 for _item in [
     dmd2_trigflow_distill_cosmos_predict2_2B_bidirectional_TnI2V,
     dmd2_trigflow_distill_cosmos_predict2_14B_bidirectional_TnI2V,
+    dmd2_trigflow_distill_cosmos_predict2_2B_action_conditioned_bridge_13frame_256x320,
+    dmd2_trigflow_distill_cosmos_predict2_2B_action_conditioned_bridge_13frame_480x640,
 ]:
     cs.store(group="experiment", package="_global_", name=f"{_item['job']['name']}", node=_item)

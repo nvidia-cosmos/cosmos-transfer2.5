@@ -112,6 +112,7 @@ class ControlVideo2WorldInference:
             exp_override_opts.append("~data_train")
         if hierarchical_cp:
             exp_override_opts.append("model.config.net.atten_backend='transformer_engine'")
+        local_cache_dir = cache_dir if not (isinstance(checkpoint_paths, list) and len(checkpoint_paths) > 1) else None
         # Load the model and config. Each trained model's config is composed by
         # loading a pre-registered experiment config, and then (optionally) overriding with some command-line
         # arguments. That is done in experiment_list.py. Here we simply replicate that process.
@@ -122,9 +123,7 @@ class ControlVideo2WorldInference:
                 s3_checkpoint_dir=self.checkpoint_path,
                 config_file=config_file,
                 load_ema_to_reg=True,
-                local_cache_dir=(
-                    cache_dir if not checkpoint_paths else None
-                ),  # for multi-control models, need to load other branches before caching
+                local_cache_dir=local_cache_dir,  # for multi-control models, need to load other branches before caching
                 experiment_opts=exp_override_opts,
             )
         else:
@@ -133,9 +132,7 @@ class ControlVideo2WorldInference:
                 s3_checkpoint_dir=self.checkpoint_path,
                 config_file=config_file,
                 load_ema_to_reg=True,
-                local_cache_dir=(
-                    cache_dir if not checkpoint_paths else None
-                ),  # for multi-control models, need to load other branches before caching
+                local_cache_dir=local_cache_dir,  # for multi-control models, need to load other branches before caching
                 experiment_opts=exp_override_opts,
                 cache_text_encoder=self.cache_text_encoder,
             )
