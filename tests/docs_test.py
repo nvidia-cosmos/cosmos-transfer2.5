@@ -53,6 +53,7 @@ SCRIPT_CONFIGS = [
     ),
     ScriptConfig(
         script="depth_parallel_tokenizer.sh",
+        gpus=MAX_GPUS,
     ),
     ScriptConfig(
         script="edge.sh",
