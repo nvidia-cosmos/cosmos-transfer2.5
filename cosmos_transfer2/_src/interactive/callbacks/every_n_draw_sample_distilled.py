@@ -37,7 +37,7 @@ from cosmos_transfer2._src.imaginaire.visualize.video import save_img_or_video
 from cosmos_transfer2._src.interactive.inference.prompts import t2v_text_prompts
 from cosmos_transfer2._src.predict2.datasets.data_sources.item_datasets_for_validation import get_itemdataset_option
 
-resolution2hw = {"720": (704, 1280)}
+resolution2hw = {"720": (704, 1280), "256": (256, 320), "480": (480, 640)}
 
 
 # use first two rank to generate some images for visualization
@@ -65,9 +65,14 @@ def sample_batch_video(resolution: str = "512", batch_size: int = 1, num_frames:
     data_batch = {
         "dataset_name": "video_data",
         "video": torch.randint(0, 256, (batch_size, 3, num_frames, h, w), dtype=torch.uint8).cuda(),
+        # For online text encoding, provide ai_caption (empty string for action-conditioned models)
+        "ai_caption": [""] * batch_size,
+        # Keep t5_text_embeddings as fallback for models without online text encoding
         "t5_text_embeddings": torch.randn(batch_size, 512, 1024).cuda(),
         "fps": torch.randint(16, 32, (batch_size,)).cuda(),
         "padding_mask": torch.zeros(batch_size, 1, h, w).cuda(),
+        # Action tensor for action-conditioned models (num_action_per_chunk=12, action_dim=7)
+        "action": torch.zeros(batch_size, 12, 7).cuda(),
     }
     return data_batch
 
@@ -215,8 +220,9 @@ class EveryNDrawSample(EveryN):
                 "sample_counter": sample_counter,
             }
 
+            caption = f"{sample_counter}, top=student@{self.num_sampling_step},middle=teacher@{[self.num_sampling_step, self.num_sampling_step_teacher]},bottom=raw"
             if self.is_sample:
-                info[f"{self.name}/{tag}_sample"] = wandb.Image(sample_img_fp, caption=f"{sample_counter}")
+                info[f"{self.name}/{tag}_sample"] = wandb.Image(sample_img_fp, caption=caption)
                 info[f"{self.name}/{tag}_MSE"] = MSE
             wandb.log(
                 info,
@@ -251,18 +257,19 @@ class EveryNDrawSample(EveryN):
             sample_student = model.decode(sample_student)
         to_show.append(sample_student.float().cpu())
 
-        sample_teacher = model.generate_samples_from_batch(
-            data_batch,
-            # make sure no mismatch and also works for cp
-            state_shape=x0.shape[1:],
-            n_sample=x0.shape[0],
-            net_type="teacher",
-            num_steps=self.num_sampling_step_teacher,
-        )
-        if hasattr(model, "decode"):
-            sample_teacher = model.decode(sample_teacher)
+        for sample_steps in [self.num_sampling_step, self.num_sampling_step_teacher]:
+            sample_teacher = model.generate_samples_from_batch(
+                data_batch,
+                # make sure no mismatch and also works for cp
+                state_shape=x0.shape[1:],
+                n_sample=x0.shape[0],
+                net_type="teacher",
+                num_steps=sample_steps,
+            )
+            if hasattr(model, "decode"):
+                sample_teacher = model.decode(sample_teacher)
 
-        to_show.append(sample_teacher.float().cpu())
+            to_show.append(sample_teacher.float().cpu())
 
         MSE = torch.mean((sample_student.float() - sample_teacher.float()) ** 2)
         dist.all_reduce(MSE, op=dist.ReduceOp.AVG)
@@ -303,6 +310,9 @@ class EveryNDrawSample(EveryN):
             batch_size=self.num_samples_per_prompt,
         )
 
+        frames_options = list(model.config.conditional_frames_probs.keys())
+        weights = list(model.config.conditional_frames_probs.values())
+        data_batch["num_conditional_frames"] = random.choices(frames_options, weights=weights, k=1)[0]
         for prompt, text_emb in self.kv_prompt_to_emb.items():
             log.info(f"Generating with prompt: {prompt}")
             # set prompt and make embeddings match batch
@@ -314,7 +324,12 @@ class EveryNDrawSample(EveryN):
             data_batch["t5_text_embeddings"] = emb
 
             # generate samples (we are already inside a @torch.no_grad() scope from every_n_impl)
-            sample = model.generate_samples_from_batch(data_batch, seed=1)
+            sample = model.generate_samples_from_batch(
+                data_batch,
+                seed=1,
+                num_steps=self.num_sampling_step,
+                net_type="student",
+            )
 
             # decode if needed
             if hasattr(model, "decode"):

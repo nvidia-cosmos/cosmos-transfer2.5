@@ -733,6 +733,7 @@ class TiledMultiCameraRenderer:
         self,
         camera_poses: Dict[str, np.ndarray],
         frame_id: int,
+        object_info: Optional[Dict] = None,
     ) -> Dict[str, np.ndarray]:
         """
         Render all cameras in a single pass using tiled layout.
@@ -740,6 +741,9 @@ class TiledMultiCameraRenderer:
         Args:
             camera_poses: Dictionary of camera_name -> 4x4 pose matrix
             frame_id: Frame ID to render
+            object_info: Optional dictionary of dynamic objects to render.
+                If None, objects are loaded from scene_data.get_objects_at_frame(frame_id).
+                Format: {tracking_id: {"object_type", "object_to_world", "object_lwh"}}
 
         Returns:
             Dictionary of camera_name -> rendered frame (H, W, 3)
@@ -779,8 +783,9 @@ class TiledMultiCameraRenderer:
         self._fbo.use()
         self._fbo.clear(0.0, 0.0, 0.0, 1.0)
 
-        # Get dynamic objects for this frame
-        object_info = self.scene_data.get_objects_at_frame(frame_id)
+        # Get dynamic objects for this frame (use provided object_info if available)
+        if object_info is None:
+            object_info = self.scene_data.get_objects_at_frame(frame_id)
 
         # Render each camera view to its tile position
         for camera_name, camera_pose in camera_poses.items():

@@ -679,6 +679,11 @@ class ControlVideo2WorldModelRectifiedFlow(Video2WorldModelRectifiedFlow):
                 log.warning(f"No checkpoint path provided for control branch {nc}")
                 continue
 
+            if not INTERNAL:
+                from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import download_checkpoint
+
+                checkpoint_path = download_checkpoint(checkpoint_path)
+
             checkpoint_format = "pt" if checkpoint_path.endswith(".pt") else "dcp"
             # Handle checkpoint path with or without "model" suffix
             cur_key_ckpt_full_path = (

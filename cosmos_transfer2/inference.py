@@ -27,6 +27,7 @@ from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.experiment.experim
 from cosmos_transfer2._src.transfer2.inference.inference_pipeline import ControlVideo2WorldInference
 from cosmos_transfer2._src.transfer2.inference.utils import compile_tokenizer_if_enabled
 from cosmos_transfer2.config import (
+    CONTROL_KEYS,
     MODEL_CHECKPOINTS,
     InferenceArguments,
     ModelKey,
@@ -51,19 +52,25 @@ class Control2WorldInference:
         if len(self.batch_hint_keys) == 1:
             # pyrefly: ignore  # bad-argument-type
             checkpoint = MODEL_CHECKPOINTS[ModelKey(variant=self.batch_hint_keys[0], distilled=self.is_distilled)]
-            self.checkpoint_list = [checkpoint.path]
+            self.checkpoint_list = [checkpoint.s3.uri]
             self.experiment = checkpoint.experiment
-        else:
-            # Multi-control: use checkpoints for each hint key
+            if args.has_checkpoint_override:
+                self.checkpoint_list = [args.checkpoint_path]  # pyrefly: ignore [bad-assignment]
+                log.debug(f"Using checkpoint path override: {args.checkpoint_path}")
+            if args.has_experiment_override:
+                self.experiment = args.experiment
+                log.debug(f"Using experiment override: {args.experiment}")
 
+        else:
+            # Multi-control: load ALL control modalities even if some have control weight = 0
             self.checkpoint_list = [
-                # pyrefly: ignore [bad-argument-type]
-                MODEL_CHECKPOINTS[ModelKey(variant=key, distilled=self.is_distilled)].path
-                for key in self.batch_hint_keys
+                MODEL_CHECKPOINTS[
+                    ModelKey(variant=key, distilled=self.is_distilled)  # pyrefly: ignore [bad-argument-type]
+                ].s3.uri
+                for key in CONTROL_KEYS
             ]
             self.experiment = "multibranch_720p_t24_spaced_layer4_cr1pt1_rectified_flow_inference"
 
-        log.debug(f"Loading keys for batch hints {self.batch_hint_keys=}")
         torch.enable_grad(False)  # Disable gradient calculations for inference
 
         self.device_rank = 0
@@ -103,6 +110,10 @@ class Control2WorldInference:
             # Compatible with DMD2 distilled model, whose configs are specified at
             # imaginaire4/projects/cosmos3/interactive/configs/method_configs/config_dmd2.py
             exp_override_opts.append("model.config.load_teacher_weights=False")
+            # For post-training, the experiment is the registered exp name
+        elif args.has_experiment_override:
+            registered_exp_name = args.experiment
+            exp_override_opts = []
         else:
             # For non-distilled models, look up the experiment in EXPERIMENTS to get
             # the registered_exp_name and command_args
@@ -282,6 +293,13 @@ class Control2WorldInference:
             ext = "jpg"
         else:
             ext = "mp4"
+
+        if self.is_distilled and output_video.shape[2] > 93:
+            log.warning(
+                "Generated output has "
+                f"{output_video.shape[2]} frames (> 93). "
+                "The distilled Transfer 2.5 model is not trained to support auto-regressive generation"
+            )
 
         # Save video/image
         if self.device_rank == 0:

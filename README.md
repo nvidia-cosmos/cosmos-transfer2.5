@@ -110,12 +110,16 @@ Cosmos-Transfer supports data generation in multiple industry verticals, outline
 
 [**Cosmos-Transfer2.5-2B/auto**](docs/inference_auto_multiview.md): Specialized checkpoints, post-trained for Autonomous Vehicle applications. [Multiview checkpoints](https://huggingface.co/nvidia/Cosmos-Transfer2.5-2B/tree/main/auto). For an example demonstrating how to augment sythentic data with Cosmos Transfer on Autonomous Vehicle see [Cosmos Transfer 2.5 Sim2Real for Simulator Videos](https://nvidia-cosmos.github.io/cosmos-cookbook/recipes/inference/transfer2_5/inference-carla-sdg-augmentation/inference.html) in the [Cosmos Cookbook](https://nvidia-cosmos.github.io/cosmos-cookbook/).
 
+[**Cosmos-Transfer2.5-2B/robot-multiview-control**](docs/inference_robot_multiview_control.md): Specialized control-conditioned checkpoints for robot multiview applications. Supports 4 control types (depth, edge, visual blur, segmentation) for precise video generation guided by structural information.
+
 ## User Guide
 
 * [Setup Guide](docs/setup.md)
+* [Troubleshooting](docs/troubleshooting.md)
 * [Inference](docs/inference.md)
   * [Auto Multiview](docs/inference_auto_multiview.md)
   * [Image Inference](docs/inference_image.md)
+  * [Robot Multiview Control](docs/inference_robot_multiview_control.md)
 * [Post-training](docs/post-training.md)
   * [Single View](docs/post-training_singleview.md)
   * [Auto Multiview](docs/post-training_auto_multiview.md)
