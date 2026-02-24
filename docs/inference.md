@@ -16,9 +16,10 @@ The following table shows the GPU memory requirements for different Cosmos-Trans
 
 ### Inference performance
 
-The following table shows generation times(*) across different NVIDIA GPU hardware for single-GPU inference:
+#### Segmentation
+The table below shows generation times(*) across different NVIDIA GPU hardware for single-GPU inference:
 
-| GPU Hardware | Cosmos-Transfer2.5-2B (Segmentation) 93 frame generation time | Cosmos-Transfer2.5-2B (Segmentation) E2E time (**)|
+| GPU Hardware | Cosmos-Transfer2.5-2B 93 frame generation time | Cosmos-Transfer2.5-2B E2E time (**)|
 |--------------|---------------|---------------|
 | NVIDIA B200 | 92.25 sec | 186.92 |
 | NVIDIA H100 NVL | 445.52 sec | 895.33 |
@@ -27,6 +28,21 @@ The following table shows generation times(*) across different NVIDIA GPU hardwa
 
 \* Generation times are listed for 720P video with 16FPS with segmentation control input and disabled guardrails. \
 \** E2E time is measured for input video with 121 frames, which results in two 93 frame "chunk" generations.
+
+#### Edge
+The table below compares base vs. distilled Transfer 2.5 Edge inference performance across GPU architectures.
+
+| Metric | GPUs | RTX PRO 6000 Blackwell SE | H20 | H100 NVL | H200 NVL | B200 | B300 |
+|--------|------|----------------------------|-----|----------|----------|------|------|
+| **Avg. Base Model Diffusion Time (s)** | 1 | 78.5 | 176.4 | 64.5 | 49.8 | 24.2 | 53.2 |
+| | 4 | 33.7 | 62.7 | 27.4 | 20.4 | 12.6 | 25.6 |
+| | 8 | 25.0 | 44.0 | 20.4 | 16.9 | 11.1 | 19.9 |
+| **Avg. Distilled Diffusion Time (s)** | 1 | 605.7 | 1374.6 | 502.6 | 374.4 | 179.7 | 415.5 |
+| | 4 | 196.1 | 373.4 | 154.5 | 117.0 | 62.3 | 127.7 |
+| | 8 | 118.8 | 201.5 | 92.5 | 82.4 | 41.8 | 76.1 |
+| **Avg. Performance Improvement** | 1 | 7.7x | 7.8x | 7.8x | 7.5x | 7.4x | 7.8x |
+| | 4 | 5.8x | 6.0x | 5.6x | 5.7x | 5.0x | 5.0x |
+| | 8 | 4.7x | 4.6x | 4.5x | 4.9x | 3.8x | 3.8x |
 
 ## Inference with Pre-trained Cosmos-Transfer2.5 Models
 
