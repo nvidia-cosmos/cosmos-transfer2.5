@@ -51,8 +51,10 @@ from cosmos_transfer2._src.interactive.configs.method_configs.config_cosmos2_int
     IS_PREPROCESSED_KEY,
     Cosmos2InteractiveModelConfig,
 )
+from cosmos_transfer2._src.interactive.networks.utils import make_network_kv_cache
 from cosmos_transfer2._src.interactive.utils.basic_utils import PRECISION_MAP
 from cosmos_transfer2._src.interactive.utils.torch_future import clip_grad_norm_ as clip_grad_norm_impl_
+from cosmos_transfer2._src.predict2.action.configs.action_conditioned.conditioner import ActionConditionedCondition
 from cosmos_transfer2._src.predict2.conditioner import DataType, GeneralConditioner
 from cosmos_transfer2._src.predict2.configs.video2world.defaults.conditioner import (
     Video2WorldCondition,
@@ -69,6 +71,7 @@ from cosmos_transfer2._src.predict2.utils.dtensor_helper import (
     DTensorFastEmaModelUpdater,
     broadcast_dtensor_model_states,
 )
+from cosmos_transfer2._src.predict2.utils.kv_cache import KVCacheConfig, VideoSeqPos
 
 
 class Cosmos2InteractiveModel(ImaginaireModel):
@@ -175,6 +178,21 @@ class Cosmos2InteractiveModel(ImaginaireModel):
         self.neg_embed = (
             easy_io.load(self.config.neg_embed_path) if getattr(self.config, "neg_embed_path", "") else None
         )
+        use_neg_prompt_str = getattr(self.config, "use_neg_prompt_str", False)
+        neg_prompt_str = getattr(self.config, "neg_prompt_str", None)
+        if use_neg_prompt_str and neg_prompt_str:
+            assert self.text_encoder is not None, "text_encoder is required when use_neg_prompt_str is enabled"
+            caption_key = getattr(self.config, "input_caption_key", "ai_caption")
+            neg_data_batch = {caption_key: [neg_prompt_str]}
+            neg_embed = self.text_encoder.compute_text_embeddings_online(neg_data_batch, caption_key)
+            if isinstance(neg_embed, torch.Tensor) and neg_embed.ndim == 3:
+                self.neg_embed = neg_embed[0]
+            else:
+                self.neg_embed = neg_embed
+            log.info(
+                "Computed negative prompt embedding with shape: "
+                f"{self.neg_embed.shape} for neg_prompt_str: {neg_prompt_str}"
+            )
 
         # Tokenizer
         self.tokenizer: BaseVAE = lazy_instantiate(self.config.tokenizer)  # type: ignore
@@ -212,6 +230,30 @@ class Cosmos2InteractiveModel(ImaginaireModel):
         )
         log.info(f"\n\n==============config condition_postprocessor: {self.config.condition_postprocessor}")
         log.info(f"\n\n==============condition_postprocessor: {self.condition_postprocessor}")
+
+    def build_net_without_fsdp(self, net_config_dict):
+        """
+        Build a net without FSDP wrapping (plain nn.Module on CUDA).
+        Use when loading .pt checkpoints (standard state_dict), then call wrap_net_with_fsdp(net).
+        """
+        original_mesh = self.fsdp_device_mesh
+        self.fsdp_device_mesh = None
+        try:
+            return self.build_net(net_config_dict)
+        finally:
+            self.fsdp_device_mesh = original_mesh
+
+    def wrap_net_with_fsdp(self, net: torch.nn.Module) -> torch.nn.Module:
+        """
+        Wrap an existing (non-FSDP) net with FSDP and broadcast. No-op if fsdp_device_mesh is None.
+        Use after loading .pt weights into a net built with build_net_without_fsdp().
+        """
+        if self.fsdp_device_mesh is None:
+            return net
+        net.fully_shard(mesh=self.fsdp_device_mesh)  # type: ignore
+        net = fully_shard(net, mesh=self.fsdp_device_mesh, reshard_after_forward=True)
+        broadcast_dtensor_model_states(net, self.fsdp_device_mesh)
+        return net
 
     # ------------------------ Optimizer & scheduler utils ------------------------
     def init_optimizer_scheduler(self, optimizer_config, scheduler_config):
@@ -473,6 +515,15 @@ class Cosmos2InteractiveModel(ImaginaireModel):
             return net_state_in_B_C_T_H_W, c_noise_B_1_T_1_1, None
 
         condition_state_in_B_C_T_H_W = condition.gt_frames.type_as(net_state_in_B_C_T_H_W) / self.config.sigma_data
+        use_video_condition = getattr(condition, "use_video_condition", None)
+        if use_video_condition is not None:
+            if torch.is_tensor(use_video_condition):
+                use_video_condition = use_video_condition.to(dtype=condition_state_in_B_C_T_H_W.dtype)
+                if use_video_condition.ndim == 1:
+                    use_video_condition = use_video_condition.view(-1, 1, 1, 1, 1)
+                condition_state_in_B_C_T_H_W = condition_state_in_B_C_T_H_W * use_video_condition
+            elif use_video_condition is False:
+                condition_state_in_B_C_T_H_W = condition_state_in_B_C_T_H_W * 0
         condition_video_mask = condition.condition_video_input_mask_B_C_T_H_W.repeat(1, num_channels, 1, 1, 1).type_as(
             net_state_in_B_C_T_H_W
         )
@@ -627,11 +678,23 @@ class Cosmos2InteractiveModel(ImaginaireModel):
 
         # Text embeddings: reuse precomputed ones if provided (inference scripts often pass them),
         # otherwise compute online when enabled.
+        # If compute_online is True and caption_key is available, always compute online
+        # (delete precomputed embeddings to force online). This is for training where we want
+        # to use online text encoder (e.g., Reason1) instead of precomputed T5 embeddings.
+        caption_key = getattr(self.config, "input_caption_key", self.input_caption_key)
+        can_compute_online = (
+            self.config.text_encoder_config is not None
+            and self.config.text_encoder_config.compute_online
+            and caption_key in data_batch
+        )
+        if can_compute_online:
+            # Force online encoding by removing precomputed embeddings
+            data_batch.pop("t5_text_embeddings", None)
+            data_batch.pop("t5_text_mask", None)
         if "t5_text_embeddings" in data_batch:
             if "t5_text_mask" not in data_batch:
                 data_batch["t5_text_mask"] = torch.ones(data_batch["t5_text_embeddings"].shape[:2], device="cuda")
-        elif self.config.text_encoder_config is not None and self.config.text_encoder_config.compute_online:
-            caption_key = getattr(self.config, "input_caption_key", self.input_caption_key)
+        elif can_compute_online:
             text_embeddings = self.text_encoder.compute_text_embeddings_online(data_batch, caption_key)
             # For legacy reason it's called t5_text_embeddings. Supports CR1 embeddings too.
             data_batch["t5_text_embeddings"] = text_embeddings
@@ -936,7 +999,7 @@ class Cosmos2InteractiveModel(ImaginaireModel):
         cp_size = 1 if cp_group is None else cp_group.size()
 
         num_conditional_frames = data_batch.get("num_conditional_frames", 0)
-        _, x0, condition, _ = self.get_data_and_condition(data_batch)
+        _, x0, condition, uncondition = self.get_data_and_condition(data_batch)
         condition = condition.set_video_condition(
             gt_frames=x0,  # x0: clean, tokenized latent video
             random_min_num_conditional_frames=0,  # inference time will use the fixed num_conditional_frames
@@ -947,6 +1010,22 @@ class Cosmos2InteractiveModel(ImaginaireModel):
         if condition.is_video and cp_size > 1:
             condition = condition.broadcast(cp_group)
 
+        # Only teacher could have uncondition in inference
+        if uncondition is not None and net_type == "teacher":
+            uncondition = uncondition.set_video_condition(
+                gt_frames=x0,
+                random_min_num_conditional_frames=0,
+                random_max_num_conditional_frames=0,
+                num_conditional_frames=num_conditional_frames,
+            )
+            uncondition = uncondition.edit_for_inference(
+                is_cfg_conditional=True, num_conditional_frames=num_conditional_frames
+            )
+            if hasattr(uncondition, "use_video_condition") and torch.is_tensor(uncondition.use_video_condition):
+                uncondition.use_video_condition.fill_(False)
+            if condition.is_video and cp_size > 1:
+                uncondition = uncondition.broadcast(cp_group)
+
         # For inference, ensure context parallel is disabled when parallel_state is not initialized.
         if not parallel_state.is_initialized():
             assert not self.net.is_context_parallel_enabled, (
@@ -955,8 +1034,15 @@ class Cosmos2InteractiveModel(ImaginaireModel):
 
         @torch.no_grad()
         def x0_fn(noise_x: torch.Tensor, time: torch.Tensor) -> torch.Tensor:
-            raw_x0 = self.denoise(noise_x, time, condition, net_type=net_type).x0
-            return raw_x0
+            if (
+                net_type == "teacher"
+                and getattr(self.config, "teacher_guidance", 0.0) > 0.0
+                and uncondition is not None
+            ):
+                x0_cond = self.denoise(noise_x, time, condition, net_type=net_type).x0
+                x0_uncond = self.denoise(noise_x, time, uncondition, net_type=net_type).x0
+                return x0_cond + self.config.teacher_guidance * (x0_cond - x0_uncond)
+            return self.denoise(noise_x, time, condition, net_type=net_type).x0
 
         return x0_fn
 
@@ -1016,26 +1102,64 @@ class Cosmos2InteractiveModel(ImaginaireModel):
         if self.net.is_context_parallel_enabled:  # type: ignore
             init_noise = broadcast_split_tensor(init_noise, seq_dim=2, process_group=self.get_context_parallel_group())
 
-        # Sampling steps
+        # Sampling steps, teacher was trained with Rectified Flow, distillation uses TrigFlow
         x = init_noise.to(torch.float64)
         ones = torch.ones(x.size(0), device=x.device, dtype=x.dtype)
-        if num_steps > len(self.config.selected_sampling_time):
+        if net_type == "teacher":
+            log.info("Inference: Teacher: sampling")
+            assert self.config.scaling == "rectified_flow"
+            t_steps_rf = self.get_rectified_flow_sampling_timesteps(num_steps, self.config.timestep_shift)
+            t_steps = [self.get_trigflow_time_from_rf(t) for t in t_steps_rf]
+        elif num_steps > len(self.config.selected_sampling_time):
             log.warning(
-                f"num_steps {num_steps} greater than selected_sampling_time {len(self.config.selected_sampling_time)}. Computing the sampling steps based on provided number of steps and timestep shift {self.config.timestep_shift}."
+                f"Inference: Student: num_steps {num_steps} greater than selected_sampling_time {len(self.config.selected_sampling_time)}. Computing the sampling steps based on provided number of steps and timestep shift {self.config.timestep_shift}."
             )
             t_steps = self.get_trigflow_sampling_timesteps(num_steps, self.config.timestep_shift)
         else:
             t_steps = self.config.selected_sampling_time[:num_steps] + [0]
 
-        for t_cur, t_next in zip(t_steps[:-1], t_steps[1:]):
-            # log.info(f"=============t_cur: {t_cur}, t_next: {t_next}")
-            x = x0_fn(x.float(), t_cur * ones).to(torch.float64)
-            if t_next > 1e-5:
-                x = math.cos(t_next) * x / self.config.sigma_data + math.sin(t_next) * init_noise
+        for idx, (t_cur, t_next) in enumerate(zip(t_steps[:-1], t_steps[1:])):
+            x_t = x
+            x0_pred = x0_fn(x_t.float(), t_cur * ones).to(torch.float64)
+            if net_type == "teacher":
+                t_cur_rf = t_steps_rf[idx]
+                t_next_rf = t_steps_rf[idx + 1]
+                if t_next_rf > 1e-5 and t_cur_rf > 1e-5:
+                    # Rectified Flow Euler update using velocity v = (x_t - x0) / t
+                    v_pred = (x_t - x0_pred) / t_cur_rf
+                    x = x_t + (t_next_rf - t_cur_rf) * v_pred
+                else:
+                    x = x0_pred
+            else:
+                # do student sampling using Trigflow updates
+                x = x0_pred
+                if t_next > 1e-5:
+                    x = math.cos(t_next) * x / self.config.sigma_data + math.sin(t_next) * init_noise
         samples = x.float()
         if self.net.is_context_parallel_enabled:  # type: ignore
             samples = cat_outputs_cp(samples, seq_dim=2, cp_group=self.get_context_parallel_group())
         return torch.nan_to_num(samples)
+
+    @staticmethod
+    def get_rectified_flow_sampling_timesteps(num_steps: int, timestep_shift: float = 5.0) -> list[float]:
+        """
+        Create a list of Rectified Flow timesteps in [0, 1], ordered from high to low noise.
+        used only for sampling the rectified flow teacher sampling
+        """
+        step_size = 1 / num_steps
+        timesteps_rf = torch.linspace(step_size, 1.0, num_steps)
+        timesteps_rf_shifted = timestep_shift * timesteps_rf / (1 + (timestep_shift - 1) * timesteps_rf)
+        return timesteps_rf_shifted.numpy().tolist()[::-1] + [0.0]
+
+    @staticmethod
+    def get_trigflow_time_from_rf(t_rf: float) -> float:
+        """Convert a rectified-flow time t in [0,1] to trigflow time (angle)."""
+        if t_rf >= 1.0:
+            return math.pi / 2
+        if t_rf <= 0.0:
+            return 0.0
+        sigma = t_rf / (1.0 - t_rf)
+        return math.atan(sigma)
 
     @staticmethod
     def get_trigflow_sampling_timesteps(num_steps: int, timestep_shift: float = 5.0) -> list[float]:
@@ -1043,15 +1167,330 @@ class Cosmos2InteractiveModel(ImaginaireModel):
         Given number of inference steps and a timestep shift (which shifts the timesteps towards higher noise levels),
         create a list of trigflow timesteps.
         """
+        timesteps_rf_shifted = Cosmos2InteractiveModel.get_rectified_flow_sampling_timesteps(num_steps, timestep_shift)
+        return [Cosmos2InteractiveModel.get_trigflow_time_from_rf(t) for t in timesteps_rf_shifted]
 
-        # Create evenly-spaced grid for timesteps in Rectified Flow
-        step_size = 1 / num_steps
-        timesteps_rf = torch.linspace(step_size, 1.0, num_steps)
-        # Apply shift: t_shifted = shift * t_rf / (1 + (shift - 1) * t_rf)
-        timesteps_rf_shifted = timestep_shift * timesteps_rf / (1 + (timestep_shift - 1) * timesteps_rf)
-        # In Rectified Flow, sigma = t_rf / (1 - t_rf)
-        sigma = timesteps_rf_shifted / (1 - timesteps_rf_shifted)
-        # sigma is consistent between rf and trigflow. In TrigFlow, sigma = tan(t_trigflow)
-        timesteps_trigflow = torch.arctan(sigma)
-        # Append 0 in the end for the last denoising hop
-        return timesteps_trigflow.numpy().tolist()[::-1] + [0]
+    def denoise_edm_seq(
+        self,
+        x_B_C_T_H_W: torch.Tensor,
+        timesteps_B_T: torch.Tensor,
+        condition: ActionConditionedCondition,
+        video_pos: VideoSeqPos,
+        kv_cache_cfg: Optional[KVCacheConfig] = None,
+    ) -> torch.Tensor:
+        """
+        Perform few-step denoising prediction under EDM preconditioning
+        for sequential video diffusion models.
+
+        This function implements the EDM (Elucidated Diffusion Model) formulation
+        for video sequences, with special handling of conditional frames.
+
+        Main steps:
+        1. Convert timestep/noise levels into EDM scaling coefficients.
+        2. Override noise levels of conditional frames with a predefined low sigma,
+        ensuring conditional inputs remain nearly clean during denoising.
+        3. Apply EDM preconditioning before feeding into the network.
+        4. Run the sequential network forward pass (supports KV-cache for rollout).
+        5. Reconstruct the predicted clean sample x0 using EDM skip/out connections.
+
+        Args:
+            x_B_C_T_H_W:
+                Noisy video latent tensor of shape [B, C, T, H, W].
+            timesteps_B_T:
+                Noise levels (timesteps) for each frame, shape [B, T].
+            condition:
+                Conditioning object containing conditional frames/masks/actions.
+            video_pos:
+                Positional encoding information for video sequence modeling.
+            kv_cache_cfg:
+                Optional KV-cache configuration for autoregressive rollout.
+
+        Returns:
+            x0_pred_B_C_T_H_W:
+                Predicted clean video latent (x0) after EDM reconstruction.
+        """
+        B, C, _, H, W = x_B_C_T_H_W.shape
+
+        assert timesteps_B_T.ndim == 2, f"time shape {timesteps_B_T.shape} is not supported"
+        time_B_1_T_1_1 = rearrange(timesteps_B_T, "b t -> b 1 t 1 1")
+
+        # replace the noise level of the cond frames tox_B_C_T_H_W be the pre-defined conditional noise level (very low)
+        # the scaling coefficients computed later will inherit the setting.
+        condition_video_mask = condition.condition_video_input_mask_B_C_T_H_W.repeat(1, C, 1, 1, 1).type_as(x_B_C_T_H_W)
+        condition_video_mask_B_1_T_1_1 = condition_video_mask.mean(dim=[1, 3, 4], keepdim=True).type_as(time_B_1_T_1_1)
+
+        t_cond = torch.atan(torch.ones_like(time_B_1_T_1_1) * (self.config.sigma_conditional / self.sigma_data))
+        time_B_1_T_1_1 = t_cond * condition_video_mask_B_1_T_1_1 + time_B_1_T_1_1 * (1 - condition_video_mask_B_1_T_1_1)
+
+        # convert noise level time to EDM-formulation coefficients
+        c_skip_B_1_T_1_1, c_out_B_1_T_1_1, c_in_B_1_T_1_1, c_noise_B_1_T_1_1 = self.scaling_from_time(time_B_1_T_1_1)
+
+        # EDM preconditioning
+        net_state_in_B_C_T_H_W = x_B_C_T_H_W * c_in_B_1_T_1_1
+
+        # forward pass through the network
+        net_output_B_C_T_H_W = (
+            self.net.forward_seq(
+                x_B_C_T_H_W=net_state_in_B_C_T_H_W.to(**self.tensor_kwargs),
+                video_pos=video_pos,
+                timesteps_B_T=c_noise_B_1_T_1_1.squeeze(dim=[1, 3, 4]).to(**self.tensor_kwargs),
+                kv_cache_cfg=kv_cache_cfg,
+                **condition.to_dict(),
+            )
+            .float()
+            .to(dtype=x_B_C_T_H_W.dtype)
+        )
+
+        # EDM reconstruction of x0
+        x0_pred_B_C_T_H_W = c_skip_B_1_T_1_1 * x_B_C_T_H_W + c_out_B_1_T_1_1 * net_output_B_C_T_H_W
+        return x0_pred_B_C_T_H_W
+
+    @torch.no_grad()
+    def generate_next_frame(
+        self,
+        condition,
+        frame_noise: torch.Tensor,
+        t_idx: int,
+        start_idx: int,
+        *,
+        full_video_pos: VideoSeqPos,
+        n_steps: int,
+        enable_grad_on_last_hop: bool = False,
+    ) -> torch.Tensor:
+        """
+        Generate the next latent video frame autoregressively using multi-step diffusion sampling.
+
+        This function performs causal conditioned frame generation in a streaming setting
+        on top of causal nets. Starting from an initial noisy latent frame, the model iteratively
+        denoises it over a small number of selected diffusion timesteps (`n_steps` hops).
+
+        At each hop:
+          - The corresponding condition segment for the current frame is extracted.
+          - The model predicts the clean latent frame (x0) via `self.denoise_edm_seq`.
+
+        Optionally, gradients can be enabled only on the final hop, which is useful
+        for training methods that require backpropagation through the last denoising
+        step while keeping earlier hops inference-only.
+
+        Args:
+            condition:
+                Conditioned input for video generation.
+            frame_noise (torch.Tensor):
+                Initial noisy latent frame used as the starting point for sampling.
+            t_idx (int):
+                Index of the frame being generated in the full video sequence.
+            start_idx (int):
+                Starting frame index of the current autoregressive rollout window.
+            full_video_pos (VideoSeqPos):
+                Positional encoding helper for locating the current frame in the sequence.
+            n_steps (int):
+                Number of diffusion hops to run (must be <= number of predefined timesteps).
+            enable_grad_on_last_hop (bool):
+                If True, enables gradient computation only for the final denoising hop.
+
+        Returns:
+            torch.Tensor:
+                The final predicted clean latent frame (x0) at timestep 0,
+                representing the generated next frame.
+        """
+        assert n_steps >= 1
+        t_steps = self.config.selected_sampling_time
+        K = len(t_steps)
+        assert 1 <= n_steps <= K
+        B = frame_noise.shape[0]
+
+        cur_video_pos = full_video_pos.frame(t_idx)
+        kv_cache_cfg = KVCacheConfig(run_with_kv=True, store_kv=False, current_idx=t_idx)
+
+        A = self.net._num_action_per_latent_frame
+
+        frame_seq = frame_noise
+        x0_pred_last = None
+        for s_idx in range(n_steps):
+            t_cur = t_steps[s_idx]
+            t_tensor = torch.full((B, 1), float(t_cur), device=frame_noise.device, dtype=torch.bfloat16)
+
+            is_final_hop = s_idx == n_steps - 1
+            grad_ctx = torch.enable_grad if (enable_grad_on_last_hop and is_final_hop) else torch.no_grad
+            with grad_ctx():
+                condition_dict = condition.to_dict()
+                zero_mask = condition.condition_video_input_mask_B_C_T_H_W[:, :, t_idx : t_idx + 1]  # should be zeros
+                action_frame = condition.action[:, (t_idx - start_idx) * A : (t_idx - start_idx + 1) * A]
+                condition_dict.update(
+                    action=action_frame,
+                    condition_video_input_mask_B_C_T_H_W=zero_mask,
+                )
+                condition_frame = ActionConditionedCondition(**condition_dict)
+                x0_pred = self.denoise_edm_seq(
+                    x_B_C_T_H_W=frame_seq,
+                    timesteps_B_T=t_tensor,
+                    condition=condition_frame,
+                    video_pos=cur_video_pos,
+                    kv_cache_cfg=kv_cache_cfg,
+                )
+
+            if s_idx == n_steps - 1:
+                x0_pred_last = x0_pred
+            else:
+                t_next = t_steps[s_idx + 1]
+                t_next_tensor = torch.tensor(t_next, device=frame_noise.device, dtype=torch.bfloat16)
+                frame_seq = (
+                    torch.cos(t_next_tensor) * x0_pred / self.sigma_data + torch.sin(t_next_tensor) * frame_noise
+                )
+
+        assert x0_pred_last is not None
+        return x0_pred_last
+
+    def generate_streaming_video(
+        self,
+        condition: ActionConditionedCondition,
+        init_noise: torch.Tensor,
+        n_steps: int,
+        cache_frame_size: int = -1,
+        enable_grad_on_last_hop: bool = False,
+        use_cuda_graphs: bool = True,
+    ) -> torch.Tensor:
+        """
+        Autoregressively generate a full latent video sequence in a streaming manner.
+
+        This function performs causal conditioned video generation by predicting frames
+        one-by-one on top of causal nets. Each future frame is generated from noise via
+        a small number of diffusion denoising hops (`n_steps`) using `generate_next_frame`.
+
+        Key features of the streaming pipeline:
+
+          - Autoregressive generation:
+            Frames are generated sequentially, and previously generated frames are
+            committed into the output buffer.
+
+          - Conditioned sampling:
+            For each frame index `t_idx`, the corresponding condition segment is sliced
+            and provided as conditioning input.
+
+          - Causal KV-cache acceleration:
+            A transformer KV cache is maintained and prefilled with clean frames
+            (both ground-truth warmup frames and generated frames) to enable efficient
+            long-horizon streaming generation.
+
+          - CUDA graph optimization (optional):
+            CUDA graphs can be pre-captured for each frame to reduce runtime overhead
+            during inference.
+
+          - Selective gradient computation (optional):
+            Gradients can be enabled only on the final denoising hop for training
+            setups that require backpropagation through the last sampling step.
+
+        Args:
+            init_noise (torch.Tensor):
+                Initial noise latent tensor used as the sampling source.
+
+            n_steps (int):
+                Number of diffusion hops per frame (must be <= number of predefined
+                sampling timesteps).
+
+            cache_frame_size (int):
+                Maximum number of past frames stored in the KV cache.
+                If -1, the full sequence length is cached.
+
+            enable_grad_on_last_hop (bool):
+                If True, enables gradient computation only on the last denoising hop.
+
+            use_cuda_graphs (bool):
+                If True, uses pre-captured CUDA graphs for faster autoregressive decoding.
+
+        Returns:
+            torch.Tensor:
+                Generated latent video tensor, containing the autoregressively predicted clean latent frames.
+        """
+        t_steps = self.config.selected_sampling_time
+        K = len(t_steps)
+        assert 1 <= n_steps <= K
+
+        init_noise = init_noise.to(**self.tensor_kwargs)
+
+        B, C, T, H, W = init_noise.shape
+        start_idx = 1
+
+        initial_latent = condition.gt_frames[:, :, :start_idx].clone()
+        output_latents = torch.zeros([B, C, T, H, W], device=init_noise.device, dtype=init_noise.dtype)
+        output_latents[:, :, :start_idx] = initial_latent
+
+        token_h = H // self.net.patch_spatial
+        token_w = W // self.net.patch_spatial
+
+        max_cache_size = T if cache_frame_size == -1 else cache_frame_size
+        make_network_kv_cache(self.net, max_cache_size=max_cache_size)
+
+        # Pre-capture CUDA graphs for each frame in advance
+        if self.net.use_cuda_graphs and use_cuda_graphs:
+            self.net.precapture_cuda_graphs(
+                batch_size=B,
+                max_t=T,
+                token_h=token_h,
+                token_w=token_w,
+                N_ctx=condition.crossattn_emb.shape[1],
+                dtype=self.tensor_kwargs.get("dtype", init_noise.dtype),
+                device=init_noise.device,
+            )
+        full_video_pos = VideoSeqPos(T=T, H=token_h, W=token_w)
+
+        A = self.net._num_action_per_latent_frame
+
+        if start_idx > 0:
+            for f in range(start_idx):
+                cur_video_pos = full_video_pos.frame(f)
+                cur_frame = initial_latent[:, :, f : f + 1]
+                kv_cache_cfg_prefill = KVCacheConfig(run_with_kv=True, store_kv=True, current_idx=f)
+
+                condition_dict = condition.to_dict()
+                zero_mask = condition.condition_video_input_mask_B_C_T_H_W[:, :, f : f + 1]  # should be zeros
+                condition_dict.update(
+                    action=None,
+                    condition_video_input_mask_B_C_T_H_W=zero_mask,
+                )
+                condition_frame = ActionConditionedCondition(**condition_dict)
+                _ = self.denoise_edm_seq(
+                    x_B_C_T_H_W=cur_frame,
+                    timesteps_B_T=torch.zeros(B, 1, device=init_noise.device, dtype=self.tensor_kwargs["dtype"]),
+                    condition=condition_frame,
+                    video_pos=cur_video_pos,
+                    kv_cache_cfg=kv_cache_cfg_prefill,
+                )
+
+        for t_idx in range(start_idx, T):
+            frame_noise = init_noise[:, :, t_idx : t_idx + 1]
+            x0_pred_last = self.generate_next_frame(
+                condition,
+                frame_noise,
+                t_idx,
+                start_idx,
+                full_video_pos=full_video_pos,
+                n_steps=n_steps,
+                enable_grad_on_last_hop=enable_grad_on_last_hop,
+            )
+
+            # Commit the newly generated frame
+            output_latents[:, :, t_idx : t_idx + 1] = x0_pred_last
+
+            # Prefill KV cache with the clean generated frame for future steps
+            cur_video_pos = full_video_pos.frame(t_idx)
+            kv_cache_cfg_prefill = KVCacheConfig(run_with_kv=True, store_kv=True, current_idx=t_idx)
+
+            condition_dict = condition.to_dict()
+            zero_mask = condition.condition_video_input_mask_B_C_T_H_W[:, :, t_idx : t_idx + 1]  # should be zeros
+            action_frame = condition.action[:, (t_idx - start_idx) * A : (t_idx - start_idx + 1) * A]
+            condition_dict.update(
+                action=action_frame,
+                condition_video_input_mask_B_C_T_H_W=zero_mask,
+            )
+            condition_frame = ActionConditionedCondition(**condition_dict)
+            with torch.no_grad():
+                _ = self.denoise_edm_seq(
+                    x_B_C_T_H_W=x0_pred_last,
+                    timesteps_B_T=torch.zeros(B, 1, device=init_noise.device, dtype=self.tensor_kwargs["dtype"]),
+                    condition=condition_frame,
+                    video_pos=cur_video_pos,
+                    kv_cache_cfg=kv_cache_cfg_prefill,
+                )
+
+        return output_latents

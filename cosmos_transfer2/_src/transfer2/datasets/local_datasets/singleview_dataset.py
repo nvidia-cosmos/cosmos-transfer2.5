@@ -47,9 +47,9 @@ from decord import VideoReader, cpu
 from torch.utils.data import Dataset
 
 from cosmos_transfer2._src.imaginaire.lazy_config import instantiate
-from cosmos_transfer2._src.imaginaire.modules.input_handling.utils import detect_aspect_ratio
 from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.transfer2.datasets.augmentor_provider import get_video_augmentor_v2_with_control
+from cosmos_transfer2._src.transfer2.utils.input_handling import detect_aspect_ratio
 
 
 # Mock URL object for augmentor compatibility

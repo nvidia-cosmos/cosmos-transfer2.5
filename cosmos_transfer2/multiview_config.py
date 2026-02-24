@@ -122,7 +122,7 @@ class MultiviewInferenceArguments(CommonInferenceArguments):
         if not active_views:
             raise ValueError("At least one view configuration with a control_path must be provided.")
 
-        if self.num_conditional_frames > 0 or self.enable_autoregressive:
+        if self.num_conditional_frames > 0 and not self.enable_autoregressive:
             missing_input_paths = [
                 view_name for view_name, view_config in active_views if view_config.input_path is None
             ]
@@ -131,6 +131,8 @@ class MultiviewInferenceArguments(CommonInferenceArguments):
                     "input_path is required for all active views when num_conditional_frames > 0. "
                     f"Missing input_path for views: {', '.join(missing_input_paths)}"
                 )
+
+        if self.enable_autoregressive:
             # Check per-view frame counts when autoregressive mode is enabled.
             num_conditional_frames_per_view = [
                 view_config.num_conditional_frames_per_view for _, view_config in active_views
@@ -149,6 +151,16 @@ class MultiviewInferenceArguments(CommonInferenceArguments):
                     "num_conditional_frames_per_view must be consistent across all active views in autoregressive mode. "
                     "Either set it for all views or leave all at default (0)."
                 )
+
+            if any(frames > 0 for frames in num_conditional_frames_per_view):
+                missing_input_paths = [
+                    view_name for view_name, view_config in active_views if view_config.input_path is None
+                ]
+                if missing_input_paths:
+                    raise ValueError(
+                        "input_path is required for all active views when num_conditional_frames > 0. "
+                        f"Missing input_path for views: {', '.join(missing_input_paths)}"
+                    )
         return self
 
     @property

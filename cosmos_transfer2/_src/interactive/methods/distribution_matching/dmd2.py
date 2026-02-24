@@ -33,6 +33,7 @@ from cosmos_transfer2._src.imaginaire.lazy_config import instantiate as lazy_ins
 from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.imaginaire.utils.checkpointer import non_strict_load_model
 from cosmos_transfer2._src.imaginaire.utils.context_parallel import broadcast_split_tensor
+from cosmos_transfer2._src.imaginaire.utils.object_store import download_from_s3_with_cache
 from cosmos_transfer2._src.imaginaire.utils.optim_instantiate import get_base_scheduler
 from cosmos_transfer2._src.imaginaire.visualize.video import save_img_or_video
 from cosmos_transfer2._src.interactive.configs.method_configs.config_dmd2 import DMD2Config
@@ -88,11 +89,27 @@ class DMD2Model(Cosmos2InteractiveModel):
         log.info(f"net_fake_score: {self.net_fake_score}")
 
         if self.config.load_teacher_weights:
-            self._load_ckpt_to_net(self.net_teacher, self.config.teacher_load_from.load_path)
+            self._load_ckpt_to_net(
+                self.net_teacher,
+                self.config.net_teacher,
+                self.config.teacher_load_from.load_path,
+                credential_path=self.config.teacher_load_from.credentials,
+            )
             self._copy_teacher_weights(target_net=self.net, target_name="student")
             self._copy_teacher_weights(target_net=self.net_fake_score, target_name="fake score")
             if self.config.ema.enabled and hasattr(self, "net_ema_worker"):
                 self.net_ema_worker.copy_to(src_model=self.net_teacher, tgt_model=self.net_ema)
+
+        if getattr(self.config, "student_load_from", None) and self.config.student_load_from.load_path:
+            log.info(f"Initializing student net from checkpoint: {self.config.student_load_from.load_path}")
+            self._load_ckpt_to_net(
+                self.net,
+                self.config,
+                self.config.student_load_from.load_path,
+                credential_path=self.config.student_load_from.credentials,
+            )
+            if self.config.ema.enabled and hasattr(self, "net_ema_worker"):
+                self.net_ema_worker.copy_to(src_model=self.net, tgt_model=self.net_ema)
 
         # discriminator
         if self.config.net_discriminator_head:
@@ -143,10 +160,91 @@ class DMD2Model(Cosmos2InteractiveModel):
         if not missing and not unexpected:
             log.info(f"==========teacher -> {target_name}: All keys matched successfully.")
 
-    def _load_ckpt_to_net(self, net: torch.nn.Module, ckpt_path: str, prefix: str = "net_ema") -> None:
+    def _load_ckpt_to_net(
+        self,
+        net: torch.nn.Module,
+        config,
+        ckpt_path: str,
+        prefix: str = "net_ema",
+        credential_path: str | None = None,
+    ) -> None:
+        if ckpt_path.endswith(".pt"):
+            self._load_pt_ckpt(net, config, ckpt_path, credential_path)
+        else:
+            self._load_dcp_ckpt(net, ckpt_path, prefix, credential_path)
+
+    def _load_pt_ckpt(self, net: torch.nn.Module, config: LazyDict, ckpt_path: str, credential_path) -> None:
+        """
+        Load a PT checkpoint into a network.  Recreates the net with the same config and loads the weights into it
+        to allow for loading pt loading into fsdp nets.
+
+        Args:
+            net: The network to load the checkpoint into.
+            config: The config for the network.
+            ckpt_path: The path to the PT checkpoint.
+        Returns:
+            None
+        """
+
+        if ckpt_path.startswith("s3://"):
+            local_ckpt_path = download_from_s3_with_cache(s3_path=ckpt_path, s3_credential_path=credential_path)
+        else:
+            local_ckpt_path = ckpt_path
+
+        pt_state_dict = torch.load(local_ckpt_path, map_location="cpu", weights_only=False)
+
+        def _get_common_prefix(strs: list[str]) -> str:
+            """
+            Get the common prefix of a list of strings.  Use to normalize weight names between different models.
+
+            Example:
+            >>> _get_common_prefix(["net.xxx.yyy", "net.xxx.zzz", "net.xxx.aaa"])
+            "net.xxx."
+            """
+            common_prefix = ""
+            first_str = strs[0]
+            first_str_parts = first_str.split(".")
+            n = 1
+            while n <= len(first_str_parts):  # Stop when n exceeds available parts
+                candidate_prefix = ".".join(first_str_parts[0:n]) + "."
+                if all(key.startswith(candidate_prefix) for key in strs):
+                    common_prefix = candidate_prefix
+                    n += 1
+                else:
+                    break
+
+            return common_prefix
+
+        load_prefix = _get_common_prefix(list(pt_state_dict.keys()))
+        target_prefix = _get_common_prefix(list(net.state_dict().keys()))
+
+        log.info(f"==========Mapping pt checkpoint prefix from {load_prefix} to {target_prefix}==========")
+        pt_state_dict = {k.replace(load_prefix, target_prefix): v for k, v in pt_state_dict.items()}
+
+        # load a non fsdp net to load the pt checkpoint
+        pt_net = self.build_net_without_fsdp(config)
+        load_status = pt_net.load_state_dict(pt_state_dict, strict=True, assign=False)
+        missing_keys = load_status.missing_keys
+        unexpected_keys = load_status.unexpected_keys
+        if missing_keys:
+            log.warning(f"Missing keys in checkpoint: {missing_keys}")
+        if unexpected_keys:
+            log.warning(f"Unexpected keys in checkpoint: {unexpected_keys}")
+
+        pt_net = self.wrap_net_with_fsdp(pt_net)
+        # load the weight loaded fsdp net to the original net
+        net.load_state_dict(pt_net.state_dict(), strict=True, assign=False)
+        log.info(f"==========Loaded PT checkpoint to {net} successfully.")
+
+    def _load_dcp_to_net(
+        self, net: torch.nn.Module, ckpt_path: str, prefix: str = "net_ema", credential_path: str | None = None
+    ) -> None:
         """Load a DCP checkpoint into a single network."""
-        credential_path = None
-        if hasattr(self.config, "teacher_load_from") and self.config.teacher_load_from is not None:
+        if (
+            credential_path is None
+            and hasattr(self.config, "teacher_load_from")
+            and self.config.teacher_load_from is not None
+        ):
             credential_path = self.config.teacher_load_from.credentials
 
         storage_reader = get_storage_reader(ckpt_path, credential_path)
@@ -252,6 +350,21 @@ class DMD2Model(Cosmos2InteractiveModel):
         return [self.scheduler_dict["fake_score"]]
 
     # ------------------------ Core denoise function ------------------------
+    def _apply_video_condition_mask(
+        self,
+        tensor_B_C_T_H_W: torch.Tensor,
+        condition: Video2WorldCondition,
+    ) -> torch.Tensor:
+        """Apply video conditioning mask to zero out conditional frames."""
+        if not condition.is_video:
+            return tensor_B_C_T_H_W
+
+        _, C, _, _, _ = tensor_B_C_T_H_W.shape
+        condition_video_mask = condition.condition_video_input_mask_B_C_T_H_W.repeat(1, C, 1, 1, 1).type_as(
+            tensor_B_C_T_H_W
+        )
+        return tensor_B_C_T_H_W * (1 - condition_video_mask)
+
     def denoise(
         self,
         xt_B_C_T_H_W: torch.Tensor,
@@ -504,16 +617,29 @@ class DMD2Model(Cosmos2InteractiveModel):
                 )
 
         # Per-sample (new in our sCM2, not in DMD) normalization weight to stablize grad scale
+        # Mask out conditional frames to avoid corrupting the loss normalization
         with torch.no_grad():
-            weight_factor = (
-                torch.abs(G_x0_theta_B_C_T_H_W.double() - x0_theta_teacher_B_C_T_H_W.double())
-                .mean(dim=[1, 2, 3, 4], keepdim=True)
-                .clip(min=0.00001)
-            )
+            diff = torch.abs(G_x0_theta_B_C_T_H_W.double() - x0_theta_teacher_B_C_T_H_W.double())
+
+            if condition.is_video:
+                _, C, _, _, _ = G_x0_theta_B_C_T_H_W.shape
+                condition_video_mask = condition.condition_video_input_mask_B_C_T_H_W.repeat(1, C, 1, 1, 1).type_as(
+                    diff
+                )
+                diff_masked = diff * (1 - condition_video_mask)
+                num_non_cond_pixels = (1 - condition_video_mask).sum(dim=[1, 2, 3, 4], keepdim=True).clip(min=1)
+                weight_factor = (diff_masked.sum(dim=[1, 2, 3, 4], keepdim=True) / num_non_cond_pixels).clip(
+                    min=0.00001
+                )
+            else:
+                weight_factor = diff.mean(dim=[1, 2, 3, 4], keepdim=True).clip(min=0.00001)
 
         # DMD's distribution matching loss by computing the the diff of teacher score and fake score
         # the grad of score func is the prediction from both nets
-        grad_B_C_T_H_W = (x0_theta_fake_B_C_T_H_W.double() - x0_theta_teacher_B_C_T_H_W.double()) / weight_factor
+        # Mask out conditional frames from gradient computation
+        grad_B_C_T_H_W = x0_theta_fake_B_C_T_H_W.double() - x0_theta_teacher_B_C_T_H_W.double()
+        grad_B_C_T_H_W = self._apply_video_condition_mask(grad_B_C_T_H_W, condition)
+        grad_B_C_T_H_W = grad_B_C_T_H_W / weight_factor
         # trick to let gradient flow into student only: current formulation let the value
         # of d (loss_dmd)/dG_x0 equal to grad_B_C_T_H_W (up to a constant). but since grad_B_C_T_H_W is detached,
         # gradient doesn't flow into teacher / fake score for this loss.
@@ -593,9 +719,12 @@ class DMD2Model(Cosmos2InteractiveModel):
         intermediate_features_outputs = fake_denoise_prediction.intermediate_features
 
         # Denoising loss for the fake score net
-        loss_fake_score = self.config.loss_scale_fake_score * (
-            (G_x0_theta_B_C_T_H_W - x0_theta_fake_B_C_T_H_W) ** 2 / D_sint_B_1_T_1_1**2
-        ).mean(dim=(1, 2, 3, 4))
+        # Mask out conditional frames to avoid training critic on pinned frames
+        diff_B_C_T_H_W = G_x0_theta_B_C_T_H_W - x0_theta_fake_B_C_T_H_W
+        diff_B_C_T_H_W = self._apply_video_condition_mask(diff_B_C_T_H_W, condition)
+        loss_fake_score = self.config.loss_scale_fake_score * (diff_B_C_T_H_W**2 / D_sint_B_1_T_1_1**2).mean(
+            dim=(1, 2, 3, 4)
+        )
         total_critic_loss = loss_fake_score
 
         if self.net_discriminator_head is not None:

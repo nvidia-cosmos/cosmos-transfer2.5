@@ -87,6 +87,15 @@ dmd2_transfer2p5_experiments = {
         nnode=32,
         command_args=[],
     ),
+    "cosmos_fastgen_dmd2_trigflow_distill_cosmos_transfer2p5_2B_bidirectional_edge_v1g": Experiment(
+        registered_exp_name="dmd2_trigflow_distill_cosmos_transfer2p5_2B_bidirectional_edge",
+        job_name_for_ckpt="cosmos_fastgen_dmd2_trigflow_distill_cosmos_transfer2p5_2B_bidirectional_edge_v1g",
+        job_group="cosmos2_interactive",
+        nnode=32,
+        command_args=[
+            "model.config.use_neg_prompt_str=True",
+        ],
+    ),
 }
 
 EXPERIMENTS = {}
@@ -98,3 +107,33 @@ for experiments in EXPERIMENTS_LIST:
     for exp_name, _ in experiments.items():
         assert exp_name not in EXPERIMENTS, f"Experiment {exp_name} already exists"
     EXPERIMENTS.update(experiments)
+
+
+# Action-conditioned DMD2 distillation experiments
+dmd2_action_conditioned_experiments = {
+    # Bridge dataset - 13 frame action-conditioned prediction at 256x320
+    "cosmos_interactive_dmd2_trigflow_distill_predict2p5_2B_action_conditioned_bridge_13frame_256x320": Experiment(
+        registered_exp_name="dmd2_trigflow_distill_cosmos_predict2_2B_action_conditioned_bridge_13frame_256x320",
+        job_name_for_ckpt="cosmos_interactive_dmd2_trigflow_distill_predict2p5_2B_action_conditioned_bridge_13frame_256x320",
+        job_group="cosmos3_interactive_action_conditioned",
+        nnode=4,
+        command_args=[
+            "model_parallel.context_parallel_size=1",
+        ],
+    ),
+    # Bridge dataset - 13 frame action-conditioned prediction at 480x640
+    "cosmos_interactive_dmd2_trigflow_distill_predict2p5_2B_action_conditioned_bridge_13frame_480x640": Experiment(
+        registered_exp_name="dmd2_trigflow_distill_cosmos_predict2_2B_action_conditioned_bridge_13frame_480x640",
+        job_name_for_ckpt="cosmos_interactive_dmd2_trigflow_distill_predict2p5_2B_action_conditioned_bridge_13frame_480x640",
+        job_group="cosmos3_interactive_action_conditioned",
+        nnode=4,
+        command_args=[
+            "model_parallel.context_parallel_size=1",
+        ],
+    ),
+}
+
+EXPERIMENTS_LIST.append(dmd2_action_conditioned_experiments)
+for exp_name, _ in dmd2_action_conditioned_experiments.items():
+    assert exp_name not in EXPERIMENTS, f"Experiment {exp_name} already exists"
+EXPERIMENTS.update(dmd2_action_conditioned_experiments)

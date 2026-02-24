@@ -18,9 +18,50 @@ Utility functions for caching text encoder checkpoints locally.
 """
 
 import os
+from urllib.parse import urlparse
 
 from cosmos_transfer2._src.imaginaire.flags import INTERNAL
 from cosmos_transfer2._src.imaginaire.utils import log
+from cosmos_transfer2._src.imaginaire.utils.easy_io import easy_io
+
+
+def _basic_dcp_cache_valid(local_cache_path: str) -> bool:
+    if not os.path.isdir(local_cache_path):
+        return False
+    all_files = os.listdir(local_cache_path)
+    has_metadata = ".metadata" in all_files
+    has_distcp = any(f.endswith(".distcp") for f in all_files)
+    return has_metadata and has_distcp
+
+
+def _is_cache_complete(
+    s3_ckpt_path: str,
+    local_cache_path: str,
+    s3_credential_path: str,
+) -> bool:
+    if not _basic_dcp_cache_valid(local_cache_path):
+        return False
+    try:
+        backend = easy_io.get_file_backend(
+            backend_args={
+                "backend": "s3",
+                "s3_credential_path": s3_credential_path,
+                "path_mapping": None,
+            }
+        )
+        expected_files = list(backend.list_dir_or_file(dir_path=s3_ckpt_path, list_dir=False, list_file=True))
+    except Exception as e:
+        log.warning(f"Failed to list S3 checkpoint for cache validation: {e}")
+        return True
+
+    missing_files = [
+        obj_suffix for obj_suffix in expected_files if not os.path.exists(os.path.join(local_cache_path, obj_suffix))
+    ]
+    if missing_files:
+        sample = ", ".join(missing_files[:5])
+        log.warning(f"Cache missing {len(missing_files)} files (e.g., {sample})")
+        return False
+    return True
 
 
 def cache_text_encoder_checkpoint(
@@ -48,10 +89,6 @@ def cache_text_encoder_checkpoint(
         # Already a local path
         return s3_ckpt_path
 
-    # sync_s3_dir_to_local strips the bucket name and caches to: cache_dir/path_after_bucket/
-    # For s3://bucket/path/to/file, it caches to: cache_dir/path/to/file
-    from urllib.parse import urlparse
-
     parsed = urlparse(s3_ckpt_path)
     # parsed.path is /path/after/bucket (with leading /)
     source_prefix = parsed.path.lstrip("/")
@@ -59,22 +96,11 @@ def cache_text_encoder_checkpoint(
 
     # Check if already cached
     if os.path.exists(local_cache_path):
-        # Verify it's a valid directory with checkpoint files
         if os.path.isdir(local_cache_path):
-            # Check for DCP checkpoint files (.metadata is required, .distcp files contain the data)
-            all_files = os.listdir(local_cache_path)
-            has_metadata = ".metadata" in all_files
-            has_distcp = any(f.endswith(".distcp") for f in all_files)
-            if has_metadata and has_distcp:
+            if _is_cache_complete(s3_ckpt_path, local_cache_path, s3_credential_path):
                 log.info(f"Text encoder checkpoint already cached at {local_cache_path}")
                 return local_cache_path
-            else:
-                log.warning(
-                    f"Cache directory exists but appears incomplete: {local_cache_path} (has_metadata={has_metadata}, has_distcp={has_distcp})"
-                )
-                import shutil
-
-                shutil.rmtree(local_cache_path, ignore_errors=True)
+            log.warning(f"Cache directory exists but appears incomplete: {local_cache_path}")
         else:
             log.warning(f"Cache path exists but is not a directory: {local_cache_path}")
             os.remove(local_cache_path)
@@ -92,6 +118,7 @@ def cache_text_encoder_checkpoint(
             s3_credential_path=s3_credential_path,
             cache_dir=cache_dir,
             rank_sync=False,  # Don't sync across ranks, each rank will check cache
+            local_rank_sync=True,  # Sync within node to avoid partial cache reads
         )
 
         log.info(f"Successfully cached text encoder checkpoint to {cached_dir}")
