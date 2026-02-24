@@ -11,6 +11,7 @@ NVIDIA Cosmos™ is a platform purpose-built for physical AI, featuring state-of
 Cosmos World Foundation Models come in three model types which can all be customized in post-training: [cosmos-predict](https://github.com/nvidia-cosmos/cosmos-predict2.5), [cosmos-transfer](https://github.com/nvidia-cosmos/cosmos-transfer2.5), and [cosmos-reason](https://github.com/nvidia-cosmos/cosmos-reason1).
 
 ## News
+* [February 23, 2026] Released Transfer2.5 Distilled Edge [model](https://huggingface.co/nvidia/Cosmos-Transfer2.5-2B/tree/main/distilled/general/edge) and [inference](https://github.com/nvidia-cosmos/cosmos-transfer2.5/blob/main/docs/inference.md), enabling low latency (edge deployment) inference. More distilled controlnets coming soon.
 * [December 19, 2025] Released Image2Image and ImagePrompt capabilities. See the inference guide [here](docs/inference_image.md).
 * [December 12, 2025] Released updated checkpoints for [Cosmos-Transfer2.5-2B](https://huggingface.co/nvidia/Cosmos-Transfer2.5-2B) (blur, depth, segmentation, edge), fixed an issue with autoregressive multiview when num_conditional_frames == 0, optimized control video rendering, refreshed documentation, and added a new post-training example for [single-view](docs/post-training_singleview.md) edge/depth/seg/blur modalities.
 * [November 25, 2025] Added Blackwell + ARM inference support, Auto/Multiview code fixes, along with fixes for the help menu and CLI overrides, improved guardrail offloading, and LFS enablement for large assets.
@@ -106,7 +107,7 @@ For an example demonstrating how to augment sythentic data with Cosmos Transfer 
 
 Cosmos-Transfer supports data generation in multiple industry verticals, outlined below. Please check back as we continue to add more specialized models to the Transfer family!
 
-[**Cosmos-Transfer2.5-2B**](docs/inference.md): General [checkpoints](https://huggingface.co/nvidia/Cosmos-Transfer2.5-2B), trained from the ground up for Physical AI and robotics.
+[**Cosmos-Transfer2.5-2B**](docs/inference.md): General [checkpoints](https://huggingface.co/nvidia/Cosmos-Transfer2.5-2B), Distilled [checkpoints](https://huggingface.co/nvidia/Cosmos-Transfer2.5-2B/tree/main/distilled/general), trained from the ground up for Physical AI and robotics.
 
 [**Cosmos-Transfer2.5-2B/auto**](docs/inference_auto_multiview.md): Specialized checkpoints, post-trained for Autonomous Vehicle applications. [Multiview checkpoints](https://huggingface.co/nvidia/Cosmos-Transfer2.5-2B/tree/main/auto). For an example demonstrating how to augment sythentic data with Cosmos Transfer on Autonomous Vehicle see [Cosmos Transfer 2.5 Sim2Real for Simulator Videos](https://nvidia-cosmos.github.io/cosmos-cookbook/recipes/inference/transfer2_5/inference-carla-sdg-augmentation/inference.html) in the [Cosmos Cookbook](https://nvidia-cosmos.github.io/cosmos-cookbook/).
 
