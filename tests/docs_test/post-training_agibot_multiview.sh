@@ -18,11 +18,6 @@ export COSMOS_EXPERIMENTAL_CHECKPOINTS=1
 export DATASET_DIR="$INPUT_DIR/assets/robot_multiview_control_posttrain-agibot"
 export INFERENCE_INPUT_ROOT="$INPUT_DIR/assets/robot_multiview_control-agibot"
 
-# Use lower resolution and fewer steps in CI or when COSMOS_DOCS_TEST_FAST=1 (default is 720p, 35 steps)
-if [ -n "${CI:-}" ] || [ "${COSMOS_DOCS_TEST_FAST:-0}" = "1" ]; then
-  INFERENCE_ARGS="${INFERENCE_ARGS} --target-width 640 --target-height 480 --num_steps 4"
-fi
-
 for CONTROL_TYPE in edge; do
   EXPERIMENT="transfer2_agibot_posttrain_${CONTROL_TYPE}_example"
 
