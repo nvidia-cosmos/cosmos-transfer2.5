@@ -34,10 +34,10 @@ The table below compares base vs. distilled Transfer 2.5 Edge inference performa
 
 | Metric | GPUs | RTX PRO 6000 Blackwell SE | H20 | H100 NVL | H200 NVL | B200 | B300 |
 |--------|------|----------------------------|-----|----------|----------|------|------|
-| **Avg. Base Model Diffusion Time (s)** | 1 | 78.5 | 176.4 | 64.5 | 49.8 | 24.2 | 53.2 |
+| **Avg. Distilled Model Diffusion Time (s)** | 1 | 78.5 | 176.4 | 64.5 | 49.8 | 24.2 | 53.2 |
 | | 4 | 33.7 | 62.7 | 27.4 | 20.4 | 12.6 | 25.6 |
 | | 8 | 25.0 | 44.0 | 20.4 | 16.9 | 11.1 | 19.9 |
-| **Avg. Distilled Diffusion Time (s)** | 1 | 605.7 | 1374.6 | 502.6 | 374.4 | 179.7 | 415.5 |
+| **Avg. Base Diffusion Time (s)** | 1 | 605.7 | 1374.6 | 502.6 | 374.4 | 179.7 | 415.5 |
 | | 4 | 196.1 | 373.4 | 154.5 | 117.0 | 62.3 | 127.7 |
 | | 8 | 118.8 | 201.5 | 92.5 | 82.4 | 41.8 | 76.1 |
 | **Avg. Performance Improvement** | 1 | 7.7x | 7.8x | 7.8x | 7.5x | 7.4x | 7.8x |
