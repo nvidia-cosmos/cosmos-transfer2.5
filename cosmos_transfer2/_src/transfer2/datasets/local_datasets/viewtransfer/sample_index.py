@@ -134,20 +134,19 @@ def build_samples(
 
     out: list[ViewTransferPairSample] = []
     tasks_episodes = scan_task_episodes(dataset_dir)
-    pbar = tqdm(tasks_episodes, desc="Building samples...", total=len(tasks_episodes) * len(pairs))
-    for task, episode in pbar:
-        if not _episode_has_clips(dataset_dir=dataset_dir, task=task, episode=episode, clip_names=clip_names):
-            pbar.update(len(pairs))
-            continue
-        for src, tgt in pairs:
-            out.append(
-                ViewTransferPairSample(
-                    task=task,
-                    episode=episode,
-                    source_clip=src,
-                    target_clip=tgt,
+    with tqdm(total=len(tasks_episodes) * len(pairs), desc="Building samples...") as pbar:
+        for task, episode in tasks_episodes:
+            if not _episode_has_clips(dataset_dir=dataset_dir, task=task, episode=episode, clip_names=clip_names):
+                pbar.update(len(pairs))
+                continue
+            for src, tgt in pairs:
+                out.append(
+                    ViewTransferPairSample(
+                        task=task,
+                        episode=episode,
+                        source_clip=src,
+                        target_clip=tgt,
+                    )
                 )
-            )
-            pbar.update(1)
-    pbar.close()
+                pbar.update(1)
     return out
