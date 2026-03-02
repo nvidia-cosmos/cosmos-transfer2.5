@@ -22,19 +22,26 @@ from cosmos_transfer2._src.imaginaire.lazy_config import instantiate
 from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.transfer2.datasets.augmentor_provider import get_view_transfer_video_augmentor
 from cosmos_transfer2._src.transfer2.datasets.local_datasets.viewtransfer.cache_io import (
+    atomic_save_npz,
     get_video_fps,
     load_depth_mkv_ffv1_mm_u16,
     load_full_video_frames,
     load_mask_mkv_ffv1,
+    save_depth_mkv_ffv1_mm_u16,
     save_mask_mkv_ffv1,
     save_render_mp4_h264,
 )
 from cosmos_transfer2._src.transfer2.datasets.local_datasets.viewtransfer.camera_parameters import (
-    ensure_camera_parameters_cache,
+    _generate_camera_parameters_for_episode,
 )
-from cosmos_transfer2._src.transfer2.datasets.local_datasets.viewtransfer.depth_backends import ensure_depth_cache
+from cosmos_transfer2._src.transfer2.datasets.local_datasets.viewtransfer.depth_backends import (
+    generate_depth,
+)
 from cosmos_transfer2._src.transfer2.datasets.local_datasets.viewtransfer.gen3c.cache_3d import Cache4D
 from cosmos_transfer2._src.transfer2.datasets.local_datasets.viewtransfer.path_templates import (
+    CacheCategory,
+    camera_parameters_cache_path,
+    depth_cache_path,
     point_cloud_cache_path,
     raw_video_path,
     render_cache_paths,
@@ -81,6 +88,7 @@ class AgibotViewTransferDataset(Dataset):
         is_train: bool = True,
         caption_type: str = "t2w_qwen2p5_7b",
         cache_root: str = ".agibot_cache",
+        cache_categories: tuple[str | CacheCategory, ...] | None = None,
         clip_names: tuple[str, ...] = ("head", "hand_left", "hand_right"),
         depth_estimator: str = "agibot",
         pair_mode: str | PairMode = "all_ordered_nonself",
@@ -108,15 +116,14 @@ class AgibotViewTransferDataset(Dataset):
         self.is_train = is_train
         self.caption_type = caption_type
 
-        self.cache_root = cache_root
+        self.cache_root = Path(cache_root).resolve()
+        self.cache_categories = {CacheCategory(value) for value in cache_categories} if cache_categories else set()
         self.clip_names = tuple(clip_names)
         self.depth_estimator = depth_estimator
-        self.pair_mode = pair_mode
+        self.pair_mode = PairMode(pair_mode)
         self.anchor_clip = anchor_clip
-        self.anchor_direction = anchor_direction
+        self.anchor_direction = AnchorDirection(anchor_direction) if anchor_direction else None
         self.explicit_pairs = explicit_pairs
-        self._pair_mode = self._coerce_pair_mode(self.pair_mode)
-        self._anchor_direction = self._coerce_anchor_direction(self.anchor_direction)
 
         self.urdf_path = urdf_path
         self.usd_path = usd_path
@@ -134,9 +141,9 @@ class AgibotViewTransferDataset(Dataset):
         self.samples = build_samples(
             dataset_dir=dataset_dir,
             clip_names=self.clip_names,
-            pair_mode=self._pair_mode,
+            pair_mode=self.pair_mode,
             anchor_clip=self.anchor_clip,
-            anchor_direction=self._anchor_direction,
+            anchor_direction=self.anchor_direction,
             explicit_pairs=self.explicit_pairs,
         )
         if not self.samples:
@@ -159,6 +166,10 @@ class AgibotViewTransferDataset(Dataset):
         self.target_video_key = "target_video"
         self.inpaint_video_key = "rendered_video"
         self.inpaint_mask_key = "rendered_video_mask"
+        self.source_intrinsics_key = "source_intrinsics"
+        self.source_w2c_key = "source_w2c"
+        self.target_intrinsics_key = "target_intrinsics"
+        self.target_w2c_key = "target_w2c"
         augmentor_config = get_view_transfer_video_augmentor(
             source_video_key=self.source_video_key,
             target_video_key=self.target_video_key,
@@ -174,31 +185,12 @@ class AgibotViewTransferDataset(Dataset):
             raise RuntimeError("text_transform should have been filtered out but is still present!")
 
         log.info(f"Initialized AgibotViewTransferDataset with {len(self.samples)} videos")
-        log.info(f"  Dataset dir: {self.dataset_dir}")
-        log.info(f"  Resolution: {resolution}")
-        log.info(f"  Required frames: {self.sequence_length}")
+        log.info(f"Dataset dir: {self.dataset_dir}")
+        log.info(f"Resolution: {resolution}")
+        log.info(f"Required frames: {self.sequence_length}")
 
-    @staticmethod
-    def _coerce_pair_mode(pair_mode: str | PairMode) -> PairMode:
-        if isinstance(pair_mode, PairMode):
-            return pair_mode
-        try:
-            return PairMode(pair_mode)
-        except ValueError as exc:
-            expected = {mode.value for mode in PairMode}
-            raise ValueError(f"Unsupported pair_mode={pair_mode!r}. Expected one of {expected}.") from exc
-
-    @staticmethod
-    def _coerce_anchor_direction(anchor_direction: str | AnchorDirection | None) -> AnchorDirection | None:
-        if anchor_direction is None:
-            return None
-        if isinstance(anchor_direction, AnchorDirection):
-            return anchor_direction
-        try:
-            return AnchorDirection(anchor_direction)
-        except ValueError as exc:
-            expected = {direction.value for direction in AnchorDirection}
-            raise ValueError(f"Unsupported anchor_direction={anchor_direction!r}. Expected one of {expected}.") from exc
+    def _should_cache(self, category: CacheCategory) -> bool:
+        return category in self.cache_categories
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -217,35 +209,29 @@ class AgibotViewTransferDataset(Dataset):
                 continue
 
             sample = self.samples[index]
+            log.debug(f"Loading sample {sample} (index {index}, attempt {retry + 1}/{max_retries})")
             try:
                 source_video_path = raw_video_path(self.dataset_dir, sample.task, sample.episode, sample.source_clip)
                 target_video_path = raw_video_path(self.dataset_dir, sample.task, sample.episode, sample.target_clip)
-                render_path, mask_path = render_cache_paths(
-                    self.cache_root,
-                    sample.task,
-                    sample.episode,
-                    sample.source_clip,
-                    sample.target_clip,
-                    self.depth_estimator,
-                )
-
-                if not (render_path.exists() and mask_path.exists()):
-                    log.info(f"Render cache not found for sample {sample}. Preparing render cache...")
-                    self._prepare_render_cache(sample)
 
                 (
                     source_frames_nchw_uint8,
                     target_frames_nchw_uint8,
-                    render_frames_nchw_uint8,
-                    render_mask_frames_n1hw_uint8,
                     fps,
                     frame_ids,
-                ) = self._load_video_frames(
+                ) = self._load_source_target_frames(
                     source_video_path=source_video_path,
                     target_video_path=target_video_path,
-                    render_video_path=render_path,
-                    render_mask_path=mask_path,
-                )  # N C H W uint8, N C H W uint8, N C H W uint8, N 1 H W uint8, float, list[int]
+                )  # N C H W uint8, N C H W uint8, float, list[int]
+
+                (
+                    render_frames_nchw_uint8,
+                    render_mask_frames_n1hw_uint8,
+                ) = self._get_render_frames(
+                    sample=sample,
+                    frame_ids=frame_ids,
+                    fps=fps,
+                )  # N C H W uint8, N 1 H W uint8
 
                 # Permute to (C, T, H, W) format expected by augmentors
                 source_video = source_frames_nchw_uint8.permute(1, 0, 2, 3)  # C T H W
@@ -271,6 +257,19 @@ class AgibotViewTransferDataset(Dataset):
                     "frame_indices": frame_ids,
                     "n_orig_video_frames": len(frame_ids),
                 }
+
+                # Add camera parameters
+                source_intrinsics_n33, source_w2c_n44 = self._get_camera_parameters(
+                    sample=sample, clip_name=sample.source_clip
+                )
+                target_intrinsics_n33, target_w2c_n44 = self._get_camera_parameters(
+                    sample=sample, clip_name=sample.target_clip
+                )
+
+                data["source_intrinsics"] = source_intrinsics_n33
+                data["source_w2c"] = source_w2c_n44
+                data["target_intrinsics"] = target_intrinsics_n33
+                data["target_w2c"] = target_w2c_n44
 
                 # Load caption placeholder
                 caption = "a robot video"
@@ -352,20 +351,160 @@ class AgibotViewTransferDataset(Dataset):
 
         raise RuntimeError("Should not reach here")
 
-    def _prepare_render_cache(self, sample: ViewTransferPairSample) -> None:
-        """
-        Prepares the render cache and mask for a given sample.
-        """
-        render_path, mask_path = render_cache_paths(
-            self.cache_root,
-            sample.task,
-            sample.episode,
-            sample.source_clip,
-            sample.target_clip,
-            self.depth_estimator,
+    def _load_source_target_frames(
+        self,
+        *,
+        source_video_path: Path,
+        target_video_path: Path,
+    ) -> tuple[torch.Tensor, torch.Tensor, float, list[int]]:
+        source_decoder = VideoDecoder(str(source_video_path), device=self.decoder_device)
+        target_decoder = VideoDecoder(str(target_video_path), device=self.decoder_device)
+
+        min_frames = min(len(source_decoder), len(target_decoder))
+        if min_frames < self.sequence_length:
+            raise ValueError(
+                f"Not enough frames for sample. source={len(source_decoder)}, target={len(target_decoder)}, "
+                f"required={self.sequence_length}"
+            )
+
+        if self.is_train:
+            start = np.random.randint(0, min_frames - self.sequence_length + 1)
+        else:
+            start = 0
+        frame_ids = list(range(start, start + self.sequence_length))
+
+        source_frames: FrameBatch = source_decoder.get_frames_at(frame_ids)  # N C H W, uint8
+        target_frames: FrameBatch = target_decoder.get_frames_at(frame_ids)  # N C H W, uint8
+
+        fps = self._get_fps_from_decoder(target_decoder)
+        source_fps = self._get_fps_from_decoder(source_decoder)
+        if abs(source_fps - fps) > 1e-3:
+            log.warning(
+                f"Source/target FPS mismatch for sample: source_fps={source_fps}, target_fps={fps}. Using target FPS."
+            )
+
+        return (
+            source_frames.data,
+            target_frames.data,
+            fps,
+            frame_ids,
         )
-        if render_path.exists() and mask_path.exists():
-            return
+
+    @staticmethod
+    def _depth_m_to_mm_u16(depth_m: np.ndarray) -> np.ndarray:
+        depth_m = np.asarray(depth_m)
+        valid = np.isfinite(depth_m) & (depth_m > 0)
+        depth_mm = np.zeros(depth_m.shape, dtype=np.uint16)
+        depth_mm[valid] = np.clip(np.rint(depth_m[valid] * 1000.0), 0, 65535).astype(np.uint16)
+        return depth_mm
+
+    def _get_camera_parameters(
+        self,
+        *,
+        sample: ViewTransferPairSample,
+        clip_name: str,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        cam_path = camera_parameters_cache_path(
+            cache_root=self.cache_root,
+            task=sample.task,
+            episode=sample.episode,
+            clip_name=clip_name,
+        )
+        if cam_path.exists():
+            with np.load(cam_path) as cam_params:
+                intrinsics = torch.from_numpy(cam_params["intrinsics"]).float()
+                w2c = torch.from_numpy(cam_params["w2c"]).float()
+            return intrinsics, w2c
+
+        log.debug(f"Computing {cam_path}...")
+        params_by_clip = _generate_camera_parameters_for_episode(
+            dataset_dir=self.dataset_dir,
+            task=sample.task,
+            episode=sample.episode,
+            clip_names=self.clip_names,
+            urdf_path=self.urdf_path,
+            usd_path=self.usd_path,
+            camera_prims=self.camera_prims,
+            base_frame=self.base_frame,
+        )
+        if clip_name not in params_by_clip:
+            raise ValueError(
+                f"Camera parameters for clip {clip_name!r} not found. Available clips: {tuple(params_by_clip.keys())}"
+            )
+
+        if self._should_cache(CacheCategory.CAMERA_PARAMETERS):
+            log.debug(f"Caching {cam_path}...")
+            for cache_clip_name, params in params_by_clip.items():
+                cache_path = camera_parameters_cache_path(
+                    cache_root=self.cache_root,
+                    task=sample.task,
+                    episode=sample.episode,
+                    clip_name=cache_clip_name,
+                )
+                atomic_save_npz(cache_path, intrinsics=params["intrinsics"], w2c=params["w2c"])
+
+        params = params_by_clip[clip_name]
+        intrinsics = torch.from_numpy(params["intrinsics"]).float()
+        w2c = torch.from_numpy(params["w2c"]).float()
+        return intrinsics, w2c
+
+    def _get_depth(
+        self,
+        *,
+        sample: ViewTransferPairSample,
+        source_video_path: Path,
+        frame_count: int,
+        height: int,
+        width: int,
+    ) -> torch.Tensor:
+        d_path = depth_cache_path(
+            cache_root=self.cache_root,
+            task=sample.task,
+            episode=sample.episode,
+            source_clip=sample.source_clip,
+            depth_estimator=self.depth_estimator,
+        )
+        if d_path.exists():
+            depth_nhw_m_float64_np = load_depth_mkv_ffv1_mm_u16(
+                path=d_path,
+                width=width,
+                height=height,
+                return_float64=True,
+            )
+        else:
+            log.debug(f"Computing {d_path}...")
+            depth_nhw_m_float64_np = generate_depth(
+                dataset_dir=self.dataset_dir,
+                task=sample.task,
+                episode=sample.episode,
+                source_clip=sample.source_clip,
+                depth_estimator=self.depth_estimator,
+                moge_model=self.moge_model,
+                moge_device=self.moge_device,
+                moge_batch_size=self.moge_batch_size,
+            )
+            if depth_nhw_m_float64_np.ndim != 3:
+                raise ValueError(f"Expected depth with shape [F,H,W], got {depth_nhw_m_float64_np.shape}")
+            if tuple(depth_nhw_m_float64_np.shape[1:]) != (height, width):
+                raise ValueError(
+                    f"Depth resolution mismatch. depth={depth_nhw_m_float64_np.shape[1:]}, expected={(height, width)}"
+                )
+            if self._should_cache(CacheCategory.DEPTH):
+                log.debug(f"Caching {d_path}...")
+                depth_mm_u16 = self._depth_m_to_mm_u16(depth_nhw_m_float64_np)
+                source_fps = get_video_fps(source_video_path)
+                save_depth_mkv_ffv1_mm_u16(depth_mm=depth_mm_u16, path=d_path, fps=source_fps)
+
+        if depth_nhw_m_float64_np.shape[0] != frame_count:
+            raise ValueError(
+                f"Depth frame count mismatch. depth={depth_nhw_m_float64_np.shape[0]}, source={frame_count}"
+            )
+        return torch.from_numpy(depth_nhw_m_float64_np).unsqueeze(1)  # [F, 1, H, W], float64
+
+    def _get_point_cloud(self, *, sample: ViewTransferPairSample) -> Cache4D:
+        source_video_path = raw_video_path(self.dataset_dir, sample.task, sample.episode, sample.source_clip)
+        input_frames_nchw_uint8 = load_full_video_frames(source_video_path, decoder_device=self.decoder_device)
+        image_tensor = (input_frames_nchw_uint8.float() / 127.5) - 1.0  # [0,255] -> [-1,1]
 
         pcd_path = point_cloud_cache_path(
             self.cache_root,
@@ -375,54 +514,6 @@ class AgibotViewTransferDataset(Dataset):
             sample.target_clip,
             self.depth_estimator,
         )
-        cache_4d = self._reconstruct_point_cloud_cache(sample=sample, pcd_path=pcd_path)
-
-        self._render_from_point_cloud_cache(
-            sample=sample,
-            cache_4d=cache_4d,
-            render_path=render_path,
-            mask_path=mask_path,
-        )
-
-    def _ensure_depth_cache(self, sample: ViewTransferPairSample) -> Path:
-        return ensure_depth_cache(
-            dataset_dir=self.dataset_dir,
-            cache_root=self.cache_root,
-            task=sample.task,
-            episode=sample.episode,
-            source_clip=sample.source_clip,
-            depth_estimator=self.depth_estimator,
-            moge_model=self.moge_model,
-            moge_device=self.moge_device,
-            moge_batch_size=self.moge_batch_size,
-            lock_timeout_sec=self.lock_timeout_sec,
-            lock_poll_sec=self.lock_poll_sec,
-        )
-
-    def _ensure_camera_parameters_cache(self, sample: ViewTransferPairSample, clip_name: str) -> Path:
-        return ensure_camera_parameters_cache(
-            dataset_dir=self.dataset_dir,
-            cache_root=self.cache_root,
-            task=sample.task,
-            episode=sample.episode,
-            clip_name=clip_name,
-            clip_names=self.clip_names,
-            urdf_path=self.urdf_path,
-            usd_path=self.usd_path,
-            camera_prims=self.camera_prims,
-            base_frame=self.base_frame,
-            lock_timeout_sec=self.lock_timeout_sec,
-            lock_poll_sec=self.lock_poll_sec,
-        )
-
-    def _reconstruct_point_cloud_cache(self, *, sample: ViewTransferPairSample, pcd_path: Path) -> Cache4D:
-        """
-        Reconstructs the point cloud cache for a given sample using depth estimation and source extrinsics.
-        """
-        source_video_path = raw_video_path(self.dataset_dir, sample.task, sample.episode, sample.source_clip)
-        input_frames_nchw_uint8 = load_full_video_frames(source_video_path, decoder_device=self.decoder_device)
-        image_tensor = (input_frames_nchw_uint8.float() / 127.5) - 1.0  # [0,255] -> [-1,1]
-
         if pcd_path.exists():
             points = torch.from_numpy(np.load(pcd_path)["points"])  # F, H, W, 3
             return Cache4D(
@@ -435,17 +526,16 @@ class AgibotViewTransferDataset(Dataset):
                 device=self.render_device,
             )
 
-        log.info(f"Point cloud cache not found for sample {sample}. Reconstructing from depth and camera parameters...")
-        depth_path = self._ensure_depth_cache(sample)
+        log.debug(f"Computing {pcd_path}...")
         _, _, height, width = image_tensor.shape
-        depth_nhw_m_float64_np = load_depth_mkv_ffv1_mm_u16(
-            path=depth_path, width=width, height=height, return_float64=True
+        depth_n1hw_m_float64 = self._get_depth(
+            sample=sample,
+            source_video_path=source_video_path,
+            frame_count=image_tensor.shape[0],
+            height=height,
+            width=width,
         )
-        depth_n1hw_m_float64 = torch.from_numpy(depth_nhw_m_float64_np).unsqueeze(1)  # [F, 1, H, W]
-        source_cam_pam_path = self._ensure_camera_parameters_cache(sample, sample.source_clip)
-        cam_pams = np.load(source_cam_pam_path)
-        intrinsics_n33 = torch.from_numpy(cam_pams["intrinsics"]).float()  # [F, 3, 3]
-        initial_w2c_n44 = torch.from_numpy(cam_pams["w2c"]).float()  # [F, 4, 4]
+        intrinsics_n33, initial_w2c_n44 = self._get_camera_parameters(sample=sample, clip_name=sample.source_clip)
 
         cache_4d = Cache4D(
             input_image=image_tensor,  # [F, C, H, W]
@@ -456,92 +546,84 @@ class AgibotViewTransferDataset(Dataset):
             device=self.render_device,
         )
 
-        # Save point cloud cache
-        cache_4d.export_point_cloud(pcd_path)
+        if self._should_cache(CacheCategory.POINT_CLOUD):
+            log.debug(f"Caching {pcd_path}...")
+            cache_4d.export_point_cloud(pcd_path)
 
         return cache_4d
 
-    def _render_from_point_cloud_cache(
+    def _get_render_frames(
         self,
         *,
         sample: ViewTransferPairSample,
-        cache_4d: Cache4D,
-        render_path: Path,
-        mask_path: Path,
-    ) -> None:
-        """
-        Renders the target view and disocclusion mask from the 4D cache for a given sample.
-        """
-        target_cam_pam_path = self._ensure_camera_parameters_cache(sample, sample.target_clip)
-        cam_pams = np.load(target_cam_pam_path)
-        target_w2c_n44 = torch.from_numpy(cam_pams["w2c"]).float().unsqueeze(0)  # [1, F, 4, 4]
-        target_intrinsics_n33 = torch.from_numpy(cam_pams["intrinsics"]).float().unsqueeze(0)  # [1, F, 3, 3]
-
-        rendered_warp_images, rendered_warp_masks = cache_4d.render_cache(
-            target_w2cs=target_w2c_n44,
-            target_intrinsics=target_intrinsics_n33,
-        )  # [B, F, N, C, H, W]
-
-        rendered_images = rendered_warp_images.squeeze(0).squeeze(1).cpu()  # [F, C, H, W]
-        rendered_masks = rendered_warp_masks.squeeze(0).squeeze(1).cpu()  # [F, 1, H, W]
-        rendered_images = (rendered_images + 1.0) * 127.5  # [-1,1] -> [0,255]
-        rendered_images = rendered_images.clamp(0, 255).byte().permute(0, 2, 3, 1).numpy()  # [F, H, W, C], uint8
-        rendered_masks = (
-            (rendered_masks > 0).byte().squeeze(1).numpy()
-        )  # [F, H, W], uint8, Binary mask, 1 for known, 0 for unknown
-
-        source_video_path = raw_video_path(self.dataset_dir, sample.task, sample.episode, sample.source_clip)
-        fps = get_video_fps(source_video_path)
-        save_render_mp4_h264(frames=rendered_images, path=render_path, fps=fps)
-        save_mask_mkv_ffv1(masks=rendered_masks, path=mask_path, fps=fps)
-
-    def _load_video_frames(
-        self,
-        *,
-        source_video_path: Path,
-        target_video_path: Path,
-        render_video_path: Path,
-        render_mask_path: Path,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, float, list[int]]:
-        source_decoder = VideoDecoder(str(source_video_path), device=self.decoder_device)
-        target_decoder = VideoDecoder(str(target_video_path), device=self.decoder_device)
-        render_decoder = VideoDecoder(str(render_video_path), device=self.decoder_device)
-        width, height = self._get_shape_from_decoder(render_decoder)
-        mask_frames = load_mask_mkv_ffv1(path=render_mask_path, width=width, height=height)  # T H W, uint8
-
-        min_frames = min(len(source_decoder), len(target_decoder), len(render_decoder), len(mask_frames))
-        if min_frames < self.sequence_length:
-            raise ValueError(
-                f"Not enough frames for sample. source={len(source_decoder)}, target={len(target_decoder)}, "
-                f"render={len(render_decoder)}, mask={len(mask_frames)}, required={self.sequence_length}"
-            )
-
-        if self.is_train:
-            start = np.random.randint(0, min_frames - self.sequence_length + 1)
-        else:
-            start = 0
-        frame_ids = list(range(start, start + self.sequence_length))
-
-        source_frames: FrameBatch = source_decoder.get_frames_at(frame_ids)  # N C H W, uint8
-        target_frames: FrameBatch = target_decoder.get_frames_at(frame_ids)  # N C H W, uint8
-        render_frames: FrameBatch = render_decoder.get_frames_at(frame_ids)  # N C H W, uint8
-        mask_frames = torch.from_numpy(mask_frames[frame_ids]).unsqueeze(1)  # N 1 H W, uint8
-
-        fps = self._get_fps_from_decoder(target_decoder)
-        source_fps = self._get_fps_from_decoder(source_decoder)
-        if abs(source_fps - fps) > 1e-3:
-            log.warning(
-                f"Source/target FPS mismatch for sample: source_fps={source_fps}, target_fps={fps}. Using target FPS."
-            )
-
-        return (
-            source_frames.data,
-            target_frames.data,
-            render_frames.data,
-            mask_frames,
-            fps,
-            frame_ids,
+        frame_ids: list[int],
+        fps: float,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        render_path, mask_path = render_cache_paths(
+            self.cache_root,
+            sample.task,
+            sample.episode,
+            sample.source_clip,
+            sample.target_clip,
+            self.depth_estimator,
         )
+        if render_path.exists() and mask_path.exists():
+            render_decoder = VideoDecoder(str(render_path), device=self.decoder_device)
+            render_fps = self._get_fps_from_decoder(render_decoder)
+            if abs(render_fps - fps) > 1e-3:
+                log.warning(
+                    f"Render/target FPS mismatch for sample: render_fps={render_fps}, target_fps={fps}. "
+                    "Using target FPS."
+                )
+            width, height = self._get_shape_from_decoder(render_decoder)
+            mask_frames = load_mask_mkv_ffv1(path=mask_path, width=width, height=height)  # T H W, uint8
+            if len(render_decoder) != len(mask_frames):
+                raise ValueError(f"Render and mask lengths mismatch: {len(render_decoder)} vs {len(mask_frames)}")
+            if frame_ids[-1] >= len(render_decoder):
+                raise ValueError(
+                    f"Render cache shorter than requested frame ids. "
+                    f"max_requested={frame_ids[-1]}, render={len(render_decoder)}, mask={len(mask_frames)}"
+                )
+            render_frames: FrameBatch = render_decoder.get_frames_at(frame_ids)  # N C H W, uint8
+            rendered_masks_n1hw_uint8 = torch.from_numpy(mask_frames[frame_ids]).unsqueeze(1)  # N 1 H W, uint8
+            rendered_images_nchw_uint8 = render_frames.data
+
+        else:
+            log.debug(f"Computing {render_path} and {mask_path}...")
+            cache_4d = self._get_point_cloud(sample=sample)
+            target_intrinsics_n33, target_w2c_n44 = self._get_camera_parameters(
+                sample=sample, clip_name=sample.target_clip
+            )
+            rendered_warp_images, rendered_warp_masks = cache_4d.render_cache(
+                target_w2cs=target_w2c_n44.unsqueeze(0),  # [1, F, 4, 4]
+                target_intrinsics=target_intrinsics_n33.unsqueeze(0),  # [1, F, 3, 3]
+            )  # [B, F, N, C, H, W]
+
+            rendered_images_nchw_uint8 = (
+                ((rendered_warp_images.squeeze(0).squeeze(1).cpu() + 1.0) * 127.5).clamp(0, 255).byte()
+            )
+            rendered_masks_n1hw_uint8 = (rendered_warp_masks.squeeze(0).squeeze(1).cpu() > 0).byte() * 255
+            if frame_ids[-1] >= rendered_images_nchw_uint8.shape[0]:
+                raise ValueError(
+                    f"On-the-fly render shorter than requested frame ids. "
+                    f"max_requested={frame_ids[-1]}, rendered={rendered_images_nchw_uint8.shape[0]}"
+                )
+
+            if self._should_cache(CacheCategory.RENDER):
+                log.debug(f"Caching {render_path} and {mask_path}...")
+                source_video_path = raw_video_path(self.dataset_dir, sample.task, sample.episode, sample.source_clip)
+                source_fps = get_video_fps(source_video_path)
+                save_render_mp4_h264(
+                    frames=rendered_images_nchw_uint8.permute(0, 2, 3, 1).numpy(),
+                    path=render_path,
+                    fps=source_fps,
+                )
+                save_mask_mkv_ffv1(masks=rendered_masks_n1hw_uint8.squeeze(1).numpy(), path=mask_path, fps=source_fps)
+
+            rendered_images_nchw_uint8 = rendered_images_nchw_uint8[frame_ids]
+            rendered_masks_n1hw_uint8 = rendered_masks_n1hw_uint8[frame_ids]
+
+        return rendered_images_nchw_uint8, rendered_masks_n1hw_uint8
 
     def _get_fps_from_decoder(self, decoder: VideoDecoder) -> float:
         fps = decoder.metadata.average_fps
@@ -635,6 +717,7 @@ def main() -> None:
     dataset = AgibotViewTransferDataset(
         dataset_dir="/mnt/central_storage/data_pool_raw/AgiBotWorld-Alpha",
         cache_root="/raid/andrew.mitri/agibot_cache",
+        cache_categories=("camera", "render"),
         num_frames=93,
         is_train=args.is_train,
         depth_estimator=args.depth_estimator,
@@ -653,17 +736,17 @@ def main() -> None:
     )
 
     print(dataset)
-    idx = 567
-    sample = dataset[idx]
-    _summarize_sample(sample)
+    samples = [dataset[idx] for idx in range(20)]
+    _summarize_sample(samples[0])
 
     if not args.skip_visualize:
-        out_path = visualize_sample_dict(
-            sample,
-            output_dir=args.output_dir,
-            sample_name=f"sample_{idx}",
-        )
-        print(f"Visualization written to: {out_path}")
+        for idx, sample in enumerate(samples):
+            out_path = visualize_sample_dict(
+                sample,
+                output_dir=args.output_dir,
+                sample_name=f"sample_{idx}",
+            )
+            print(f"Visualization written to: {out_path}")
 
 
 if __name__ == "__main__":

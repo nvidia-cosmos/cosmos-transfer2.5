@@ -87,7 +87,6 @@ def _apertures_for_camera(camera_name: str) -> tuple[float, float]:
 def _generate_camera_parameters_for_episode(
     *,
     dataset_dir: str,
-    cache_root: str,
     task: str,
     episode: str,
     clip_names: tuple[str, ...],
@@ -95,7 +94,7 @@ def _generate_camera_parameters_for_episode(
     usd_path: str | None,
     camera_prims: dict[str, str] | None,
     base_frame: str,
-) -> None:
+) -> dict[str, dict[str, np.ndarray]]:
     if not clip_names:
         raise ValueError("clip_names must be non-empty to generate camera parameters.")
 
@@ -114,6 +113,7 @@ def _generate_camera_parameters_for_episode(
     )
     episode_length = extrinsics[clip_names[0]].shape[0]
 
+    camera_parameters: dict[str, dict[str, np.ndarray]] = {}
     for clip_name in clip_names:
         # Process intrinsics
         width, height = _resolve_image_size_from_camera_info(camera_info, clip_name)
@@ -128,8 +128,9 @@ def _generate_camera_parameters_for_episode(
         intrinsics = np.array([intrinsics] * episode_length)
         # Get extrinsics as world-to-camera (w2c) matrices
         w2c = np.linalg.inv(extrinsics[clip_name])
-        out_path = camera_parameters_cache_path(cache_root, task, episode, clip_name)
-        atomic_save_npz(out_path, intrinsics=intrinsics, w2c=w2c)
+        camera_parameters[clip_name] = {"intrinsics": intrinsics, "w2c": w2c}
+
+    return camera_parameters
 
 
 def ensure_camera_parameters_cache(
@@ -157,9 +158,10 @@ def ensure_camera_parameters_cache(
     episode_camera_dir = cache_episode_dir(cache_root, CacheCategory.CAMERA_PARAMETERS, task, episode)
     lock_path = episode_camera_dir / "camera_parameters_generation.lock"
     with file_lock(lock_path, timeout_sec=lock_timeout_sec, poll_sec=lock_poll_sec):
-        _generate_camera_parameters_for_episode(
+        if out_path.exists():
+            return out_path
+        parameters_by_clip = _generate_camera_parameters_for_episode(
             dataset_dir=dataset_dir,
-            cache_root=cache_root,
             task=task,
             episode=episode,
             clip_names=clip_names,
@@ -168,6 +170,9 @@ def ensure_camera_parameters_cache(
             camera_prims=camera_prims,
             base_frame=base_frame,
         )
+        for cache_clip_name, parameters in parameters_by_clip.items():
+            cache_path = camera_parameters_cache_path(cache_root, task, episode, cache_clip_name)
+            atomic_save_npz(cache_path, intrinsics=parameters["intrinsics"], w2c=parameters["w2c"])
 
     if not out_path.exists():
         raise RuntimeError(f"Did not create expected camera parameters cache: {out_path}")

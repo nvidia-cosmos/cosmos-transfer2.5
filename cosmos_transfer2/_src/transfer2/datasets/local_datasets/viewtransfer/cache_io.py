@@ -403,7 +403,7 @@ def save_mask_mkv_ffv1(*, masks: np.ndarray, path: str | Path, fps: float) -> No
 
 
 def load_mask_mkv_ffv1(*, path: str | Path, width: int, height: int) -> np.ndarray:
-    """Load masks saved by save_mask_mkv_ffv1. Returns (T,H,W) bool."""
+    """Load masks saved by save_mask_mkv_ffv1. Returns (T,H,W) uint8."""
     path = Path(path)
     raw = _ffmpeg_read_rawvideo(path=path, out_pix_fmt="gray")
 
@@ -413,7 +413,7 @@ def load_mask_mkv_ffv1(*, path: str | Path, width: int, height: int) -> np.ndarr
 
     t = len(raw) // frame_bytes
     frames_u8 = np.frombuffer(raw, dtype=np.uint8).reshape(t, int(height), int(width))
-    return frames_u8  # robust threshold
+    return frames_u8
 
 
 # ----------------------------
