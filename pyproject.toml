@@ -50,7 +50,7 @@ dependencies = [
   "h5py>=3.15.1",
   "pin>=2.7.0",
   "usd-core>=25.2.post1",
-  "torchcodec>=0.10.0",
+  "torchcodec==0.5",
   "warp-lang==1.7.2",
 ]
 
