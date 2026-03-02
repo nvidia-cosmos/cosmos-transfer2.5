@@ -413,7 +413,7 @@ def load_mask_mkv_ffv1(*, path: str | Path, width: int, height: int) -> np.ndarr
 
     t = len(raw) // frame_bytes
     frames_u8 = np.frombuffer(raw, dtype=np.uint8).reshape(t, int(height), int(width))
-    return frames_u8 >= 128  # robust threshold
+    return frames_u8  # robust threshold
 
 
 # ----------------------------
@@ -421,9 +421,11 @@ def load_mask_mkv_ffv1(*, path: str | Path, width: int, height: int) -> np.ndarr
 # ----------------------------
 
 
-def load_full_video_frames(video_path: Path, decoder_device: str) -> torch.Tensor:
+def load_full_video_frames(
+    video_path: Path, decoder_device: str, dimension_order: Literal["NCHW", "NHWC"] = "NCHW"
+) -> torch.Tensor:
     """Return frames as (N,C,H,W) uint8."""
-    decoder = VideoDecoder(str(video_path), device=decoder_device)
+    decoder = VideoDecoder(str(video_path), device=decoder_device, dimension_order=dimension_order)
     return decoder.get_frames_at(list(range(len(decoder)))).data  # N C H W uint8
 
 

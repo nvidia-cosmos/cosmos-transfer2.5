@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.transfer2.datasets.local_datasets.viewtransfer.cache_io import (
     atomic_save_npz,
     file_lock,
@@ -114,6 +115,7 @@ def _generate_camera_parameters_for_episode(
     episode_length = extrinsics[clip_names[0]].shape[0]
 
     for clip_name in clip_names:
+        # Process intrinsics
         width, height = _resolve_image_size_from_camera_info(camera_info, clip_name)
         horizontal_aperture, vertical_aperture = _apertures_for_camera(clip_name)
         intrinsics = get_K_from_properties(
@@ -124,8 +126,10 @@ def _generate_camera_parameters_for_episode(
             vertical_aperture=vertical_aperture,
         )
         intrinsics = np.array([intrinsics] * episode_length)
+        # Get extrinsics as world-to-camera (w2c) matrices
+        w2c = np.linalg.inv(extrinsics[clip_name])
         out_path = camera_parameters_cache_path(cache_root, task, episode, clip_name)
-        atomic_save_npz(out_path, intrinsics=intrinsics, extrinsics=extrinsics[clip_name])
+        atomic_save_npz(out_path, intrinsics=intrinsics, w2c=w2c)
 
 
 def ensure_camera_parameters_cache(
@@ -147,6 +151,9 @@ def ensure_camera_parameters_cache(
     if out_path.exists():
         return out_path
 
+    log.info(
+        f"Camera parameters cache not found for {task}/{episode}/{clip_name}. Preparing camera parameters cache..."
+    )
     episode_camera_dir = cache_episode_dir(cache_root, CacheCategory.CAMERA_PARAMETERS, task, episode)
     lock_path = episode_camera_dir / "camera_parameters_generation.lock"
     with file_lock(lock_path, timeout_sec=lock_timeout_sec, poll_sec=lock_poll_sec):

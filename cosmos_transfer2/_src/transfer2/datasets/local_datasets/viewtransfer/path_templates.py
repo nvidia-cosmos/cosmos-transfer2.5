@@ -56,9 +56,7 @@ def depth_cache_path(
 
 
 def camera_parameters_cache_path(cache_root: str | Path, task: str, episode: str, clip_name: str) -> Path:
-    return (
-        cache_episode_dir(cache_root, CacheCategory.CAMERA_PARAMETERS, task, episode) / f"f{clip_name}_parameters.npz"
-    )
+    return cache_episode_dir(cache_root, CacheCategory.CAMERA_PARAMETERS, task, episode) / f"{clip_name}_parameters.npz"
 
 
 def point_cloud_cache_path(

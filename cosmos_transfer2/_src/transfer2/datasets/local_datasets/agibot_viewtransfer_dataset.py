@@ -5,15 +5,18 @@
 
 from __future__ import annotations
 
+import argparse
+import subprocess
+import traceback
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import torch
+from moge.model.v2 import MoGeModel
 from torch.utils.data import Dataset
 from torchcodec import FrameBatch
 from torchcodec.decoders import VideoDecoder
-from moge.model.v2 import MoGeModel
 
 from cosmos_transfer2._src.imaginaire.lazy_config import instantiate
 from cosmos_transfer2._src.imaginaire.utils import log
@@ -74,7 +77,6 @@ class AgibotViewTransferDataset(Dataset):
         self,
         dataset_dir: str,
         num_frames: int,
-        video_size: tuple[int, int],
         resolution: str = "720",
         is_train: bool = True,
         caption_type: str = "t2w_qwen2p5_7b",
@@ -92,6 +94,7 @@ class AgibotViewTransferDataset(Dataset):
         decoder_device: str = "cpu",
         moge_device: str = "cuda",
         moge_batch_size: int = 8,
+        render_device: str = "cuda",
         lock_timeout_sec: float = 600.0,
         lock_poll_sec: float = 0.25,
         **kwargs: object,
@@ -101,7 +104,6 @@ class AgibotViewTransferDataset(Dataset):
 
         self.dataset_dir = dataset_dir
         self.sequence_length = int(num_frames)
-        self.video_size = tuple(video_size)
         self.resolution = resolution
         self.is_train = is_train
         self.caption_type = caption_type
@@ -126,7 +128,9 @@ class AgibotViewTransferDataset(Dataset):
         self.moge_batch_size = int(moge_batch_size)
         self.lock_timeout_sec = float(lock_timeout_sec)
         self.lock_poll_sec = float(lock_poll_sec)
+        self.render_device = render_device
 
+        log.info(f"Initializing AgibotViewTransferDataset with dataset_dir={dataset_dir}")
         self.samples = build_samples(
             dataset_dir=dataset_dir,
             clip_names=self.clip_names,
@@ -140,13 +144,14 @@ class AgibotViewTransferDataset(Dataset):
                 "AgibotViewTransferDataset found no samples after scanning dataset root. "
                 f"dataset_dir={dataset_dir}, clip_names={self.clip_names}, pair_mode={self.pair_mode}"
             )
-            
+
         # If moge depth estimation is chosen, load model here once:
         self.moge_model = None
         if self.depth_estimator == "moge":
             self.moge_model = MoGeModel.from_pretrained("Ruicheng/moge-2-vitl").to(self.moge_device)
 
         self.num_failed = 0
+        self.num_failed_loads = 0
         self.bad_sample_indices = set()  # Track samples that fail
 
         # Use proper augmentor pipeline for training quality
@@ -170,7 +175,7 @@ class AgibotViewTransferDataset(Dataset):
 
         log.info(f"Initialized AgibotViewTransferDataset with {len(self.samples)} videos")
         log.info(f"  Dataset dir: {self.dataset_dir}")
-        log.info(f"  Resolution: {resolution}, Video size: {video_size}")
+        log.info(f"  Resolution: {resolution}")
         log.info(f"  Required frames: {self.sequence_length}")
 
     @staticmethod
@@ -202,7 +207,7 @@ class AgibotViewTransferDataset(Dataset):
         return f"AgibotViewTransferDataset: {len(self.samples)} samples from {self.dataset_dir}"
 
     def __getitem__(self, index: int) -> dict[str, Any]:
-        max_retries = 10  # Try up to 10 different samples
+        max_retries = 1  # Try up to 10 different samples
         original_index = index
 
         for retry in range(max_retries):
@@ -225,6 +230,7 @@ class AgibotViewTransferDataset(Dataset):
                 )
 
                 if not (render_path.exists() and mask_path.exists()):
+                    log.info(f"Render cache not found for sample {sample}. Preparing render cache...")
                     self._prepare_render_cache(sample)
 
                 (
@@ -318,13 +324,16 @@ class AgibotViewTransferDataset(Dataset):
 
             except Exception as e:
                 self.num_failed_loads += 1
-                # Mark this sample as bad so we skip it in the future
                 self.bad_sample_indices.add(index)
 
+                tb_str = traceback.format_exc()
+
                 log.warning(
-                    f"Failed to load sample {self.samples[index]} (index {index}): {e}. "
+                    f"Failed to load sample {self.samples[index]} (index {index}):\n"
+                    f"{tb_str}\n"
                     f"Marking as bad and trying next sample. "
-                    f"(attempt {retry + 1}/{max_retries}, total bad samples: {len(self.bad_sample_indices)})",
+                    f"(attempt {retry + 1}/{max_retries}, "
+                    f"total bad samples: {len(self.bad_sample_indices)})",
                     rank0_only=False,
                 )
 
@@ -423,8 +432,10 @@ class AgibotViewTransferDataset(Dataset):
                 input_intrinsics=None,
                 input_format=["F", "C", "H", "W"],
                 input_points=points,  # [F, H, W, 3]
+                device=self.render_device,
             )
 
+        log.info(f"Point cloud cache not found for sample {sample}. Reconstructing from depth and camera parameters...")
         depth_path = self._ensure_depth_cache(sample)
         _, _, height, width = image_tensor.shape
         depth_nhw_m_float64_np = load_depth_mkv_ffv1_mm_u16(
@@ -434,7 +445,7 @@ class AgibotViewTransferDataset(Dataset):
         source_cam_pam_path = self._ensure_camera_parameters_cache(sample, sample.source_clip)
         cam_pams = np.load(source_cam_pam_path)
         intrinsics_n33 = torch.from_numpy(cam_pams["intrinsics"]).float()  # [F, 3, 3]
-        initial_w2c_n44 = torch.from_numpy(cam_pams["extrinsics"]).float()  # [F, 4, 4]
+        initial_w2c_n44 = torch.from_numpy(cam_pams["w2c"]).float()  # [F, 4, 4]
 
         cache_4d = Cache4D(
             input_image=image_tensor,  # [F, C, H, W]
@@ -442,6 +453,7 @@ class AgibotViewTransferDataset(Dataset):
             input_w2c=initial_w2c_n44,  # [F, 4, 4]
             input_intrinsics=intrinsics_n33,  # [F, 3, 3]
             input_format=["F", "C", "H", "W"],
+            device=self.render_device,
         )
 
         # Save point cloud cache
@@ -462,7 +474,7 @@ class AgibotViewTransferDataset(Dataset):
         """
         target_cam_pam_path = self._ensure_camera_parameters_cache(sample, sample.target_clip)
         cam_pams = np.load(target_cam_pam_path)
-        target_w2c_n44 = torch.from_numpy(cam_pams["extrinsics"]).float().unsqueeze(0)  # [1, F, 4, 4]
+        target_w2c_n44 = torch.from_numpy(cam_pams["w2c"]).float().unsqueeze(0)  # [1, F, 4, 4]
         target_intrinsics_n33 = torch.from_numpy(cam_pams["intrinsics"]).float().unsqueeze(0)  # [1, F, 3, 3]
 
         rendered_warp_images, rendered_warp_masks = cache_4d.render_cache(
@@ -470,11 +482,13 @@ class AgibotViewTransferDataset(Dataset):
             target_intrinsics=target_intrinsics_n33,
         )  # [B, F, N, C, H, W]
 
-        rendered_images = rendered_warp_images.squeeze(0).squeeze(1).cpu()  # [C, H, W]
-        rendered_masks = rendered_warp_masks.squeeze(0).squeeze(1).cpu()  # [1, H, W]
+        rendered_images = rendered_warp_images.squeeze(0).squeeze(1).cpu()  # [F, C, H, W]
+        rendered_masks = rendered_warp_masks.squeeze(0).squeeze(1).cpu()  # [F, 1, H, W]
         rendered_images = (rendered_images + 1.0) * 127.5  # [-1,1] -> [0,255]
-        rendered_images = rendered_images.clamp(0, 255).byte().numpy()  # uint8
-        rendered_masks = (rendered_masks > 0).byte().numpy()  # Binary mask, 1 for known, 0 for unknown
+        rendered_images = rendered_images.clamp(0, 255).byte().permute(0, 2, 3, 1).numpy()  # [F, H, W, C], uint8
+        rendered_masks = (
+            (rendered_masks > 0).byte().squeeze(1).numpy()
+        )  # [F, H, W], uint8, Binary mask, 1 for known, 0 for unknown
 
         source_video_path = raw_video_path(self.dataset_dir, sample.task, sample.episode, sample.source_clip)
         fps = get_video_fps(source_video_path)
@@ -543,3 +557,114 @@ class AgibotViewTransferDataset(Dataset):
         if width is None or height is None:
             raise RuntimeError("Failed to obtain valid video dimensions from decoder metadata")
         return width, height
+
+
+def _summarize_sample(sample: dict[str, Any]) -> None:
+    print("Sample keys:")
+    for key in sorted(sample.keys()):
+        value = sample[key]
+        if isinstance(value, torch.Tensor):
+            print(f"  {key}: Tensor shape={tuple(value.shape)} dtype={value.dtype}")
+        elif isinstance(value, (str, int, float, bool)):
+            print(f"  {key}: {value!r}")
+        elif isinstance(value, (list, tuple)):
+            if len(value) <= 10:
+                print(f"  {key}: {type(value).__name__} len={len(value)} value={value}")
+            else:
+                print(f"  {key}: {type(value).__name__} len={len(value)}")
+        else:
+            print(f"  {key}: {type(value).__name__}")
+
+
+def visualize_sample_dict(sample: dict[str, Any], *, output_dir: str | Path, sample_name: str = "sample") -> Path:
+    """
+    Save tensor videos from a sample and create a side-by-side mp4 using ffmpeg.
+
+    Returns:
+        Path to the side-by-side mp4.
+    """
+    out_dir = Path(output_dir)
+    sample_dir = out_dir / sample_name
+    sample_dir.mkdir(parents=True, exist_ok=True)
+
+    fps = sample["fps"]
+
+    video_keys = ["source_video", "target_video", "rendered_video", "rendered_video_mask"]
+
+    video_paths: list[Path] = []
+    for key in video_keys:
+        frames_thwc = sample[key].cpu().permute(1, 2, 3, 0).numpy()  # T H W C
+        path = sample_dir / f"{key}.mp4"
+        path.unlink(missing_ok=True)
+        save_render_mp4_h264(path=path, frames=frames_thwc, fps=fps)
+        video_paths.append(path)
+
+    if len(video_paths) == 1:
+        return video_paths[0]
+
+    side_by_side_path = sample_dir / "side_by_side.mp4"
+    side_by_side_path.unlink(missing_ok=True)
+    cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error"]
+    for path in video_paths:
+        cmd += ["-i", str(path)]
+    filter_graph = "".join([f"[{i}:v]" for i in range(len(video_paths))]) + f"hstack=inputs={len(video_paths)}[v]"
+    cmd += ["-filter_complex", filter_graph, "-map", "[v]", "-an", str(side_by_side_path)]
+
+    try:
+        subprocess.run(cmd, check=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError("ffmpeg is required for visualization but was not found in PATH.") from exc
+
+    return side_by_side_path
+
+
+def _parse_args():
+    parser = argparse.ArgumentParser(description="Debug AgibotViewTransferDataset by loading one sample.")
+    parser.add_argument("--depth-estimator", type=str, default="agibot", choices=["agibot", "moge"])
+    parser.add_argument("--moge-device", type=str, default="cuda")
+    parser.add_argument("--moge-batch-size", type=int, default=8)
+    parser.add_argument("--is-train", action="store_true", help="Use training sampling (random start frame).")
+    parser.add_argument("--output-dir", type=str, default="output/debug_viewtransfer")
+    parser.add_argument("--skip-visualize", action="store_true", help="Only print sample summary.")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = _parse_args()
+
+    dataset = AgibotViewTransferDataset(
+        dataset_dir="/mnt/central_storage/data_pool_raw/AgiBotWorld-Alpha",
+        cache_root="/raid/andrew.mitri/agibot_cache",
+        num_frames=93,
+        is_train=args.is_train,
+        depth_estimator=args.depth_estimator,
+        pair_mode=PairMode.ONE_DIRECTION_FROM_ANCHOR,
+        anchor_clip="head",
+        anchor_direction=AnchorDirection.SOURCE_TO_OTHERS,
+        urdf_path="/raid/andrew.mitri/geniesim_assets/G1_120s/G1_120s.urdf",
+        usd_path="/raid/andrew.mitri/geniesim_assets/G1_120s/G1_120s.usda",
+        moge_device=args.moge_device,
+        moge_batch_size=args.moge_batch_size,
+        camera_prims={
+            "head": "/G1/head_link2/Head_Camera",
+            "hand_right": "/G1/gripper_r_base_link/Right_Camera",
+            "hand_left": "/G1/gripper_l_base_link/Left_Camera",
+        },
+    )
+
+    print(dataset)
+    idx = 567
+    sample = dataset[idx]
+    _summarize_sample(sample)
+
+    if not args.skip_visualize:
+        out_path = visualize_sample_dict(
+            sample,
+            output_dir=args.output_dir,
+            sample_name=f"sample_{idx}",
+        )
+        print(f"Visualization written to: {out_path}")
+
+
+if __name__ == "__main__":
+    main()

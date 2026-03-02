@@ -447,7 +447,7 @@ def unproject_points(
     ones = torch.ones_like(x_valid)
     pos = torch.stack([x_valid, y_valid, ones], dim=1).unsqueeze(-1)  # (N, 3, 1)
 
-    intrinsic_inv_valid = intrinsic_inv[b_idx]  # (N, 3, 3)
+    intrinsic_inv_valid = intrinsic_inv[b_idx].to(dtype)  # (N, 3, 3)
     unnormalized_pos = torch.matmul(intrinsic_inv_valid, pos)  # (N, 3, 1)
 
     depth_valid = depth[b_idx, 0, y_idx, x_idx].view(-1, 1, 1)
@@ -461,6 +461,7 @@ def unproject_points(
     ones_h = torch.ones((world_points_cam.shape[0], 1, 1), device=device, dtype=dtype)
     world_points_homo = torch.cat([world_points_cam, ones_h], dim=1)  # (N, 4, 1)
 
+    w2c = w2c.to(dtype)
     trans = inverse_with_conversion(w2c)  # (b, 4, 4)
     trans_valid = trans[b_idx]  # (N, 4, 4)
     world_points_transformed = torch.matmul(trans_valid, world_points_homo)  # (N, 4, 1)

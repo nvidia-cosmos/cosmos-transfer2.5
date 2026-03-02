@@ -159,9 +159,14 @@ class Cache3D_Base:
         B, F, N, V, C, H, W = self.input_image.shape
         assert bs == B, f"Batch size of target_w2cs ({bs}) must match batch size of input_image ({B}), {bs} != {B}"
 
-        target_w2cs = target_w2cs.reshape(B, F_target, 1, 4, 4).expand(B, F_target, N, 4, 4).reshape(-1, 4, 4)
+        target_w2cs = (
+            target_w2cs.reshape(B, F_target, 1, 4, 4).expand(B, F_target, N, 4, 4).reshape(-1, 4, 4).to(self.device)
+        )
         target_intrinsics = (
-            target_intrinsics.reshape(B, F_target, 1, 3, 3).expand(B, F_target, N, 3, 3).reshape(-1, 3, 3)
+            target_intrinsics.reshape(B, F_target, 1, 3, 3)
+            .expand(B, F_target, N, 3, 3)
+            .reshape(-1, 3, 3)
+            .to(self.device)
         )
 
         # Keep large tensors on CPU; move only per-chunk slices to GPU inside the loop
@@ -253,8 +258,9 @@ class Cache3D_Base:
 
     def export_point_cloud(self, output_path: str | Path):
         assert self.input_points is not None, "Input points were not precomputed. Cannot export point cloud."
-        input_points = rearrange(self.input_points.cpu().clone(), "B F N V H W 3-> (B F N V) H W 3")  # N H W 3
-        atomic_save_npz(output_path, points=input_points)
+        original_shape = tuple(self.input_points.shape)
+        input_points = rearrange(self.input_points.cpu().clone(), "B F N V H W C-> (B F N V) H W C")  # N H W 3
+        atomic_save_npz(output_path, points=input_points, shape=original_shape)
 
 
 class Cache4D(Cache3D_Base):

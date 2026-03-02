@@ -7,6 +7,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Iterable
 
+from tqdm import tqdm
+
 from cosmos_transfer2._src.transfer2.datasets.local_datasets.viewtransfer.path_templates import raw_video_path
 
 
@@ -88,7 +90,9 @@ def scan_task_episodes(dataset_dir: str | Path) -> list[tuple[str, str]]:
         raise FileNotFoundError(f"Expected observations root at {observations_dir}")
 
     episodes: list[tuple[str, str]] = []
-    for task_dir in sorted([p for p in observations_dir.iterdir() if p.is_dir()]):
+    for task_dir in tqdm(
+        sorted([p for p in observations_dir.iterdir() if p.is_dir()]), desc="Scanning dataset direcory..."
+    ):
         task = task_dir.name
         for episode_dir in sorted([p for p in task_dir.iterdir() if p.is_dir()]):
             videos_dir = episode_dir / "videos"
@@ -129,8 +133,11 @@ def build_samples(
     )
 
     out: list[ViewTransferPairSample] = []
-    for task, episode in scan_task_episodes(dataset_dir):
+    tasks_episodes = scan_task_episodes(dataset_dir)
+    pbar = tqdm(tasks_episodes, desc="Building samples...", total=len(tasks_episodes) * len(pairs))
+    for task, episode in pbar:
         if not _episode_has_clips(dataset_dir=dataset_dir, task=task, episode=episode, clip_names=clip_names):
+            pbar.update(len(pairs))
             continue
         for src, tgt in pairs:
             out.append(
@@ -141,4 +148,6 @@ def build_samples(
                     target_clip=tgt,
                 )
             )
+            pbar.update(1)
+    pbar.close()
     return out

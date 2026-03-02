@@ -10,6 +10,7 @@ import torch
 from moge.model.v2 import MoGeModel
 from tqdm import tqdm
 
+from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.transfer2.datasets.local_datasets.viewtransfer.cache_io import (
     file_lock,
     get_video_fps,
@@ -71,7 +72,7 @@ def _generate_moge_depth(
     if not source_video.exists():
         raise FileNotFoundError(f"Source video not found for MoGe depth: {source_video}")
 
-    frames_rgb = load_full_video_frames(source_video, decoder_device="cpu")
+    frames_rgb = load_full_video_frames(source_video, decoder_device="cpu", dimension_order="NHWC")
     if len(frames_rgb) == 0:
         raise RuntimeError(f"No frames read from source video: {source_video}")
 
@@ -148,6 +149,7 @@ def ensure_depth_cache(
     if out_path.exists():
         return out_path
 
+    log.info(f"Depth cache not found for {task}/{episode}/{source_clip}, generating using {depth_estimator}...")
     lock_path = out_path.with_suffix(out_path.suffix + ".lock")
     with file_lock(lock_path, timeout_sec=lock_timeout_sec, poll_sec=lock_poll_sec):
         if out_path.exists():
