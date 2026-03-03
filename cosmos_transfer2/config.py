@@ -25,12 +25,15 @@ from typing import Annotated, Any, Literal, NoReturn, Optional, TypeVar
 
 import pydantic
 import tyro
+from cosmos_oss.checkpoints_transfer2 import register_checkpoints
 from pydantic_core import PydanticUndefined
 from typing_extensions import Self
 
-from cosmos_transfer2._src.imaginaire.flags import SMOKE
+from cosmos_transfer2._src.imaginaire.flags import EXPERIMENTAL_CHECKPOINTS, SMOKE
 from cosmos_transfer2._src.imaginaire.utils import log
-from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_by_uuid
+from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import CheckpointConfig, get_checkpoint_uri
+
+register_checkpoints()
 
 
 @cache
@@ -109,22 +112,9 @@ ResolvedFilePath = Annotated[pydantic.FilePath, pydantic.AfterValidator(_resolve
 ResolvedDirectoryPath = Annotated[pydantic.DirectoryPath, pydantic.AfterValidator(_resolve_path)]
 
 
-def _validate_checkpoint_uuid(v: str) -> str:
-    """Validate checkpoint UUID."""
-    get_checkpoint_by_uuid(v)
-    return v
-
-
-CheckpointUuid = Annotated[str, pydantic.AfterValidator(_validate_checkpoint_uuid)]
-
-
 def _validate_checkpoint_path(v: str) -> str:
-    """Validate checkpoint path or URI."""
-    if v.startswith("s3://"):
-        return v
-    if not os.path.exists(v):
-        raise ValueError(f"Checkpoint path '{v}' does not exist.")
-    return v
+    """Validate and normalize checkpoint path or URI."""
+    return get_checkpoint_uri(v, check_exists=True)
 
 
 CheckpointPath = Annotated[str, pydantic.AfterValidator(_validate_checkpoint_path)]
@@ -136,8 +126,12 @@ class ModelVariant(str, enum.Enum):
     SEG = "seg"
     VIS = "vis"
     AUTO_MULTIVIEW = "auto/multiview"
-    ROBOT_MULTIVIEW = "robot/multiview"
-    ROBOT_MULTIVIEW_AGIBOT = "robot/multiview-agibot"
+    # Transfer2.5 Agibot Control-Conditioned Multiview
+    ROBOT_MULTIVIEW_AGIBOT_DEPTH = "robot/multiview-agibot-depth"
+    ROBOT_MULTIVIEW_AGIBOT_EDGE = "robot/multiview-agibot-edge"
+    ROBOT_MULTIVIEW_AGIBOT_VIS = "robot/multiview-agibot-vis"
+    ROBOT_MULTIVIEW_AGIBOT_SEG = "robot/multiview-agibot-seg"
+    ROBOT_MULTIVIEW_MANY_CAMERA = "robot/multiview-many-camera"
 
 
 class CompileMode(str, enum.Enum):
@@ -149,9 +143,12 @@ class CompileMode(str, enum.Enum):
 @dataclass(frozen=True, kw_only=True)
 class ModelKey:
     variant: ModelVariant = ModelVariant.EDGE
+    distilled: bool = False
 
     @cached_property
     def name(self) -> str:
+        if self.distilled:
+            return f"{self.variant.value}/distilled"
         return self.variant.value
 
     def __str__(self) -> str:
@@ -159,12 +156,34 @@ class ModelKey:
 
 
 MODEL_CHECKPOINTS = {
-    ModelKey(variant=ModelVariant.DEPTH): get_checkpoint_by_uuid("626e6618-bfcd-4d9a-a077-1409e2ce353f"),
-    ModelKey(variant=ModelVariant.EDGE): get_checkpoint_by_uuid("61f5694b-0ad5-4ecd-8ad7-c8545627d125"),
-    ModelKey(variant=ModelVariant.SEG): get_checkpoint_by_uuid("5136ef49-6d8d-42e8-8abf-7dac722a304a"),
-    ModelKey(variant=ModelVariant.VIS): get_checkpoint_by_uuid("ba2f44f2-c726-4fe7-949f-597069d9b91c"),
-    ModelKey(variant=ModelVariant.AUTO_MULTIVIEW): get_checkpoint_by_uuid("4ecc66e9-df19-4aed-9802-0d11e057287a"),
+    ModelKey(variant=ModelVariant.DEPTH): CheckpointConfig.from_uri("626e6618-bfcd-4d9a-a077-1409e2ce353f"),
+    ModelKey(variant=ModelVariant.EDGE): CheckpointConfig.from_uri("61f5694b-0ad5-4ecd-8ad7-c8545627d125"),
+    ModelKey(variant=ModelVariant.SEG): CheckpointConfig.from_uri("5136ef49-6d8d-42e8-8abf-7dac722a304a"),
+    ModelKey(variant=ModelVariant.VIS): CheckpointConfig.from_uri("ba2f44f2-c726-4fe7-949f-597069d9b91c"),
+    ModelKey(variant=ModelVariant.AUTO_MULTIVIEW): CheckpointConfig.from_uri("4ecc66e9-df19-4aed-9802-0d11e057287a"),
 }
+if EXPERIMENTAL_CHECKPOINTS:
+    MODEL_CHECKPOINTS |= {
+        ModelKey(variant=ModelVariant.EDGE, distilled=True): CheckpointConfig.from_uri(
+            "41f07f13-f2e4-4e34-ba4c-86f595acbc20"
+        ),
+        # Transfer2.5 Agibot Control-Conditioned Multiview
+        ModelKey(variant=ModelVariant.ROBOT_MULTIVIEW_AGIBOT_DEPTH): CheckpointConfig.from_uri(
+            "32514ba1-6d05-4ce5-997d-a3b5bf894cab"
+        ),
+        ModelKey(variant=ModelVariant.ROBOT_MULTIVIEW_AGIBOT_EDGE): CheckpointConfig.from_uri(
+            "fffbd388-89c9-4604-ad4f-6c6b36272c48"
+        ),
+        ModelKey(variant=ModelVariant.ROBOT_MULTIVIEW_AGIBOT_VIS): CheckpointConfig.from_uri(
+            "2eca9f80-bf8f-4257-b05f-278065d21500"
+        ),
+        ModelKey(variant=ModelVariant.ROBOT_MULTIVIEW_AGIBOT_SEG): CheckpointConfig.from_uri(
+            "c5a9a58b-7f3e-4b45-9e5d-8f7b3d4e5a6c"
+        ),
+        ModelKey(variant=ModelVariant.ROBOT_MULTIVIEW_MANY_CAMERA): CheckpointConfig.from_uri(
+            "a8794d70-842c-44a5-95bb-9010d5ace7be"
+        ),
+    }
 
 MODEL_KEYS = {k.name: k for k in MODEL_CHECKPOINTS.keys()}
 
@@ -208,8 +227,8 @@ class CommonSetupArguments(pydantic.BaseModel):
     """Path to the checkpoint. Override this if you have a post-training checkpoint"""
     experiment: str | None = None
     """Experiment name. Override this with your custom experiment when post-training"""
-    config_file: str = "cosmos_transfer2/_src/predict2/configs/video2world/config.py"
-    """Configuration file for the model."""
+    config_file: str = ""
+    """Configuration file for the model. Leave empty to use the default config for the selected model type."""
     context_parallel_size: pydantic.PositiveInt | None = None
     """Context parallel size. Defaults to WORLD_SIZE set by torchrun."""
     disable_guardrails: bool = True if SMOKE else False
@@ -252,12 +271,30 @@ class CommonSetupArguments(pydantic.BaseModel):
         model_key = MODEL_KEYS[model_name]
         checkpoint = MODEL_CHECKPOINTS[model_key]
         if data.get("checkpoint_path") is None:
-            data["checkpoint_path"] = checkpoint.path
+            data["checkpoint_path"] = checkpoint.s3.uri
         if data.get("experiment") is None:
             data["experiment"] = checkpoint.experiment
+        # Set config file based on model type (distilled vs non-distilled)
+        if not data.get("config_file"):
+            if model_key.distilled:
+                data["config_file"] = "cosmos_transfer2/_src/interactive/configs/registry_transfer2p5.py"
+            else:
+                data["config_file"] = "cosmos_transfer2/_src/transfer2/configs/vid2vid_transfer/config.py"
         if data.get("context_parallel_size") is None:
             data["context_parallel_size"] = int(os.environ.get("WORLD_SIZE", "1"))
         return data
+
+    @cached_property
+    def has_checkpoint_override(self) -> bool:
+        model_key = MODEL_KEYS[self.model]
+        checkpoint = MODEL_CHECKPOINTS[model_key]
+        return self.checkpoint_path != checkpoint.s3.uri
+
+    @cached_property
+    def has_experiment_override(self) -> bool:
+        model_key = MODEL_KEYS[self.model]
+        checkpoint = MODEL_CHECKPOINTS[model_key]
+        return self.experiment != checkpoint.experiment
 
 
 class SetupArguments(CommonSetupArguments):

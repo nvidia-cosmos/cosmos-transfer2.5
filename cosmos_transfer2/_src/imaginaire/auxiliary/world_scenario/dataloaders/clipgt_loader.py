@@ -469,7 +469,26 @@ class ClipGTLoader(SceneDataLoader):
             width = int(props["width"])
             height = int(props["height"])
 
-            linear_cde = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+            # Determine polynomial direction from polynomial-type field
+            # pixeldistance-to-angle = backward (r → θ) = needs inversion
+            # angle-to-pixeldistance = forward (θ → r) = use directly
+            poly_type = props.get("polynomial-type", "")
+            if poly_type == "angle-to-pixeldistance":
+                is_bw_poly = False  # Forward polynomial
+            elif poly_type == "pixeldistance-to-angle":
+                is_bw_poly = True  # Backward polynomial
+            elif poly_key == "bw-poly":
+                is_bw_poly = True  # Explicitly named backward poly
+            else:
+                # Heuristic fallback: backward poly has small c1 (radians/pixel)
+                # Forward poly has large c1 (pixels/radian, ~focal length)
+                is_bw_poly = len(poly_coeffs) > 1 and abs(poly_coeffs[1]) < 1.0
+
+            # Get linear affine term [[C,D],[D,E]] - defaults to identity
+            linear_c = float(props.get("linear-c", 1.0))
+            linear_d = float(props.get("linear-d", 0.0))
+            linear_e = float(props.get("linear-e", 0.0))
+            linear_cde = np.array([linear_c, linear_d, linear_e], dtype=np.float32)
 
             camera_model = FThetaCamera(
                 cx=cx,
@@ -477,7 +496,7 @@ class ClipGTLoader(SceneDataLoader):
                 width=width,
                 height=height,
                 poly=poly_coeffs.copy(),
-                is_bw_poly=True,
+                is_bw_poly=is_bw_poly,
                 linear_cde=linear_cde.copy(),
             )
 

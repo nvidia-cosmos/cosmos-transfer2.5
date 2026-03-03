@@ -24,19 +24,26 @@ from cosmos_transfer2.inference import Control2WorldInference
 
 
 class Control2World_Worker:
-    def __init__(self, num_gpus=1, model="edge", disable_guardrails=False):
+    def __init__(self, num_gpus: int = 1, model: str = "edge", disable_guardrails: bool = False):
+        if "/distilled" in model:
+            model_name = model
+            base_model = model.replace("/distilled", "")
+        else:
+            model_name = DEFAULT_MODEL_KEY.name
+            base_model = model
+
         setup_args = SetupArguments(
             context_parallel_size=num_gpus,
             output_dir=Path("outputs"),  # dummy parameter, we want to save videos in per inference folders
-            model=DEFAULT_MODEL_KEY.name,
+            model=model_name,
             keep_going=True,
             disable_guardrails=disable_guardrails,
         )
 
-        if model == "multicontrol":
+        if base_model == "multicontrol":
             batch_hint_keys = ["edge", "vis", "depth", "seg"]
         else:
-            batch_hint_keys = [model]
+            batch_hint_keys = [base_model]
         self.pipe = Control2WorldInference(setup_args, batch_hint_keys=batch_hint_keys)
 
     def infer(self, args: dict):

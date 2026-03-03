@@ -18,10 +18,14 @@ from typing import Any
 import numpy as np
 
 from cosmos_transfer2._src.imaginaire.utils import log
-from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_by_uuid
+from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import (
+    CheckpointDirHf,
+)
 
-GUARDRAIL1_UUID = "9c7b7da4-2d95-45bb-9cb8-2eed954e9736"
-GUARDRAIL1_CHECKPOINT_DIR = get_checkpoint_by_uuid(GUARDRAIL1_UUID).path
+GUARDRAIL1_CHECKPOINT = CheckpointDirHf(
+    repository="nvidia/Cosmos-Guardrail1",
+    revision="d6d4bfa899a71454a700907664f3e88f503950cf",
+)
 
 
 class ContentSafetyGuardrail:

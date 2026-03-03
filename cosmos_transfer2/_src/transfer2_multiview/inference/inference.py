@@ -42,6 +42,7 @@ import torch
 from loguru import logger
 from megatron.core import parallel_state
 
+from cosmos_transfer2._src.imaginaire.flags import INTERNAL
 from cosmos_transfer2._src.imaginaire.utils import distributed
 from cosmos_transfer2._src.predict2.utils.model_loader import load_model_from_checkpoint
 
@@ -151,6 +152,9 @@ class ControlVideo2WorldInference:
 
         if experiment_opts is None:
             experiment_opts = []
+        # data_train is training-only, remove it during inference to avoid missing config errors in non-internal builds
+        if not INTERNAL:
+            experiment_opts.append("~data_train")
         # Load the model and config
         model, config = load_model_from_checkpoint(
             experiment_name=self.experiment_name,
@@ -201,7 +205,6 @@ class ControlVideo2WorldInference:
         seed: int,
         num_steps: int,
         use_negative_prompt: bool,
-        distillation: str = "",
     ):
         """Generate video tensor from batch.
 
@@ -226,7 +229,6 @@ class ControlVideo2WorldInference:
             seed=seed,  # Fixed seed for reproducibility
             num_steps=num_steps,
             is_negative_prompt=use_negative_prompt,
-            distillation=distillation,
         )
         # (bsz = 1, c = 3, t = n_camera * t, h, w)
         return ((self.model.decode(sample) + 1.0) / 2.0).clamp(0, 1)
@@ -242,7 +244,7 @@ class ControlVideo2WorldInference:
         num_conditional_frames: int | list[int],
         num_steps: int,
         use_negative_prompt: bool,
-        distillation: str = "",
+        hint_keys: str = "hdmap_bbox",
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Generate video using autoregressive sliding window approach.
@@ -257,7 +259,6 @@ class ControlVideo2WorldInference:
             num_conditional_frames: Number of conditional pixel frames (scalar or per-view list)
             num_steps: Number of sampling steps for the model.
             use_negative_prompt: Whether to use default negative prompt.
-            distillation: If using distilled model, pass `dmd2`.
 
         Returns:
             Tuple of (generated video tensor, control video tensor)
@@ -267,7 +268,7 @@ class ControlVideo2WorldInference:
             raise ValueError("num_conditional_frames should be passed as an argument")
 
         # Extract full video and control tensors
-        full_control = full_batch["control_input_hdmap_bbox"]  # Shape: [1, 3, total_frames, H, W]
+        full_control = full_batch[f"control_input_{hint_keys}"]  # Shape: [1, 3, total_frames, H, W]
         batch_size, channels, total_frames, height, width = full_batch[
             "video"
         ].shape  # Shape: [1, 3, total_frames, H, W]
@@ -306,7 +307,7 @@ class ControlVideo2WorldInference:
 
             # Create chunk batch (extract 29-frame window from full video)
             chunk_batch = self._create_chunk_batch(
-                full_batch, current_input_video, full_control, start_frame, end_frame, n_views
+                full_batch, current_input_video, full_control, start_frame, end_frame, n_views, hint_keys
             )
 
             chunk_batch["num_conditional_frames"] = _num_conditional_frames_for_batch(
@@ -320,7 +321,6 @@ class ControlVideo2WorldInference:
                 seed=int(seed) + chunk_idx,
                 num_steps=num_steps,
                 use_negative_prompt=use_negative_prompt,
-                distillation=distillation,
             )[0]  # C_T_H_W
             chunk_video = einops.rearrange(chunk_video, "C (V T) H W -> V C T H W", V=n_views)
             # Store generated chunk (remove overlap from previous chunks)
@@ -371,6 +371,7 @@ class ControlVideo2WorldInference:
         start_frame: int,
         end_frame: int,
         n_views: int,
+        hint_keys: str,
     ) -> dict[str, torch.Tensor]:
         """
         Create a batch for a specific chunk by extracting a start_frame:end_frame window from each view.
@@ -390,7 +391,7 @@ class ControlVideo2WorldInference:
 
         # Copy non-video fields from original batch
         for key, value in original_batch.items():
-            if key not in ["video", "control_input_hdmap_bbox"]:
+            if key not in ["video", f"control_input_{hint_keys}"]:
                 chunk_batch[key] = value
 
         # Calculate frames per view in the full video
@@ -405,7 +406,7 @@ class ControlVideo2WorldInference:
         control_video_chunk = einops.rearrange(control_video_chunk, "N V C T H W -> N C (V T) H W")
         view_indices_chunk = einops.rearrange(view_indices_chunk, "N V T -> N (V T)")
         chunk_batch["video"] = input_video_chunk.clone()
-        chunk_batch["control_input_hdmap_bbox"] = control_video_chunk.clone()
+        chunk_batch[f"control_input_{hint_keys}"] = control_video_chunk.clone()
         chunk_batch["num_video_frames_per_view"] = torch.tensor(
             [
                 end_frame - start_frame,

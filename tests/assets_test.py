@@ -19,6 +19,9 @@ import pytest
 
 from cosmos_transfer2.config import CommonInferenceArguments, InferenceArguments
 from cosmos_transfer2.multiview_config import MultiviewInferenceArguments
+from cosmos_transfer2.robot_multiview_control_agibot_config import (
+    RobotMultiviewControlAgibotInferenceArguments,
+)
 
 
 @pytest.mark.parametrize(
@@ -35,6 +38,11 @@ from cosmos_transfer2.multiview_config import MultiviewInferenceArguments
         pytest.param("robot_example/vis", InferenceArguments, id="robot_example/vis"),
         pytest.param("robot_example/multicontrol", InferenceArguments, id="robot_example/multicontrol"),
         pytest.param("multiview_example", MultiviewInferenceArguments, id="multiview_example"),
+        pytest.param(
+            "robot_multiview_control-agibot",
+            RobotMultiviewControlAgibotInferenceArguments,
+            id="robot_multiview_control-agibot",
+        ),
     ],
 )
 def test_inference_assets(name: str, args_cls: type[CommonInferenceArguments]):

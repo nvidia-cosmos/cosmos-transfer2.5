@@ -40,11 +40,6 @@ from cosmos_transfer2._src.imaginaire.utils import log
 if TYPE_CHECKING:
     from cosmos_transfer2._src.imaginaire.config import DDPConfig
 
-try:
-    from megatron.core import parallel_state
-except ImportError:
-    print("Megatron-core is not installed.")
-
 
 def init() -> int | None:
     """Initialize distributed training."""
@@ -184,6 +179,8 @@ def parallel_model_wrapper(config_ddp: DDPConfig, model: torch.nn.Module) -> tor
     if dist.is_available() and dist.is_initialized():
         local_rank = int(os.getenv("LOCAL_RANK", 0))
         try:
+            from megatron.core import parallel_state
+
             ddp_group = parallel_state.get_data_parallel_group(with_context_parallel=True)
         except Exception as e:
             log.info(e)
@@ -322,6 +319,23 @@ def all_gather_tensor(tensor: torch.Tensor) -> list[torch.Tensor]:
     tensor_list = [torch.zeros_like(tensor) for _ in range(get_world_size())]
     dist.all_gather(tensor_list, tensor)
     return tensor_list
+
+
+def gather_object(payload: Any) -> list[Any] | None:
+    """Gather the corresponding object from all GPU devices to a rank 0 hosted list.
+
+    Args:
+        payload: Any pickle-able object.
+
+    Returns:
+        payload_list (list[Any]) | None:
+            Rank 0: A list of Pytorch tensors gathered from all RANK process.
+            Rest : None
+    """
+    rank, world_size = get_rank(), get_world_size()
+    payload_gathered = [None] * world_size if rank == 0 else None
+    dist.gather_object(payload, object_gather_list=payload_gathered, dst=0)
+    return payload_gathered
 
 
 def broadcast(tensor, src, group=None, async_op=False):

@@ -28,7 +28,7 @@ from cosmos_transfer2._src.imaginaire.attention.checks import attention_param_ch
 from cosmos_transfer2._src.imaginaire.attention.flash3 import FLASH3_SUPPORTED
 from cosmos_transfer2._src.imaginaire.attention.flash3.meta import get_bwd_dtypes, get_fwd_dtypes
 from cosmos_transfer2._src.imaginaire.attention.masks import CausalType
-from cosmos_transfer2._src.imaginaire.attention.utils import get_arch_tag, is_torch_compiling, log_or_raise_error
+from cosmos_transfer2._src.imaginaire.attention.utils import get_arch_tag, log_or_raise_error
 
 
 def flash3_attention_check(
@@ -78,13 +78,6 @@ def flash3_attention_check(
         )
         return False
 
-    if is_torch_compiling():
-        target_fn(
-            "Flash Attention v3 (flash3) backend does not support torch.compile yet.",
-            exception=RuntimeError,
-        )
-        return False
-
     arch_tag = get_arch_tag(query.device)
     fwd_dtypes = get_fwd_dtypes(arch_tag)
     bwd_dtypes = get_bwd_dtypes(arch_tag)
@@ -128,7 +121,7 @@ def flash3_attention_check(
     )
 
     if is_causal and causal_type not in [CausalType.BottomRight, CausalType.DontCare]:
-        target_fn("Flash Attention only supports bottom-right causal masking.", exception=ValueError)
+        target_fn("Flash Attention v3 only supports bottom-right causal masking.", exception=ValueError)
         return False
 
     return True

@@ -163,7 +163,7 @@ class MultiviewInference:
         control_video_file_dict = {}
         fps = set()
         min_control_frames = float("inf")
-        for key, value in sample.input_and_control_paths.items():
+        for key, value in sample.input_and_control_paths.items():  # pyrefly: ignore # bad-assignment
             if "_input" in key and value is not None:
                 input_video_file_dict[key.removesuffix("_input")] = value
                 assert value  # make mypy happy
@@ -188,7 +188,9 @@ class MultiviewInference:
 
         # Calculate number of video frames to load
         assert self.pipe.config.model.config.state_t >= 1
-        chunk_size = self.pipe.model.tokenizer.get_pixel_num_frames(self.pipe.config.model.config.state_t)
+        chunk_size = self.pipe.model.tokenizer.get_pixel_num_frames(  # pyrefly: ignore # missing-attribute
+            self.pipe.config.model.config.state_t
+        )
 
         # Check if have enough frames after downsampling for even one chunk
         available_control_frames_after_downsample = int(min_control_frames) // fps_downsample_factor
@@ -308,12 +310,16 @@ class MultiviewInference:
                 log.info(f"------ Generating video ------")
                 if isinstance(num_conditional_frames, list):
                     num_conditional_latent_frames = [
-                        self.pipe.model.tokenizer.get_latent_num_frames(pixel_frames)
+                        self.pipe.model.tokenizer.get_latent_num_frames(  # pyrefly: ignore # missing-attribute
+                            pixel_frames
+                        )
                         for pixel_frames in num_conditional_frames
                     ]
                 else:
-                    num_conditional_latent_frames = self.pipe.model.tokenizer.get_latent_num_frames(
-                        num_conditional_frames
+                    num_conditional_latent_frames = (
+                        self.pipe.model.tokenizer.get_latent_num_frames(  # pyrefly: ignore # missing-attribute
+                            num_conditional_frames
+                        )
                     )
                 batch["num_conditional_frames"] = num_conditional_latent_frames
                 video = self.pipe.generate_from_batch(

@@ -20,7 +20,6 @@ Unified implementation for all Attention implementations.
 Frontend APIs
 """
 
-import torch
 from torch import Tensor
 
 from cosmos_transfer2._src.imaginaire.attention.backends import choose_backend, choose_multi_dim_backend
@@ -32,7 +31,6 @@ from cosmos_transfer2._src.imaginaire.attention.checks import (
     multi_dim_attention_tensor_checks,
     varlen_tensor_checks,
 )
-from cosmos_transfer2._src.imaginaire.attention.cudnn import cudnn_attention
 from cosmos_transfer2._src.imaginaire.attention.flash2 import flash2_attention
 from cosmos_transfer2._src.imaginaire.attention.flash3 import flash3_attention
 from cosmos_transfer2._src.imaginaire.attention.masks import CausalType
@@ -41,7 +39,6 @@ from cosmos_transfer2._src.imaginaire.attention.utils import safe_log as log
 
 # Map backend names to their frontend attention API
 BACKEND_MAP = {
-    "cudnn": cudnn_attention,
     "natten": natten_attention,
     "flash2": flash2_attention,
     "flash3": flash3_attention,
@@ -159,6 +156,9 @@ def attention(
 
         logsumexp (Tensor): logsumexp tensor, with the heads-last contiguous layout
             (`[batch, seqlen_q, heads, 1]`). Only returned when return_lse is True.
+            NOTE: this tensor is not guaranteed to be contiguous with some backends and it should
+            not be made contiguous unless we can guarantee its results aren't merged via
+            `merge_attentions`.
     """
 
     assert attention_tensor_checks(query=query, key=key, value=value, raise_error=True)
@@ -210,52 +210,16 @@ def attention(
     )
 
     # Either incompatible backend specified by user, or no compatible backends found
-    # Try to see if we can handle it with graph transformations
-    # For now only handling GQA/MQA, but MLA, varlen, and some other features are also
-    # implementable with graph transformations, but we may need them even if not as efficient.
-    if compatible_backend is None:
-        is_gqa_mqa = query.shape[-2] != key.shape[-2] and query.shape[-2] > key.shape[-2]
-
-        # In practice this is the only reason why no backend would be selected,
-        # but moving forward we should represent support matrices for backends explicitly
-        # and rely on reasons to make the best decision when it comes to graph transformations.
-        if is_gqa_mqa:
-            heads = query.shape[-2]
-            heads_kv = key.shape[-2]
-            assert heads % heads_kv == 0
-            h_k = heads // heads_kv
-
-            query_t = query
-            key_t = torch.repeat_interleave(key, repeats=h_k, dim=-2, output_size=heads)
-            value_t = torch.repeat_interleave(value, repeats=h_k, dim=-2, output_size=heads)
-
-            log.debug("Backend incompatible with GQA/MQA use case. Trying again with graph transformation... ")
-            return attention(
-                query=query_t,
-                key=key_t,
-                value=value_t,
-                is_causal=is_causal,
-                causal_type=causal_type,
-                scale=scale,
-                cumulative_seqlen_Q=cumulative_seqlen_Q,
-                cumulative_seqlen_KV=cumulative_seqlen_KV,
-                max_seqlen_Q=max_seqlen_Q,
-                max_seqlen_KV=max_seqlen_KV,
-                return_lse=return_lse,
-                backend=backend,
-                backend_kwargs=backend_kwargs,
-            )
-
-        if backend is None:
-            raise ValueError(
-                "Could not find a compatible Attention backend for this use case / device. "
-                "Try running with debug logs to find out why."
-            )
-        else:
-            raise ValueError(
-                f"Selected Attention backend {backend} is incompatible with this use case / device. "
-                "Try running with debug logs to find out why."
-            )
+    if compatible_backend is None and backend is None:
+        raise ValueError(
+            "Could not find a compatible Attention backend for this use case / device. "
+            "Try running with debug logs to find out why."
+        )
+    elif compatible_backend is None:
+        raise ValueError(
+            f"Selected Attention backend {backend} is incompatible with this use case / device. "
+            "Try running with debug logs to find out why."
+        )
 
     assert compatible_backend in BACKEND_MAP
     return BACKEND_MAP[compatible_backend](
@@ -388,7 +352,7 @@ def multi_dimensional_attention(
             (`[batch, *token_layout_shape, heads, head_dim_v]`).
 
         logsumexp (Tensor): logsumexp tensor, with the heads-last contiguous layout
-            (`[batch, *token_layout_shape, heads, 1]`). Only returned when return_lse is True.
+            (`[batch, *token_layout_shape, heads]`). Only returned when return_lse is True.
     """
 
     assert multi_dim_attention_tensor_checks(query=query, key=key, value=value, raise_error=True)
@@ -418,7 +382,8 @@ def multi_dimensional_attention(
 
         query_t = query.reshape(query.shape[0], *token_layout_t, query.shape[-2], query.shape[-1])
         key_t = key.reshape(key.shape[0], *token_layout_t, key.shape[-2], key.shape[-1])
-        value_t = key.reshape(value.shape[0], *token_layout_t, value.shape[-2], value.shape[-1])
+        value_t = value.reshape(value.shape[0], *token_layout_t, value.shape[-2], value.shape[-1])
+        output_shape = [x for x in query.shape[:-1]] + [value.shape[-1]]
 
         log.debug(
             "This Multi-Dimensional Attention problem has 1s in the token layout, which can be simplified from "
@@ -426,7 +391,7 @@ def multi_dimensional_attention(
             f"<{token_layout_t=}, {window_size_t=}, {stride_t=}, {dilation_t=}, {is_causal_t=}>."
         )
 
-        return multi_dimensional_attention(
+        output_t, lse_t = multi_dimensional_attention(
             query=query_t,
             key=key_t,
             value=value_t,
@@ -436,9 +401,14 @@ def multi_dimensional_attention(
             is_causal=is_causal_t,
             scale=scale,
             backend=backend,
-            return_lse=return_lse,
+            return_lse=True,
             backend_kwargs=backend_kwargs,
         )
+        output = output_t.reshape(*output_shape)
+        lse = lse_t.reshape(*output_shape[:-1])
+        if return_lse:
+            return output, lse
+        return output
 
     multi_dim_attention_param_checks(
         query,
@@ -463,16 +433,22 @@ def multi_dimensional_attention(
         key_1d = key.flatten(1, num_dims)
         value_1d = value.flatten(1, num_dims)
         is_causal_1d = is_causal[0]
+        output_shape = [x for x in query.shape[:-1]] + [value.shape[-1]]
 
-        return attention(
+        output_1d, lse_1d = attention(
             query_1d,
             key_1d,
             value_1d,
             scale=scale,
             is_causal=is_causal_1d,
             causal_type=CausalType.DontCare,
-            return_lse=return_lse,
+            return_lse=True,
         )
+        output = output_1d.reshape(*output_shape)
+        lse = lse_1d.reshape(*output_shape[:-1])
+        if return_lse:
+            return output, lse
+        return output
 
     scale = scale if scale is not None else query.shape[-1] ** -0.5
 
@@ -498,6 +474,83 @@ def multi_dimensional_attention(
         stride=stride,
         dilation=dilation,
         is_causal=is_causal,
+        scale=scale,
+        return_lse=return_lse,
+        backend_kwargs=backend_kwargs,
+    )
+
+
+def multi_dimensional_attention_varlen(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    metadata: dict,
+    scale: float | None = None,
+    backend: str | None = None,
+    return_lse: bool = False,
+    backend_kwargs: dict | None = None,
+) -> Tensor | tuple[Tensor, Tensor]:
+    """
+    Runs Variable-Length Multi-Dimensional Attention on sequence-packed QKV tensors.
+
+    This operation performs sparse/multi-dimensional attention on variable-length sequences
+    where tokens from different samples with different spatial layouts are concatenated
+    along the sequence dimension. Each sample can have its own spatial dimensions
+    (e.g., different height/width for 2D layouts).
+
+    The metadata should be pre-computed using `configure_varlen_metadata` and reused
+    across forward/backward passes for efficiency.
+
+    **Requires NATTEN >= 0.21.6.dev1 and Blackwell DC-class architecture**
+
+    Parameters:
+        query (Tensor): 4-D query tensor with sequence-packed layout
+            (`[1, seqlen_total, heads, head_dim]`)
+
+        key (Tensor): 4-D key tensor with sequence-packed layout
+            (`[1, seqlen_total, heads_kv, head_dim]`)
+
+        value (Tensor): 4-D value tensor with sequence-packed layout
+            (`[1, seqlen_total, heads_kv, head_dim_v]`)
+
+        metadata (dict): Pre-computed varlen metadata from `imaginaire.varlen.generate_multi_dim_varlen_parameters`.
+
+        scale (float | None): Attention scale. Defaults to head_dim ** -0.5.
+
+    Other Parameters:
+        backend (str | None): Backend to run with. If unspecified (default), it will try to
+            select the best available.
+
+        return_lse (bool): Whether to return logsumexp values. Default is False.
+
+        backend_kwargs (dict | None): Backend-specific arguments.
+
+    Returns:
+        output (Tensor): 4-D output tensor with sequence-packed layout
+            (`[1, seqlen_total, heads, head_dim_v]`).
+
+        logsumexp (Tensor): logsumexp tensor (`[1, seqlen_total, heads]`).
+            Only returned when return_lse is True.
+    """
+    # For now, NATTEN is the only backend that supports varlen multi-dimensional attention
+    from cosmos_transfer2._src.imaginaire.attention.natten import natten_supported
+
+    if not natten_supported():
+        raise RuntimeError("merge_attentions requires NATTEN. Please upgrade NATTEN to use attention merging.")
+
+    if backend is not None and backend != "natten":
+        raise ValueError(
+            f"multi_dimensional_attention_varlen currently only supports 'natten' backend, got {backend=}."
+        )
+
+    # Import NATTEN's varlen function
+    from cosmos_transfer2._src.imaginaire.attention.natten.functions import natten_multi_dim_attention_varlen
+
+    return natten_multi_dim_attention_varlen(
+        query=query,
+        key=key,
+        value=value,
+        metadata=metadata,
         scale=scale,
         return_lse=return_lse,
         backend_kwargs=backend_kwargs,
@@ -565,7 +618,7 @@ def spatio_temporal_attention(
             (`[batch, T, H, W, heads, head_dim_v]`).
 
         logsumexp (Tensor): logsumexp tensor, with the heads-last contiguous layout
-            (`[batch, T, H, W, heads, 1]`). Only returned when return_lse is True.
+            (`[batch, T, H, W, heads]`). Only returned when return_lse is True.
     """
     if query.dim() != 6:
         raise ValueError(
@@ -582,6 +635,63 @@ def spatio_temporal_attention(
         dilation=dilation,
         is_causal=(True, False, False),
         scale=scale,
+        backend=backend,
         return_lse=return_lse,
         backend_kwargs=backend_kwargs,
+    )
+
+
+def merge_attentions(
+    outputs: list[Tensor],
+    lse_tensors: list[Tensor],
+    torch_compile: bool = False,
+) -> tuple[Tensor, Tensor]:
+    """
+    Merges multiple attention outputs that share the same query.
+
+    **NOTE: the user is responsible for ensuring ALL output and LSE tensors have the same data
+    pointer as the outputs from the corresponding Attention operations for correct backpropagation!**
+
+    **NOTE: requires NATTEN**
+
+    **NOTE: for backpropagation, only two outputs can be merged for now.**
+
+    Takes multiple attention outputs computed from the same set of query but w.r.t. different
+    key/value pairs, and merges them as if all key/value pairs had been concatenated.
+    This enables patterns like:
+    - Combining local and global attention (e.g., sparse + dense context)
+    - Pipelined context parallelism
+
+    The merge operation correctly combines the attention outputs using their logsumexp values
+    to produce a result equivalent to attending over the concatenated key/value pairs.
+
+    Parameters:
+        outputs (list[Tensor]): List of 4-D attention output tensors, with the heads-last layout
+            (`[batch, seqlen, heads, head_dim]`). Must contain at least 2 tensors.
+
+        lse_tensors (list[Tensor]): List of 3-D logsumexp tensors, with the heads-last layout
+            (`[batch, seqlen, heads]`). Must match length of `outputs`.
+
+        torch_compile (bool): Attempt to use `torch.compile` to fuse the underlying elementwise
+            operations. Default is False.
+
+    Returns:
+        output (Tensor): Merged attention output tensor (`[batch, seqlen, heads, head_dim]`).
+
+        logsumexp (Tensor): Updated logsumexp tensor (`[batch, seqlen, heads]`).
+    """
+    # For now, NATTEN is the only backend that provides merge_attentions
+    from cosmos_transfer2._src.imaginaire.attention.natten import natten_supported
+
+    if not natten_supported():
+        raise RuntimeError("merge_attentions requires NATTEN. Please upgrade NATTEN to use attention merging.")
+
+    # Import and use NATTEN's merge_attentions
+    from natten.functional import merge_attentions as natten_merge_attentions
+
+    return natten_merge_attentions(
+        outputs=outputs,
+        lse_tensors=lse_tensors,
+        torch_compile=torch_compile,
+        use_autograd_fix=True,  # Always use autograd fix for correct backprop
     )

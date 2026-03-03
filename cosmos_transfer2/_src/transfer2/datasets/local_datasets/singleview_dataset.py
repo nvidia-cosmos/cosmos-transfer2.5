@@ -47,9 +47,9 @@ from decord import VideoReader, cpu
 from torch.utils.data import Dataset
 
 from cosmos_transfer2._src.imaginaire.lazy_config import instantiate
-from cosmos_transfer2._src.imaginaire.modules.input_handling.utils import detect_aspect_ratio
 from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.transfer2.datasets.augmentor_provider import get_video_augmentor_v2_with_control
+from cosmos_transfer2._src.transfer2.utils.input_handling import detect_aspect_ratio
 
 
 # Mock URL object for augmentor compatibility
@@ -78,7 +78,7 @@ class MockUrl:
 CTRL_TYPE_INFO = {
     "keypoint": {"folder": "keypoint", "format": "pickle", "data_dict_key": "keypoint"},
     "depth": {"folder": "depth", "format": "mp4", "data_dict_key": "depth"},
-    "seg": {"folder": "seg", "format": "pickle", "data_dict_key": "segmentation"},
+    "seg": {"folder": "seg", "format": "mp4", "data_dict_key": "segmentation"},
     "edge": {"folder": None},  # Canny edge, computed on-the-fly by augmentor
     "vis": {"folder": None},  # Blur, computed on-the-fly by augmentor
 }
@@ -167,9 +167,13 @@ class SingleViewTransferDataset(Dataset):
         )
 
         # Filter out augmentors that don't apply to local datasets
-        # We skip video_parsing (expects bytes, we have tensors) and merge_datadict (not needed)
-        # text_transform is skipped because we pass raw captions (model encodes with Qwen on-the-fly)
-        skip_augmentors = ["video_parsing", "merge_datadict", "text_transform"]
+        # The augmentor pipeline includes augmentors designed for S3/WebDataset that need to be skipped:
+        # - video_parsing: Decodes video bytes from S3 → we already load tensors from local MP4 files
+        # - depth_parsing: Decodes depth bytes from S3 key "depth_pervideo_video_depth_anything" → we load from local depth/ folder
+        # - seg_parsing: Decodes seg bytes from S3 key "segmentation_sam2_color_video_v2" → we load from local seg/ folder
+        # - merge_datadict: Merges multiple WebDataset shards → not needed for single local dataset
+        # - text_transform: Loads pre-computed T5 embeddings → we pass raw captions for on-the-fly encoding
+        skip_augmentors = ["video_parsing", "merge_datadict", "text_transform", "depth_parsing", "seg_parsing"]
         augmentor_config = {k: v for k, v in augmentor_config.items() if k not in skip_augmentors}
 
         log.info(f"Filtered augmentors: {list(augmentor_config.keys())}")
@@ -338,10 +342,20 @@ class SingleViewTransferDataset(Dataset):
 
         try:
             if self.ctrl_type == "seg":
-                # Load segmentation pickle
-                with open(ctrl_path, "rb") as f:
-                    seg_data = pickle.load(f)
-                data_dict["segmentation"] = seg_data
+                # Load segmentation video (same format as depth)
+                vr = VideoReader(ctrl_path, ctx=cpu(0))
+                if len(vr) < frame_ids[-1] + 1:
+                    raise ValueError(f"Seg video has fewer frames than RGB video: {ctrl_path}")
+
+                seg_frames = vr.get_batch(frame_ids).asnumpy()  # [T, H, W, C]
+                seg_frames = seg_frames.astype(np.uint8)
+                # Convert to tensor - augmentor will handle resizing to match video
+                seg_t = torch.from_numpy(seg_frames).permute(0, 3, 1, 2)  # (T, C, H, W) uint8
+                seg_video = seg_t.permute(1, 0, 2, 3)  # (C, T, H, W) uint8
+
+                # Store with the key expected by AddControlInputSeg augmentor
+                data_dict["segmentation"] = seg_video
+                del vr
 
             elif self.ctrl_type == "keypoint":
                 # Load keypoint pickle
@@ -361,8 +375,8 @@ class SingleViewTransferDataset(Dataset):
                 depth_t = torch.from_numpy(depth_frames).permute(0, 3, 1, 2)  # (T, C, H, W) uint8
                 depth_video = depth_t.permute(1, 0, 2, 3)  # (C, T, H, W) uint8
 
-                # Store with the key expected by augmentor (it will process and rename)
-                data_dict["depth_pervideo_video_depth_anything"] = depth_video
+                # Store with the key expected by AddControlInputDepth augmentor
+                data_dict["depth"] = depth_video
                 del vr
 
         except Exception as e:

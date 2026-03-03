@@ -5,10 +5,20 @@ package_name := `echo cosmos_* | tr '_' '-'`
 module_name := `echo cosmos_*`
 short_name := `for dir in cosmos_*; do echo "${dir#cosmos_}"; done`
 
+default_max_gpus := if arch() == "aarch64" {
+  "4"
+} else {
+  "8"
+}
+
 # Setup the repository
 setup:
 
-default_cuda_name := "cu128"
+default_cuda_name := if arch() == "aarch64" {
+  "cu130"
+} else {
+  "cu128"
+}
 
 # Install the repository
 install cuda_name=default_cuda_name *args: setup
@@ -65,38 +75,42 @@ pytest_args := '-vv --instafail --durations=5 --force-regen'
 
 # Run a single test
 test-single name *args: _uv-sync
-  uv run --no-sync pytest --capture=no {{pytest_args}} {{args}} {{name}}
+  uv run --no-sync pytest --manual --capture=no {{pytest_args}} {{args}} {{name}}
 
 # Run CPU tests
 test-cpu *args: _uv-sync
   uv run --no-sync pytest --num-gpus=0 -n logical --maxprocesses=16 --levels=0 {{pytest_args}} {{args}}
 
-# Run 1-GPU tests
-_test-gpu-1 *args: _uv-sync
-  uv run --no-sync pytest --num-gpus=1 -n logical --levels=0 {{pytest_args}} {{args}}
-
-# Run 8-GPU tests
-_test-gpu-8 *args: _uv-sync
-  uv run --no-sync pytest --num-gpus=8 -n logical --levels=0 {{pytest_args}} {{args}}
-
 # Run GPU tests
-test-gpu *args: (_test-gpu-1 args) (_test-gpu-8 args)
-
-# Run custom pytest command
-_pytest *args: _uv-sync
-  uv run --no-sync pytest {{args}}
+test-gpu *args: _uv-sync
+  #!/usr/bin/env bash
+  set -euxo pipefail
+  export MAX_GPUS={{default_max_gpus}}
+  AVAILABLE_GPUS=$(nvidia-smi -L | wc -l)
+  for num_gpus in 1 $MAX_GPUS; do
+    if [ $num_gpus -gt $AVAILABLE_GPUS ]; then
+      break
+    fi
+    args="{{pytest_args}} {{args}}"
+    if [ $num_gpus -ne 1 ]; then
+      # Only run coverage for single-GPU tests.
+      # All multi-GPU tests should have a corresponding single-GPU smoke test, which has full coverage.
+      args="$args --no-cov"
+    fi
+    uv run --no-sync pytest --num-gpus=$num_gpus -n logical --levels=0 $args
+  done
 
 # Run tests
 test *args: pyrefly (test-cpu args) (test-gpu args)
 
-# Run level 0 tests
-alias test-level-0 := test
+coverage_args := '--cov-append --cov-report= --cov=' + module_name
 
-# Run level 1 tests
-test-level-1 *args: (test '--levels=1' args)
+# Initialize coverage
+_coverage-init:
+  rm -rf outputs/coverage
 
-# Run level 2 tests
-test-level-2 *args: (test '--levels=2' args)
+# Run tests with coverage
+test-coverage *args: _coverage-init (test coverage_args args) (run 'coverage' 'xml')
 
 # List tests
 test-list *args: _uv-sync
@@ -133,22 +147,21 @@ release-check: license _link-check
 release pypi_token='dry-run' *args:
   ./bin/release.sh {{pypi_token}} {{args}}
 
-docker_build_args := ''
-docker_run_args := '--ipc=host -v /root/.cache:/root/.cache'
-
 # Run the docker container
 _docker build_args='' run_args='':
   #!/usr/bin/env bash
   set -euxo pipefail
-  docker build {{docker_build_args}} {{build_args}} .
-  image_tag=$(docker build {{docker_build_args}} {{build_args}} -q .)
+  docker build {{build_args}} .
+  image_tag=$(docker build {{build_args}} -q .)
   docker run \
     -it \
-    --gpus all \
+    --runtime=nvidia \
+    --ipc=host \
     --rm \
     -v .:/workspace \
     -v /workspace/.venv \
-    {{docker_run_args}} \
+    -v /root/.cache:/root/.cache \
+    -e HF_TOKEN="$HF_TOKEN" \
     {{run_args}} \
     $image_tag
 

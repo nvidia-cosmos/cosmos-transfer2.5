@@ -44,11 +44,9 @@ from cosmos_transfer2._src.transfer2.datasets.augmentors.control_input import CT
 
 IS_PREPROCESSED_KEY = "is_preprocessed"
 
-_base_classes = (Video2WorldModelRectifiedFlowConfig,)
-
 
 @attrs.define(slots=False)
-class ControlVideo2WorldRectifiedFlowConfig(*_base_classes):
+class ControlVideo2WorldRectifiedFlowConfig(Video2WorldModelRectifiedFlowConfig):
     base_load_from: LazyDict = None
     min_num_conditional_frames: int = 0  # Minimum number of latent conditional frames
     max_num_conditional_frames: int = 2  # Maximum number of latent conditional frames
@@ -322,74 +320,6 @@ class ControlVideo2WorldModelRectifiedFlow(Video2WorldModelRectifiedFlow):
 
         return velocity_fn
 
-    def get_x0_fn_from_batch(
-        self,
-        data_batch: Dict,
-        guidance: float = 1.5,
-        is_negative_prompt: bool = False,
-    ) -> Callable:
-        """
-        Generates a callable function `x0_fn` based on the provided data batch and guidance factor for rectified flow.
-        """
-        if NUM_CONDITIONAL_FRAMES_KEY in data_batch:
-            num_conditional_frames = data_batch[NUM_CONDITIONAL_FRAMES_KEY]
-            log.info(
-                f"num_conditional_frames: {num_conditional_frames} is set by data_batch[NUM_CONDITIONAL_FRAMES_KEY]"
-            )
-        else:
-            num_conditional_frames = 0
-
-        if is_negative_prompt:
-            condition, uncondition = self.conditioner.get_condition_with_negative_prompt(data_batch)
-        else:
-            condition, uncondition = self.conditioner.get_condition_uncondition(data_batch)
-
-        is_image_batch = self.is_image_batch(data_batch)
-        condition = condition.edit_data_type(DataType.IMAGE if is_image_batch else DataType.VIDEO)
-        uncondition = uncondition.edit_data_type(DataType.IMAGE if is_image_batch else DataType.VIDEO)
-        _, x0, control_condition = self.get_data_and_condition(data_batch)
-
-        # Set video condition
-        condition = condition.set_video_condition(
-            gt_frames=x0,
-            random_min_num_conditional_frames=self.config.min_num_conditional_frames,
-            random_max_num_conditional_frames=self.config.max_num_conditional_frames,
-            num_conditional_frames=num_conditional_frames,
-        )
-        uncondition = uncondition.set_video_condition(
-            gt_frames=x0,
-            random_min_num_conditional_frames=self.config.min_num_conditional_frames,
-            random_max_num_conditional_frames=self.config.max_num_conditional_frames,
-            num_conditional_frames=num_conditional_frames,
-        )
-
-        # Set control condition
-        latent_control_input = control_condition.latent_control_input
-        control_weight = control_condition.control_context_scale
-        condition = condition.set_control_condition(
-            latent_control_input=latent_control_input, control_weight=control_weight
-        )
-        uncondition = uncondition.set_control_condition(
-            latent_control_input=latent_control_input, control_weight=control_weight
-        )
-
-        _, condition, _, _ = self.broadcast_split_for_model_parallelsim(x0, condition, None, None)
-        _, uncondition, _, _ = self.broadcast_split_for_model_parallelsim(x0, uncondition, None, None)
-
-        if parallel_state.is_initialized():
-            pass
-        else:
-            assert not self.net.is_context_parallel_enabled, (
-                "parallel_state is not initialized, context parallel should be turned off."
-            )
-
-        @torch.no_grad()
-        def x0_fn(noise_x: torch.Tensor, time: torch.Tensor) -> torch.Tensor:
-            raw_x0 = self.denoise_edm(noise_x, time, condition, net_type="student").x0
-            return raw_x0
-
-        return x0_fn
-
     def _normalize_video_databatch_inplace(self, data_batch: dict[str, Tensor], input_key: str | None = None) -> None:
         """
         Normalizes video data in-place on a CUDA device to reduce data loading overhead.
@@ -614,6 +544,11 @@ class ControlVideo2WorldModelRectifiedFlow(Video2WorldModelRectifiedFlow):
             if checkpoint_path is None:
                 log.warning(f"No checkpoint path provided for control branch {nc}")
                 continue
+
+            if not INTERNAL:
+                from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import download_checkpoint
+
+                checkpoint_path = download_checkpoint(checkpoint_path)
 
             checkpoint_format = "pt" if checkpoint_path.endswith(".pt") else "dcp"
             # Handle checkpoint path with or without "model" suffix

@@ -5,9 +5,7 @@ Cosmos-Transfer2.5 image inference runs our model on single frames or on control
 
 1. Follow the [Setup guide](setup.md) for environment setup, checkpoint download and hardware requirements.
 
-## Examples
-
-### Image-to-Image
+## Image-to-Image
 
 Transform a single image or video frame using control signals and text prompts:
 
@@ -15,9 +13,12 @@ Transform a single image or video frame using control signals and text prompts:
 python examples/inference.py -i assets/image_example/image2image.json -o outputs/image2image
 ```
 
-### Image Prompt: using an image as a style reference
+## Image Prompt: using an image as a style reference
 
-Use an image as a style reference to guide video generation with a particular visual aesthetic:
+**For more detailed guidance and example about image prompting, checkout our Cosmos Cookbook [Style-Guided Inference](https://nvidia-cosmos.github.io/cosmos-cookbook/recipes/inference/transfer2_5/inference-image/inference.html) recipe.**
+
+Use an image as a style reference to guide video generation with a particular visual aesthetic.
+
 
 ```bash
 python examples/inference.py -i assets/image_example/image_style.json -o outputs/image_style
@@ -33,10 +34,9 @@ python examples/inference.py --help
 
 python examples/inference.py control:edge --help # for information specific to edge control
 ```
-
 ## Configuration
 
-### Image-to-Image Example
+### Image-to-Image
 
 ```jsonc
 {

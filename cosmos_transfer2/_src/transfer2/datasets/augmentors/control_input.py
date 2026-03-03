@@ -119,9 +119,11 @@ class AddControlInputEdge(Augmentor):
         if is_image:
             edge_maps = cv2.Canny(frames, t_lower, t_upper)[None, None]
         else:
-            edge_maps = [cv2.Canny(img, t_lower, t_upper) for img in frames.transpose((1, 2, 3, 0))]
+            edge_maps = [
+                cv2.Canny(img, t_lower, t_upper) for img in frames.transpose((1, 2, 3, 0))
+            ]  # (C, T, H, W) -> (T, H, W)
             edge_maps = np.stack(edge_maps)[None]
-        edge_maps = torch.from_numpy(edge_maps).expand(3, -1, -1, -1)
+        edge_maps = torch.from_numpy(edge_maps).expand(3, -1, -1, -1)  # (1, T, H, W) -> (3, T, H, W)
         if is_image:
             edge_maps = edge_maps[:, 0]
         data_dict[key_out] = edge_maps

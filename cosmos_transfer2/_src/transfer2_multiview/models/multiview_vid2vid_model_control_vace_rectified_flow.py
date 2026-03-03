@@ -403,106 +403,6 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
 
         return velocity_fn
 
-    def get_x0_fn_from_batch(
-        self,
-        data_batch: Dict,
-        guidance: float = 1.5,
-        is_negative_prompt: bool = False,
-    ) -> Callable:
-        """
-        Generates a callable function `x0_fn` based on the provided data batch and guidance factor.
-
-        This function first processes the input data batch through a conditioning workflow (`conditioner`) to obtain conditioned and unconditioned states. It then defines a nested function `x0_fn` which applies a denoising operation on an input using both the conditioned and unconditioned states for edm.
-
-        Args:
-        - data_batch (Dict): A batch of data used for conditioning. The format and content of this dictionary should align with the expectations of the `self.conditioner`
-        - guidance (float, optional): A scalar value that modulates the influence of the conditioned state relative to the unconditioned state in the output. Defaults to 1.5.
-        - is_negative_prompt (bool): use negative prompt t5 in uncondition if true
-
-        Returns:
-        - Callable: A function `x0_fn(noise_x, time)` that takes two arguments and returns x0 prediction
-
-        The returned function is suitable for use in edm scenarios where a x0 is required based on both conditioned and unconditioned inputs, with an adjustable level of guidance influence.
-        """
-
-        data_batch_with_latent_view_indices = self.get_data_batch_with_latent_view_indices(data_batch)
-        if NUM_CONDITIONAL_FRAMES_KEY in data_batch_with_latent_view_indices:
-            num_conditional_frames = data_batch_with_latent_view_indices[NUM_CONDITIONAL_FRAMES_KEY]
-            log.debug(f"Using {num_conditional_frames=} from data batch")
-        else:
-            num_conditional_frames = 1
-
-        if is_negative_prompt:
-            condition, uncondition = self.conditioner.get_condition_with_negative_prompt(
-                data_batch_with_latent_view_indices
-            )
-        else:
-            condition, uncondition = self.conditioner.get_condition_uncondition(data_batch_with_latent_view_indices)
-
-        is_image_batch = self.is_image_batch(data_batch_with_latent_view_indices)
-        condition = condition.edit_data_type(DataType.IMAGE if is_image_batch else DataType.VIDEO)
-        uncondition = uncondition.edit_data_type(DataType.IMAGE if is_image_batch else DataType.VIDEO)
-        _, x0, data_batch_condition = self.get_data_and_condition(data_batch_with_latent_view_indices)
-        # override condition with inference mode; num_conditional_frames used Here!
-        condition = condition.set_video_condition(
-            state_t=self.config.state_t,
-            gt_frames=x0,
-            condition_locations=self.config.condition_locations,
-            random_min_num_conditional_frames_per_view=self.config.min_num_conditional_frames_per_view,
-            random_max_num_conditional_frames_per_view=self.config.max_num_conditional_frames_per_view,
-            num_conditional_frames_per_view=num_conditional_frames,
-            view_condition_dropout_max=0,
-            conditional_frames_probs=self.config.conditional_frames_probs,
-        )
-        uncondition = uncondition.set_video_condition(
-            state_t=self.config.state_t,
-            gt_frames=x0,
-            condition_locations=self.config.condition_locations,
-            random_min_num_conditional_frames_per_view=self.config.min_num_conditional_frames_per_view,
-            random_max_num_conditional_frames_per_view=self.config.max_num_conditional_frames_per_view,
-            num_conditional_frames_per_view=num_conditional_frames,
-            view_condition_dropout_max=0,
-            conditional_frames_probs=self.config.conditional_frames_probs,
-        )
-
-        condition = condition.edit_for_inference(
-            is_cfg_conditional=True,
-            condition_locations=self.config.condition_locations,
-            num_conditional_frames_per_view=num_conditional_frames,
-        )
-        uncondition = uncondition.edit_for_inference(
-            is_cfg_conditional=False,
-            condition_locations=self.config.condition_locations,
-            num_conditional_frames_per_view=num_conditional_frames,
-        )
-
-        assert data_batch_condition.latent_control_input is not None, "No control input found"
-
-        condition = condition.set_control_condition(
-            latent_control_input=data_batch_condition.latent_control_input.to(self.tensor_kwargs["device"]),
-            control_weight=data_batch.get(CONTROL_WEIGHT_KEY, 1.0),
-        )
-        uncondition = uncondition.set_control_condition(
-            latent_control_input=data_batch_condition.latent_control_input.to(self.tensor_kwargs["device"]),
-            control_weight=data_batch.get(CONTROL_WEIGHT_KEY, 1.0),
-        )
-
-        _, condition, _, _ = self.broadcast_split_for_model_parallelsim(x0, condition, None, None)
-        _, uncondition, _, _ = self.broadcast_split_for_model_parallelsim(x0, uncondition, None, None)
-        if parallel_state.is_initialized():
-            pass
-        else:
-            assert not self.net.is_context_parallel_enabled, (
-                "parallel_state is not initialized, context parallel should be turned off."
-            )
-
-        @torch.no_grad()
-        def x0_fn(noise_x: torch.Tensor, time: torch.Tensor) -> torch.Tensor:
-            raw_x0 = self.denoise_edm(noise_x, time, condition, net_type="student").x0
-            return raw_x0
-
-        return x0_fn
-
     @torch.no_grad()
     def generate_samples_from_batch(
         self,
@@ -514,39 +414,22 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
         is_negative_prompt: bool = False,
         num_steps: int = 35,
         shift: float = 5.0,
-        distillation: str = "",
         **kwargs,
     ) -> torch.Tensor:
         data_batch_with_latent_view_indices = self.get_data_batch_with_latent_view_indices(data_batch)
         process_group = parallel_state.get_context_parallel_group()
         cp_size = len(get_process_group_ranks(process_group))
-        if distillation == "":
-            samples_B_C_T_H_W = super().generate_samples_from_batch(
-                data_batch_with_latent_view_indices,
-                guidance,
-                seed,
-                state_shape,
-                n_sample,
-                is_negative_prompt,
-                num_steps,
-                shift,
-                **kwargs,
-            )
-        elif distillation == "dmd2":
-            self.net.timestep_scale = 1.0
-            samples_B_C_T_H_W = super().generate_samples_from_batch_dmd2(
-                data_batch=data_batch_with_latent_view_indices,
-                guidance=guidance,
-                seed=seed,
-                state_shape=state_shape,
-                n_sample=n_sample,
-                is_negative_prompt=False,
-                num_steps=num_steps,
-                init_noise=None,
-                **kwargs,
-            )
-        else:
-            raise ValueError(f"Distillation method {distillation} not implemented.")
+        samples_B_C_T_H_W = super().generate_samples_from_batch(
+            data_batch_with_latent_view_indices,
+            guidance,
+            seed,
+            state_shape,
+            n_sample,
+            is_negative_prompt,
+            num_steps,
+            shift,
+            **kwargs,
+        )
         if cp_size > 1:
             num_views = samples_B_C_T_H_W.shape[2] // self.state_t
             H = samples_B_C_T_H_W.shape[3]

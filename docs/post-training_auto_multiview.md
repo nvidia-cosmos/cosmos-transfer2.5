@@ -2,6 +2,8 @@
 
 This guide provides instructions on running post-training with the Cosmos-Transfer2.5 Auto Multiview 2B model.
 
+**For more information and examples about post-training the Auto Multiview model, checkout our Cosmos Cookbook [Auto Multiview Post-training](https://nvidia-cosmos.github.io/cosmos-cookbook/recipes/post_training/transfer2_5/av_world_scenario_maps/post_training.html) recipe.**
+
 ## Table of Contents
 
 <!--TOC-->

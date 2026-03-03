@@ -31,13 +31,13 @@ from tqdm import tqdm
 
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
 from cosmos_transfer2._src.imaginaire.lazy_config import instantiate
-from cosmos_transfer2._src.imaginaire.modules.input_handling.utils import detect_aspect_ratio
 from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.predict2.datasets.local_datasets.dataset_utils import (
     ResizePreprocess,
     ToTensorVideo,
 )
 from cosmos_transfer2._src.transfer2.datasets.augmentor_provider import get_hdmap_augmentor_for_local_datasets
+from cosmos_transfer2._src.transfer2.utils.input_handling import detect_aspect_ratio
 
 # mappings between control types and corresponding sub-folders names in the data folder
 CTRL_TYPE_INFO = {

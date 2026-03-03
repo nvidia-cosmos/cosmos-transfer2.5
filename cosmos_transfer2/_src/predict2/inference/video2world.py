@@ -53,7 +53,8 @@ input_root/
 
 import math
 import os
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import torch
 import torchvision
@@ -63,6 +64,9 @@ from PIL import Image
 from cosmos_transfer2._src.imaginaire.flags import INTERNAL
 from cosmos_transfer2._src.imaginaire.utils import distributed, log
 from cosmos_transfer2._src.imaginaire.utils.easy_io import easy_io
+from cosmos_transfer2._src.interactive.utils.model_loader import (
+    load_model_from_checkpoint as load_distilled_model_from_checkpoint,
+)
 from cosmos_transfer2._src.predict2.inference.get_t5_emb import get_text_embedding
 from cosmos_transfer2._src.predict2.utils.model_loader import load_model_from_checkpoint
 
@@ -70,6 +74,16 @@ _IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp"]
 _VIDEO_EXTENSIONS = [".mp4"]
 
 _DEFAULT_NEGATIVE_PROMPT = "The video captures a series of frames showing ugly scenes, static with no motion, motion blur, over-saturation, shaky footage, low resolution, grainy texture, pixelated images, poorly lit areas, underexposed and overexposed scenes, poor color balance, washed out colors, choppy sequences, jerky movements, low frame rate, artifacting, color banding, unnatural transitions, outdated special effects, fake elements, unconvincing visuals, poorly edited content, jump cuts, visual noise, and flickering. Overall, the video is of poor quality."
+
+
+@dataclass(slots=True)
+class CameraConditionInputs:
+    """Typed container for camera conditioning payloads."""
+
+    extrinsics: torch.Tensor | list | tuple
+    intrinsics: torch.Tensor | list | tuple
+    image_size: torch.Tensor | tuple[int, int] | list[int] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 def resize_input(video: torch.Tensor, resolution: list[int]):
@@ -262,6 +276,14 @@ class Video2WorldInference:
             ckpt_path (str): Path to the model checkpoint (local or S3).
             s3_credential_path (str): Path to S3 credentials file (if loading from S3).
             context_parallel_size (int): Number of GPUs for context parallelism.
+            config_file (str): Path to the config file.
+            experiment_opts (list[str]): List of experiment options.
+            offload_diffusion_model (bool): Whether to offload the diffusion model to CPU.
+            offload_text_encoder (bool): Whether to offload the text encoder to CPU.
+            offload_tokenizer (bool): Whether to offload the tokenizer to CPU.
+
+        Returns:
+            None
         """
         self.experiment_name = experiment_name
         self.ckpt_path = ckpt_path
@@ -291,14 +313,23 @@ class Video2WorldInference:
         if self.offload_diffusion_model:
             os.environ["COSMOS_PREDICT2_OFFLOAD_DIT"] = "1"
 
-        model, config = load_model_from_checkpoint(
-            experiment_name=self.experiment_name,
-            s3_checkpoint_dir=self.ckpt_path,
-            config_file=config_file,
-            load_ema_to_reg=True,
-            experiment_opts=experiment_opts,
-            to_device=model_device,
-        )
+        if config_file and "interactive" in config_file:
+            model, config = load_distilled_model_from_checkpoint(
+                experiment_name=self.experiment_name,
+                s3_checkpoint_dir=self.ckpt_path,
+                config_file=config_file,
+                load_ema_to_reg=True,
+                experiment_opts=experiment_opts,
+            )
+        else:
+            model, config = load_model_from_checkpoint(
+                experiment_name=self.experiment_name,
+                s3_checkpoint_dir=self.ckpt_path,
+                config_file=config_file,
+                load_ema_to_reg=True,
+                experiment_opts=experiment_opts,
+                to_device=model_device,
+            )
 
         # By default, everything will be constructed directly on the GPU (except DiT)
         # Handle offloading options at inference entry
@@ -368,7 +399,7 @@ class Video2WorldInference:
         num_conditional_frames: int = 1,
         negative_prompt: str = _DEFAULT_NEGATIVE_PROMPT,
         use_neg_prompt: bool = True,
-        camera: torch.Tensor | None = None,
+        camera: CameraConditionInputs | None = None,
         action: torch.Tensor | None = None,
     ):
         """
@@ -384,7 +415,7 @@ class Video2WorldInference:
             num_conditional_frames (int): Number of conditional frames to use.
             negative_prompt (str, optional): Custom negative prompt.
             use_neg_prompt (bool, optional): Whether to include negative prompt embeddings. Defaults to True.
-            camera: (torch.Tensor, optional) Target camera extrinsics and intrinsics for the K output videos, must be provided for camera conditioned model.
+            camera (CameraConditionInputs | None): Optional typed camera metadata container.
             action: (torch.Tensor, optional) Target robot action for the K output videos, must be provided for action conditioned model.
 
         Returns:
@@ -395,12 +426,22 @@ class Video2WorldInference:
         data_batch = {
             "dataset_name": "video_data",
             "video": video,
-            "camera": camera,
             "action": action.unsqueeze(0) if action is not None else None,
             "fps": torch.randint(16, 32, (self.batch_size,)).float(),  # Random FPS (might be used by model)
             "padding_mask": torch.zeros(self.batch_size, 1, H, W),  # Padding mask (assumed no padding here)
             "num_conditional_frames": num_conditional_frames,  # Specify number of conditional frames
         }
+        if camera is not None:
+            image_size = camera.image_size
+            if image_size is None:
+                image_size = torch.tensor([H, W, H, W], device=video.device)
+            data_batch.update(
+                {
+                    "intrinsics": camera.intrinsics,
+                    "extrinsics": camera.extrinsics,
+                    "image_size": image_size,
+                }
+            )
 
         if use_neg_prompt:
             assert negative_prompt is not None, "Negative prompt is required when use_neg_prompt is True"
@@ -441,7 +482,7 @@ class Video2WorldInference:
         resolution: str = "192,320",
         seed: int = 1,
         negative_prompt: str = _DEFAULT_NEGATIVE_PROMPT,
-        camera: torch.Tensor | None = None,
+        camera: CameraConditionInputs | None = None,
         action: torch.Tensor | None = None,
         num_steps: int = 35,
     ):
@@ -460,7 +501,7 @@ class Video2WorldInference:
             resolution: Target video resolution in "H,W" format. Defaults to "192,320".
             seed: Random seed for reproducibility. Defaults to 1.
             negative_prompt: Custom negative prompt. Defaults to the predefined default negative prompt.
-            camera: Target camera extrinsics and intrinsics for the K output videos. Must be provided if model is camera conditioned.
+            camera: CameraConditionInputs containing extrinsics, intrinsics, and optional image size metadata.
             action: Target robot action for the K output videos. Must be provided if model is action conditioned.
             num_steps: Number of generation steps. Defaults to 35.
             offload_diffusion_model: If True, offload diffusion model to CPU to save GPU memory. Defaults to False.
@@ -571,7 +612,7 @@ class Video2WorldInference:
         # Generate latent samples using the diffusion model
         # Video should be of shape torch.Size([1, 3, 93, 192, 320]) # Note: Shape check comment
         log.info("[Memory Optimization] Starting latent sample generation")
-        if self.model.config.use_lora:
+        if getattr(self.model.config, "use_lora", False):
             generate_samples = self.model.generate_samples_from_batch_lora
         else:
             generate_samples = self.model.generate_samples_from_batch

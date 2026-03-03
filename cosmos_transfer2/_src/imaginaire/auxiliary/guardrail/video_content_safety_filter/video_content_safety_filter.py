@@ -22,7 +22,7 @@ import torch
 from PIL import Image
 
 from cosmos_transfer2._src.imaginaire.auxiliary.guardrail.common.core import (
-    GUARDRAIL1_CHECKPOINT_DIR,
+    GUARDRAIL1_CHECKPOINT,
     ContentSafetyGuardrail,
     GuardrailRunner,
 )
@@ -62,7 +62,7 @@ class VideoContentSafetyFilter(ContentSafetyGuardrail):
         """
         self.offload_model = offload_model_to_cpu
         self.dtype = torch.float32
-        self.checkpoint_dir = os.path.join(GUARDRAIL1_CHECKPOINT_DIR, "video_content_safety_filter")
+        self.checkpoint_dir = os.path.join(GUARDRAIL1_CHECKPOINT.download(), "video_content_safety_filter")
 
         # Use ModelConfig directly for inference configuration
         model_config = ModelConfig(input_size=1152, num_classes=7)

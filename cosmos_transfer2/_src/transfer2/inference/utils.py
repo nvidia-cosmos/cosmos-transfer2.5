@@ -549,9 +549,7 @@ def _compute_depth_maps(video_np: np.ndarray) -> torch.Tensor | None:
         or None if computation fails
     """
     try:
-        from cosmos_transfer2._src.transfer2.auxiliary.depth_anything.video_depth_anything import (
-            VideoDepthAnythingModel,
-        )
+        from cosmos_transfer2._src.transfer2.auxiliary.depth_anything.video_depth_model import VideoDepthAnythingModel
 
         log.info(f"Computing depth for video with shape {video_np.shape}...")
         device = "cuda" if torch.cuda.is_available() else "cpu"
