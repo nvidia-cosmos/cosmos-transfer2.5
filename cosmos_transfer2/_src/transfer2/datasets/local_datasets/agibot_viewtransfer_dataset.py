@@ -37,6 +37,7 @@ from cosmos_transfer2._src.transfer2.datasets.local_datasets.viewtransfer.camera
 from cosmos_transfer2._src.transfer2.datasets.local_datasets.viewtransfer.depth_backends import (
     generate_depth,
 )
+from cosmos_transfer2._src.transfer2.datasets.local_datasets.viewtransfer.evaluation import masked_psnr
 from cosmos_transfer2._src.transfer2.datasets.local_datasets.viewtransfer.gen3c.cache_3d import Cache4D
 from cosmos_transfer2._src.transfer2.datasets.local_datasets.viewtransfer.path_templates import (
     CacheCategory,
@@ -103,6 +104,7 @@ class AgibotViewTransferDataset(Dataset):
         moge_device: str = "cuda",
         moge_batch_size: int = 8,
         render_device: str = "cuda",
+        psnr_threshold: float = 0.0,
         lock_timeout_sec: float = 600.0,
         lock_poll_sec: float = 0.25,
         **kwargs: object,
@@ -136,6 +138,7 @@ class AgibotViewTransferDataset(Dataset):
         self.lock_timeout_sec = float(lock_timeout_sec)
         self.lock_poll_sec = float(lock_poll_sec)
         self.render_device = render_device
+        self.psnr_threshold = psnr_threshold
 
         log.info(f"Initializing AgibotViewTransferDataset with dataset_dir={dataset_dir}")
         self.samples = build_samples(
@@ -229,6 +232,7 @@ class AgibotViewTransferDataset(Dataset):
                     render_mask_frames_n1hw_uint8,
                 ) = self._get_render_frames(
                     sample=sample,
+                    target_video=target_frames_nchw_uint8,
                     frame_ids=frame_ids,
                     fps=fps,
                 )  # N C H W uint8, N 1 H W uint8
@@ -411,6 +415,7 @@ class AgibotViewTransferDataset(Dataset):
             clip_name=clip_name,
         )
         if cam_path.exists():
+            log.debug(f"Using existing {cam_path}...")
             with np.load(cam_path) as cam_params:
                 intrinsics = torch.from_numpy(cam_params["intrinsics"]).float()
                 w2c = torch.from_numpy(cam_params["w2c"]).float()
@@ -465,6 +470,7 @@ class AgibotViewTransferDataset(Dataset):
             depth_estimator=self.depth_estimator,
         )
         if d_path.exists():
+            log.debug(f"Using existing {d_path}...")
             depth_nhw_m_float64_np = load_depth_mkv_ffv1_mm_u16(
                 path=d_path,
                 width=width,
@@ -515,6 +521,7 @@ class AgibotViewTransferDataset(Dataset):
             self.depth_estimator,
         )
         if pcd_path.exists():
+            log.debug(f"Using existing {pcd_path}...")
             points = torch.from_numpy(np.load(pcd_path)["points"])  # F, H, W, 3
             return Cache4D(
                 input_image=image_tensor,  # [F, C, H, W]
@@ -556,6 +563,7 @@ class AgibotViewTransferDataset(Dataset):
         self,
         *,
         sample: ViewTransferPairSample,
+        target_video: torch.Tensor,
         frame_ids: list[int],
         fps: float,
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -568,6 +576,7 @@ class AgibotViewTransferDataset(Dataset):
             self.depth_estimator,
         )
         if render_path.exists() and mask_path.exists():
+            log.debug(f"Using existing {render_path} and {mask_path}...")
             render_decoder = VideoDecoder(str(render_path), device=self.decoder_device)
             render_fps = self._get_fps_from_decoder(render_decoder)
             if abs(render_fps - fps) > 1e-3:
@@ -622,6 +631,21 @@ class AgibotViewTransferDataset(Dataset):
 
             rendered_images_nchw_uint8 = rendered_images_nchw_uint8[frame_ids]
             rendered_masks_n1hw_uint8 = rendered_masks_n1hw_uint8[frame_ids]
+
+        # Evaluate PSNR
+        if self.psnr_threshold > 0.0:
+            bool_masks = rendered_masks_n1hw_uint8.squeeze(1) > 127.5  # N H W, bool
+            masked_psnr_value = masked_psnr(
+                preds=rendered_images_nchw_uint8,
+                targets=target_video,
+                masks=bool_masks,
+            )
+            if masked_psnr_value < self.psnr_threshold:
+                raise RuntimeError(
+                    f"Rendered video PSNR below threshold: {masked_psnr_value:.2f} dB < {self.psnr_threshold} dB. ",
+                    "Filtering out sample due to low render quality.",
+                )
+            log.debug(f"Sample render PSNR: {masked_psnr_value:.2f} dB (threshold: {self.psnr_threshold} dB)")
 
         return rendered_images_nchw_uint8, rendered_masks_n1hw_uint8
 
@@ -705,6 +729,12 @@ def _parse_args():
     parser.add_argument("--depth-estimator", type=str, default="agibot", choices=["agibot", "moge"])
     parser.add_argument("--moge-device", type=str, default="cuda")
     parser.add_argument("--moge-batch-size", type=int, default=8)
+    parser.add_argument(
+        "--psnr-threshold",
+        type=float,
+        default=0.0,
+        help="Minimum PSNR (dB) for render quality filtering. 0 to disable.",
+    )
     parser.add_argument("--is-train", action="store_true", help="Use training sampling (random start frame).")
     parser.add_argument("--output-dir", type=str, default="output/debug_viewtransfer")
     parser.add_argument("--skip-visualize", action="store_true", help="Only print sample summary.")
@@ -728,6 +758,7 @@ def main() -> None:
         usd_path="/raid/andrew.mitri/geniesim_assets/G1_120s/G1_120s.usda",
         moge_device=args.moge_device,
         moge_batch_size=args.moge_batch_size,
+        psnr_threshold=args.psnr_threshold,
         camera_prims={
             "head": "/G1/head_link2/Head_Camera",
             "hand_right": "/G1/gripper_r_base_link/Right_Camera",
@@ -736,11 +767,13 @@ def main() -> None:
     )
 
     print(dataset)
-    samples = [dataset[idx] for idx in range(20)]
+    np.random.seed(42)
+    indices = np.random.choice(len(dataset), size=1, replace=False)
+    samples = [dataset[idx] for idx in indices]
     _summarize_sample(samples[0])
 
     if not args.skip_visualize:
-        for idx, sample in enumerate(samples):
+        for idx, sample in zip(indices, samples, strict=True):
             out_path = visualize_sample_dict(
                 sample,
                 output_dir=args.output_dir,
