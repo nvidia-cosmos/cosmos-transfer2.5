@@ -198,7 +198,8 @@ class Control2WorldInference:
 
         if self.device_rank == 0:
             output_dir.mkdir(parents=True, exist_ok=True)
-            open(f"{output_path}.json", "w").write(sample.model_dump_json())
+            with open(f"{output_path}.json", "w") as f:
+                f.write(sample.model_dump_json())
             log.info(f"Saved arguments to {output_path}.json")
 
             with self.benchmark_timer("text_guardrail"):
