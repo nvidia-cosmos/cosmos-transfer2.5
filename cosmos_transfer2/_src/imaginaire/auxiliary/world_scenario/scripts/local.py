@@ -183,20 +183,31 @@ def convert_scene_data_for_rendering(
     camera_names: list[str],
     resize_hw: Optional[Tuple[int, int]] = None,
 ) -> tuple[Dict[str, FThetaCamera], Dict[str, np.ndarray]]:
-    """
-    Convert SceneData to the format needed by the rendering pipeline.
+    """Convert SceneData to the format needed by the rendering pipeline.
+
+    Extracts camera models and computes per-frame camera-to-world poses.
+    Supports two pose computation modes:
+
+    1. Direct mode (uses_per_camera_poses=True): Uses pre-computed camera-to-world
+       poses from scene_data.camera_poses. More efficient when data already
+       contains per-camera world poses (e.g., Drive-Dreams/RDS-HQ without vehicle_pose).
+
+    2. Traditional mode (default): Computes camera-to-world from ego poses and
+       static camera extrinsics: camera_to_world = ego_to_world @ camera_to_ego.
 
     Args:
-        scene_data: Unified scene data representation
-        camera_names: List of camera names to process
-        resize_hw: Optional resize resolution (height, width)
+        scene_data: Unified scene data representation.
+        camera_names: List of camera names to process.
+        resize_hw: Optional resize resolution as (height, width).
 
     Returns:
-        Tuple of (camera_models, camera_poses)
+        Tuple of (camera_models, camera_poses) where:
+        - camera_models: Dict mapping camera name to FThetaCamera model.
+        - camera_poses: Dict mapping camera name to (num_frames, 4, 4) pose array.
     """
     logger.debug("Converting scene data for rendering")
 
-    # Create camera models
+    # Build camera models with optional resizing
     all_camera_models = {}
     for camera_name in camera_names:
         if camera_name not in scene_data.camera_models:
@@ -204,8 +215,8 @@ def convert_scene_data_for_rendering(
             continue
 
         camera_model = scene_data.camera_models[camera_name]
-
         camera = camera_model
+
         if resize_hw:
             resize_h, resize_w = resize_hw
             if camera.height != resize_h or camera.width != resize_w:
@@ -219,22 +230,22 @@ def convert_scene_data_for_rendering(
 
         all_camera_models[camera_name] = camera
 
-    # Create camera poses
-    all_camera_poses = {}
+    # Build camera-to-world poses for each frame
+    all_camera_poses: Dict[str, np.ndarray] = {}
+    uses_per_camera_poses = scene_data.metadata.get("uses_per_camera_poses", False)
+
     for camera_name in camera_names:
-        if camera_name not in scene_data.camera_extrinsics or camera_name not in scene_data.camera_models:
+        if camera_name not in scene_data.camera_models:
             continue
 
-        camera_to_ego = scene_data.camera_extrinsics[camera_name]
-
-        # Build camera poses for all frames
-        camera_poses = []
-        for ego_pose in scene_data.ego_poses:
-            ego_to_world = ego_pose.transformation_matrix
-            camera_to_world = ego_to_world @ camera_to_ego
-            camera_poses.append(camera_to_world)
-
-        all_camera_poses[camera_name] = np.array(camera_poses)
+        if uses_per_camera_poses and camera_name in scene_data.camera_poses:
+            # Direct mode: use pre-computed camera-to-world poses
+            all_camera_poses[camera_name] = scene_data.camera_poses[camera_name]
+        elif camera_name in scene_data.camera_extrinsics:
+            # Traditional mode: compute camera_to_world = ego_to_world @ camera_to_ego
+            camera_to_ego = scene_data.camera_extrinsics[camera_name]
+            camera_poses = [ego_pose.transformation_matrix @ camera_to_ego for ego_pose in scene_data.ego_poses]
+            all_camera_poses[camera_name] = np.array(camera_poses)
 
     logger.debug(f"Converted {len(all_camera_models)} cameras, {scene_data.num_frames} frames")
 
