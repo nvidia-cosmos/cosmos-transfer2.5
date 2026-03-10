@@ -201,10 +201,11 @@ class CheckpointFileHf(_CheckpointHf):
         if self.repository in ["nvidia/Cosmos-Experimental", "nvidia-cosmos-ea/Cosmos-Experimental"]:
             repositories = [
                 self.repository,
-                "nvidia-cosmos-ea/Cosmos-Experimental" if self.repository == "nvidia/Cosmos-Experimental"
+                "nvidia-cosmos-ea/Cosmos-Experimental"
+                if self.repository == "nvidia/Cosmos-Experimental"
                 else "nvidia/Cosmos-Experimental",
             ]
-        
+
         for repository in repositories:
             try:
                 cmd_args = [
@@ -220,10 +221,8 @@ class CheckpointFileHf(_CheckpointHf):
                 return path
             except subprocess.CalledProcessError:
                 continue
-        
-        raise RuntimeError(
-            f"Failed to download {self.filename} from any experimental repository."
-        )
+
+        raise RuntimeError(f"Failed to download {self.filename} from any experimental repository.")
 
 
 class CheckpointDirHf(_CheckpointHf):
