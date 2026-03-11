@@ -244,7 +244,9 @@ class ModelWrapper(Stateful):
                 f"ModelWrapper only supports DiffusionModel when load_ema_to_reg is True, but got {type(model)}"
             )
 
-    def state_dict(self, mapping_keys: dict[str, str] = {}) -> Dict[str, Any]:
+    def state_dict(self, mapping_keys: dict[str, str] | None = None) -> Dict[str, Any]:
+        if mapping_keys is None:
+            mapping_keys = {}
         _state_dict = {k: v for sd in map(get_model_state_dict, self.model) for k, v in sd.items()}
         if self.load_ema_to_reg:
             assert not self.model[0].config.ema.enabled, (
