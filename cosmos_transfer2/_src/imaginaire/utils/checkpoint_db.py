@@ -197,17 +197,32 @@ class CheckpointFileHf(_CheckpointHf):
     @override
     def _download(self) -> str:
         """Download checkpoint and return the local path."""
-        cmd_args = [
-            self.repository,
-            "--repo-type",
-            "model",
-            "--revision",
-            self.revision,
-            self.filename,
-        ]
-        path = _hf_download(cmd_args)
-        assert os.path.exists(path), path
-        return path
+        repositories = [self.repository]
+        if self.repository in ["nvidia/Cosmos-Experimental", "nvidia-cosmos-ea/Cosmos-Experimental"]:
+            repositories = [
+                self.repository,
+                "nvidia-cosmos-ea/Cosmos-Experimental"
+                if self.repository == "nvidia/Cosmos-Experimental"
+                else "nvidia/Cosmos-Experimental",
+            ]
+
+        for repository in repositories:
+            try:
+                cmd_args = [
+                    repository,
+                    "--repo-type",
+                    "model",
+                    "--revision",
+                    self.revision,
+                    self.filename,
+                ]
+                path = _hf_download(cmd_args)
+                assert os.path.exists(path), path
+                return path
+            except subprocess.CalledProcessError:
+                continue
+
+        raise RuntimeError(f"Failed to download {self.filename} from any experimental repository.")
 
 
 class CheckpointDirHf(_CheckpointHf):
