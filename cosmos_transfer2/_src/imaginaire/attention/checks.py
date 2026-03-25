@@ -32,7 +32,20 @@ from cosmos_transfer2._src.imaginaire.attention.utils import log_or_raise_error
 from cosmos_transfer2._src.imaginaire.attention.varlen import generate_varlen_parameters
 
 
-def _universal_tensor_checks(query: Tensor, key: Tensor, value: Tensor, raise_error: bool = True) -> bool:
+def universal_tensor_checks(query: Tensor, key: Tensor, value: Tensor, raise_error: bool = True) -> bool:
+    """
+    Universal tensor validation: checks sparse/nested tensors and ensures device/dtype consistency.
+    This should be called by users before extracting tensor properties for tensorless APIs.
+
+    Parameters:
+        query (Tensor): Query tensor.
+        key (Tensor): Key tensor.
+        value (Tensor): Value tensor.
+        raise_error (bool): Whether to raise an error if checks fail. Default is True.
+
+    Returns:
+        success (bool): Whether all checks pass.
+    """
     target_fn = partial(log_or_raise_error, raise_error=raise_error)
 
     if query.is_sparse or key.is_sparse or value.is_sparse:
@@ -60,10 +73,36 @@ def _universal_tensor_checks(query: Tensor, key: Tensor, value: Tensor, raise_er
     return True
 
 
+def assert_universal_tensor_checks(query: Tensor, key: Tensor, value: Tensor) -> None:
+    """
+    Universal tensor validation using assertions for backend functions.
+    Checks sparse/nested tensors and ensures device/dtype/requires_grad consistency.
+
+    This is intended for internal backend use only. Users should not call backend functions directly.
+    Assertions are disabled in production (-O flag), so this is appropriate for post-frontend checks.
+
+    Parameters:
+        query (Tensor): Query tensor.
+        key (Tensor): Key tensor.
+        value (Tensor): Value tensor.
+    """
+    assert not query.is_sparse and not key.is_sparse and not value.is_sparse, "Sparse tensors not supported"
+    assert not query.is_nested and not key.is_nested and not value.is_nested, "Nested tensors not supported"
+    assert query.device == key.device == value.device, (
+        f"Device mismatch: {query.device=}, {key.device=}, {value.device=}"
+    )
+    assert query.dtype == key.dtype == value.dtype, f"Dtype mismatch: {query.dtype=}, {key.dtype=}, {value.dtype=}"
+    assert query.requires_grad == key.requires_grad == value.requires_grad, (
+        f"requires_grad mismatch: {query.requires_grad=}, {key.requires_grad=}, {value.requires_grad=}"
+    )
+
+
 def _universal_attention_checks(
-    query: Tensor,
-    key: Tensor,
-    value: Tensor,
+    query_shape: torch.Size,
+    key_shape: torch.Size,
+    value_shape: torch.Size,
+    dtype: torch.dtype,
+    requires_grad: bool,
     supported_dtypes_forward: list[torch.dtype] | None = None,
     supported_dtypes_backward: list[torch.dtype] | None = None,
     supports_mla: bool = True,
@@ -72,58 +111,60 @@ def _universal_attention_checks(
     backend_name: str | None = None,
 ) -> bool:
     backend_name = backend_name or "Attention"
-    if not _universal_tensor_checks(query, key, value, raise_error=raise_error):
-        return False
 
     target_fn = partial(log_or_raise_error, raise_error=raise_error)
 
-    if query.dim() != key.dim() or query.dim() != value.dim():
+    query_dim = len(query_shape)
+    key_dim = len(key_shape)
+    value_dim = len(value_shape)
+
+    if query_dim != key_dim or query_dim != value_dim:
         target_fn(
-            f"Q, K, and V must have the same rank, got {query.dim()=}, {key.dim()=}, {value.dim()=}.",
+            f"Q, K, and V must have the same rank, got {query_dim=}, {key_dim=}, {value_dim=}.",
             exception=ValueError,
         )
         return False
 
-    if query.shape[0] != key.shape[0] or query.shape[0] != value.shape[0]:
+    if query_shape[0] != key_shape[0] or query_shape[0] != value_shape[0]:
         target_fn(
-            f"Q, K, and V must match in batch size, got {query.shape[0]=}, {key.shape[0]=}, {value.shape[0]=}.",
+            f"Q, K, and V must match in batch size, got {query_shape[0]=}, {key_shape[0]=}, {value_shape[0]=}.",
             exception=ValueError,
         )
         return False
 
-    if query.shape[-1] != key.shape[-1]:
+    if query_shape[-1] != key_shape[-1]:
         target_fn(
-            f"Q and K head dims must match, got {query.shape[-1]=}, {key.shape[-1]=}.",
+            f"Q and K head dims must match, got {query_shape[-1]=}, {key_shape[-1]=}.",
             exception=ValueError,
         )
         return False
 
-    if key.shape[-2] != value.shape[-2]:
+    if key_shape[-2] != value_shape[-2]:
         target_fn(
-            f"K and V must always have the same number of heads, got {key.shape[2]=}, {value.shape[2]=}.",
+            f"K and V must always have the same number of heads, got {key_shape[-2]=}, {value_shape[-2]=}.",
             exception=ValueError,
         )
         return False
 
-    if not supports_mla and query.shape[-1] != value.shape[-1]:
+    if not supports_mla and query_shape[-1] != value_shape[-1]:
         target_fn(
             f"{backend_name} does not support different head dims for QK and V, got "
-            f"{query.shape[-1]=}, {value.shape[-1]=}.",
+            f"{query_shape[-1]=}, {value_shape[-1]=}.",
             exception=ValueError,
         )
         return False
 
-    if not supports_gqa_mqa and (query.shape[-2] != key.shape[-2] or query.shape[-2] != value.shape[-2]):
+    if not supports_gqa_mqa and (query_shape[-2] != key_shape[-2] or query_shape[-2] != value_shape[-2]):
         target_fn(
             f"{backend_name} does not support GQA/MQA, therefore number of heads in Q, K, and V "
-            f"must match, got {query.shape[-2]=}, {key.shape[-2]=}, {value.shape[-2]=}.",
+            f"must match, got {query_shape[-2]=}, {key_shape[-2]=}, {value_shape[-2]=}.",
             exception=ValueError,
         )
         return False
 
     if supports_gqa_mqa:
-        heads_q = query.shape[-2]
-        heads_kv = key.shape[-2]
+        heads_q = query_shape[-2]
+        heads_kv = key_shape[-2]
 
         if heads_q < heads_kv or heads_q % heads_kv != 0:
             target_fn(
@@ -132,18 +173,18 @@ def _universal_attention_checks(
             )
             return False
 
-    # _universal_tensor_checks guarantees query.dtype == key.dtype == value.dtype
-    if supported_dtypes_forward is not None and query.dtype not in supported_dtypes_forward:
+    # Caller must ensure dtype consistency via universal_tensor_checks
+    if supported_dtypes_forward is not None and dtype not in supported_dtypes_forward:
         target_fn(
-            f"{backend_name} does not support forward pass (inference) with data type {query.dtype}; "
+            f"{backend_name} does not support forward pass (inference) with data type {dtype}; "
             f"supported dtypes: {supported_dtypes_forward}.",
             exception=ValueError,
         )
         return False
 
-    if supported_dtypes_backward is not None and query.requires_grad and query.dtype not in supported_dtypes_backward:
+    if supported_dtypes_backward is not None and requires_grad and dtype not in supported_dtypes_backward:
         target_fn(
-            f"{backend_name} does not support backward pass (training) with data type {query.dtype}; "
+            f"{backend_name} does not support backward pass (training) with data type {dtype}; "
             f"supported dtypes: {supported_dtypes_backward}.",
             exception=ValueError,
         )
@@ -153,9 +194,11 @@ def _universal_attention_checks(
 
 
 def attention_tensor_checks(
-    query: Tensor,
-    key: Tensor,
-    value: Tensor,
+    query_shape: torch.Size,
+    key_shape: torch.Size,
+    value_shape: torch.Size,
+    dtype: torch.dtype,
+    requires_grad: bool,
     supported_dtypes_forward: list[torch.dtype] | None = None,
     supported_dtypes_backward: list[torch.dtype] | None = None,
     supports_mla: bool = True,
@@ -164,13 +207,13 @@ def attention_tensor_checks(
     backend_name: str | None = None,
 ) -> bool:
     backend_name = backend_name or "Attention"
-    if not _universal_tensor_checks(query, key, value, raise_error=raise_error):
-        return False
 
     if not _universal_attention_checks(
-        query=query,
-        key=key,
-        value=value,
+        query_shape=query_shape,
+        key_shape=key_shape,
+        value_shape=value_shape,
+        dtype=dtype,
+        requires_grad=requires_grad,
         supported_dtypes_forward=supported_dtypes_forward,
         supported_dtypes_backward=supported_dtypes_backward,
         supports_mla=supports_mla,
@@ -182,16 +225,17 @@ def attention_tensor_checks(
 
     target_fn = partial(log_or_raise_error, raise_error=raise_error)
 
-    if query.dim() != 4:
+    query_dim = len(query_shape)
+    if query_dim != 4:
         target_fn(
-            f"Attention expects 4-D tensors as inputs, got {query.dim()=}.",
+            f"Attention expects 4-D tensors as inputs, got {query_dim=}.",
             exception=ValueError,
         )
         return False
 
-    if key.shape[1] != value.shape[1]:
+    if key_shape[1] != value_shape[1]:
         target_fn(
-            f"K and V must match in sequence length, got {key.shape[1]=}, {value.shape[1]=}.",
+            f"K and V must match in sequence length, got {key_shape[1]=}, {value_shape[1]=}.",
             exception=ValueError,
         )
         return False
@@ -333,9 +377,9 @@ def varlen_tensor_checks(
 
 
 def attention_param_checks(
-    query: Tensor,
-    key: Tensor,
-    value: Tensor,
+    query_shape: torch.Size,
+    key_shape: torch.Size,
+    value_shape: torch.Size,
     is_causal: bool,
     causal_type: CausalType,
 ):
@@ -344,19 +388,21 @@ def attention_param_checks(
             f"Argument causal_type must be specified as an enum instance of CausalType when is_causal=True, got {causal_type=}."
         )
 
-    assert query.dim() == key.dim() == value.dim() == 4
-    assert key.shape[1] == value.shape[1]
-    if is_causal and causal_type == CausalType.DontCare and query.shape[1] != key.shape[1]:
+    assert len(query_shape) == len(key_shape) == len(value_shape) == 4
+    assert key_shape[1] == value_shape[1]
+    if is_causal and causal_type == CausalType.DontCare and query_shape[1] != key_shape[1]:
         raise ValueError(
             "Causal mask type DontCare is only valid when seqlen_q == seqlen_kv, got "
-            f"{query.shape[1]=}, {key.shape[1]=}."
+            f"{query_shape[1]=}, {key_shape[1]=}."
         )
 
 
 def multi_dim_attention_tensor_checks(
-    query: Tensor,
-    key: Tensor,
-    value: Tensor,
+    query_shape: torch.Size,
+    key_shape: torch.Size,
+    value_shape: torch.Size,
+    dtype: torch.dtype,
+    requires_grad: bool,
     supported_dtypes_forward: list[torch.dtype] | None = None,
     supported_dtypes_backward: list[torch.dtype] | None = None,
     supports_mla: bool = True,
@@ -365,13 +411,13 @@ def multi_dim_attention_tensor_checks(
     backend_name: str | None = None,
 ) -> bool:
     backend_name = backend_name or "Multi-Dimensional Attention"
-    if not _universal_tensor_checks(query, key, value, raise_error=raise_error):
-        return False
 
     if not _universal_attention_checks(
-        query=query,
-        key=key,
-        value=value,
+        query_shape=query_shape,
+        key_shape=key_shape,
+        value_shape=value_shape,
+        dtype=dtype,
+        requires_grad=requires_grad,
         supported_dtypes_forward=supported_dtypes_forward,
         supported_dtypes_backward=supported_dtypes_backward,
         supports_mla=supports_mla,
@@ -383,18 +429,19 @@ def multi_dim_attention_tensor_checks(
 
     target_fn = partial(log_or_raise_error, raise_error=raise_error)
 
-    if query.dim() not in [4, 5, 6]:
+    query_dim = len(query_shape)
+    if query_dim not in [4, 5, 6]:
         target_fn(
-            f"Multi-Dimensional Attention supports 4-D, 5-D, or 6-D tensors as inputs, got {query.dim()=}.",
+            f"Multi-Dimensional Attention supports 4-D, 5-D, or 6-D tensors as inputs, got {query_dim=}.",
             exception=ValueError,
         )
         return False
 
-    num_dims = query.dim() - 3  # minus batch, heads, head_dim
+    num_dims = query_dim - 3  # minus batch, heads, head_dim
 
-    q_token_layout_shape = query.shape[1 : 1 + num_dims]
-    k_token_layout_shape = key.shape[1 : 1 + num_dims]
-    v_token_layout_shape = value.shape[1 : 1 + num_dims]
+    q_token_layout_shape = query_shape[1 : 1 + num_dims]
+    k_token_layout_shape = key_shape[1 : 1 + num_dims]
+    v_token_layout_shape = value_shape[1 : 1 + num_dims]
 
     if q_token_layout_shape != k_token_layout_shape or q_token_layout_shape != v_token_layout_shape:
         target_fn(

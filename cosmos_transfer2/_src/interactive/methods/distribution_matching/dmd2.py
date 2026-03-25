@@ -171,7 +171,7 @@ class DMD2Model(Cosmos2InteractiveModel):
         if ckpt_path.endswith(".pt"):
             self._load_pt_ckpt(net, config, ckpt_path, credential_path)
         else:
-            self._load_dcp_ckpt(net, ckpt_path, prefix, credential_path)
+            self._load_dcp_to_net(net, ckpt_path, prefix, credential_path)
 
     def _load_pt_ckpt(self, net: torch.nn.Module, config: LazyDict, ckpt_path: str, credential_path) -> None:
         """
@@ -248,7 +248,7 @@ class DMD2Model(Cosmos2InteractiveModel):
             credential_path = self.config.teacher_load_from.credentials
 
         storage_reader = get_storage_reader(ckpt_path, credential_path)
-        if ckpt_path.endswith(".dcp/model"):
+        if ckpt_path.endswith(".dcp/model") or ckpt_path.endswith("/model") or ckpt_path.endswith("/model/"):
             prefix = "net"
         _state_dict = get_model_state_dict(net)
 

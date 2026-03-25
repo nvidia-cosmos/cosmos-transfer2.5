@@ -118,6 +118,16 @@ class _LossRecord:
 
 
 class WandbCallback(WandBCallbackBase):
+    @staticmethod
+    def _to_jsonable(value):
+        """Convert common tensor-like values to JSON-safe Python types."""
+        if isinstance(value, torch.Tensor):
+            detached = value.detach()
+            if detached.numel() == 1:
+                return detached.item()
+            return detached.cpu().tolist()
+        return value
+
     def __init__(
         self,
         logging_iter_multipler: int = 1,
@@ -136,6 +146,18 @@ class WandbCallback(WandBCallbackBase):
         self.save_s3 = save_s3
         self.wandb_extra_tag = f"@{self.logging_iter_multiplier}" if self.logging_iter_multiplier > 1 else ""
         self.name = "wandb_loss_log" + self.wandb_extra_tag
+
+    def on_before_optimizer_step(
+        self,
+        model_ddp,
+        optimizer,
+        scheduler,
+        grad_scaler,
+        iteration: int = 0,
+    ) -> None:
+        # Suppress base pre-step LR/WD logging; this callback logs optimizer stats
+        # at on_training_step_end so values reflect the latest scheduler step.
+        del model_ddp, optimizer, scheduler, grad_scaler, iteration
 
     def on_training_step_end(
         self,
@@ -197,6 +219,17 @@ class WandbCallback(WandBCallbackBase):
                     l2_df_dt_value,
                     l2_df_dt_value_no_nan,
                 )
+            # Log EDM loss immediately at step end if provided by the model.
+            if "edm_loss" in output_batch.keys():
+                _edm_loss_value = output_batch["edm_loss"]
+                if not isinstance(_edm_loss_value, torch.Tensor):
+                    _edm_loss_value = torch.tensor(_edm_loss_value, device="cuda", dtype=torch.float32)
+                else:
+                    _edm_loss_value = _edm_loss_value.detach().float()
+                # Average across processes for consistency.
+                dist.all_reduce(_edm_loss_value, op=dist.ReduceOp.AVG)
+                if distributed.is_rank0():
+                    wandb.log({f"train{self.wandb_extra_tag}/edm_loss": _edm_loss_value.mean().item()}, step=iteration)
             # Log DMD loss immediately at step end if provided by the model
             if "dmd_loss" in output_batch.keys():
                 _dmd_loss_value = output_batch["dmd_loss"]
@@ -232,6 +265,19 @@ class WandbCallback(WandBCallbackBase):
                 if distributed.is_rank0():
                     wandb.log(
                         {f"train{self.wandb_extra_tag}/dmd_loss_generator": _dmd_loss_value.mean().item()},
+                        step=iteration,
+                    )
+            # Log diffusion forcing loss if provided by the model
+            if "df_loss" in output_batch.keys():
+                _df_loss_value = output_batch["df_loss"]
+                if not isinstance(_df_loss_value, torch.Tensor):
+                    _df_loss_value = torch.tensor(_df_loss_value, device="cuda", dtype=torch.float32)
+                else:
+                    _df_loss_value = _df_loss_value.detach().float()
+                dist.all_reduce(_df_loss_value, op=dist.ReduceOp.AVG)
+                if distributed.is_rank0():
+                    wandb.log(
+                        {f"train{self.wandb_extra_tag}/df_loss": _df_loss_value.mean().item()},
                         step=iteration,
                     )
         else:
@@ -273,6 +319,15 @@ class WandbCallback(WandBCallbackBase):
                 for key, value in final_stats.items():
                     info[f"train{self.wandb_extra_tag}/{key}"] = value
 
+                # Add optimizer stats (post optimizer/scheduler step, with callback-specific suffix).
+                if hasattr(model, "optimizer_dict"):
+                    for optim_name, optimizer in model.optimizer_dict.items():
+                        for i, param_group in enumerate(optimizer.param_groups):
+                            info[f"optim{self.wandb_extra_tag}/{optim_name}_lr_{i}"] = param_group["lr"]
+                            info[f"optim{self.wandb_extra_tag}/{optim_name}_weight_decay_{i}"] = param_group[
+                                "weight_decay"
+                            ]
+
                 # Add unstable counts
                 info.update(
                     {
@@ -282,6 +337,7 @@ class WandbCallback(WandBCallbackBase):
                         "sample_counter": getattr(self.trainer, "sample_counter", iteration),
                     }
                 )
+                info = {k: self._to_jsonable(v) for k, v in info.items()}
 
                 # Save to S3 if enabled
                 if self.save_s3:

@@ -244,6 +244,8 @@ class EveryNDrawSample(EveryN):
         data_batch["num_conditional_frames"] = random.choices(frames_options, weights=weights, k=1)[0]
         raw_data, x0, _, _ = model.get_data_and_condition(data_batch)
 
+        has_teacher = getattr(model, "net_teacher", None) is not None
+
         to_show = []
         sample_student = model.generate_samples_from_batch(
             data_batch,
@@ -257,21 +259,25 @@ class EveryNDrawSample(EveryN):
             sample_student = model.decode(sample_student)
         to_show.append(sample_student.float().cpu())
 
-        for sample_steps in [self.num_sampling_step, self.num_sampling_step_teacher]:
-            sample_teacher = model.generate_samples_from_batch(
-                data_batch,
-                # make sure no mismatch and also works for cp
-                state_shape=x0.shape[1:],
-                n_sample=x0.shape[0],
-                net_type="teacher",
-                num_steps=sample_steps,
-            )
-            if hasattr(model, "decode"):
-                sample_teacher = model.decode(sample_teacher)
+        if has_teacher:
+            for sample_steps in [self.num_sampling_step, self.num_sampling_step_teacher]:
+                sample_teacher = model.generate_samples_from_batch(
+                    data_batch,
+                    # make sure no mismatch and also works for cp
+                    state_shape=x0.shape[1:],
+                    n_sample=x0.shape[0],
+                    net_type="teacher",
+                    num_steps=sample_steps,
+                )
+                if hasattr(model, "decode"):
+                    sample_teacher = model.decode(sample_teacher)
 
-            to_show.append(sample_teacher.float().cpu())
+                to_show.append(sample_teacher.float().cpu())
 
-        MSE = torch.mean((sample_student.float() - sample_teacher.float()) ** 2)
+            MSE = torch.mean((sample_student.float() - sample_teacher.float()) ** 2)
+        else:
+            MSE = torch.tensor(0.0, device=sample_student.device)
+
         dist.all_reduce(MSE, op=dist.ReduceOp.AVG)
 
         to_show.append(raw_data.float().cpu())

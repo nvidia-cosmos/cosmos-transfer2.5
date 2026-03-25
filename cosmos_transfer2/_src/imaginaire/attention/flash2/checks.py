@@ -22,7 +22,7 @@ Flash Attention v2 (flash2) backend checks
 
 from functools import partial
 
-from torch import Tensor
+import torch
 
 from cosmos_transfer2._src.imaginaire.attention.checks import attention_param_checks, attention_tensor_checks
 from cosmos_transfer2._src.imaginaire.attention.flash2 import FLASH2_SUPPORTED
@@ -32,9 +32,12 @@ from cosmos_transfer2._src.imaginaire.attention.utils import get_arch_tag, log_o
 
 
 def flash2_attention_check(
-    query: Tensor,
-    key: Tensor,
-    value: Tensor,
+    query_shape: torch.Size,
+    key_shape: torch.Size,
+    value_shape: torch.Size,
+    dtype: torch.dtype,
+    device: torch.device,
+    requires_grad: bool,
     is_causal: bool,
     causal_type: CausalType,
     is_varlen: bool,
@@ -44,14 +47,17 @@ def flash2_attention_check(
     Input validation function for the flash2 backend.
 
     Parameters:
-        query (Tensor): 4-D query tensor, with the heads-last contiguous layout
-            (`[batch, seqlen, heads, head_dim]`).
+        query_shape (torch.Size): Shape of 4-D query tensor (`[batch, seqlen, heads, head_dim]`).
 
-        key (Tensor): 4-D key tensor, with the heads-last contiguous layout
-            (`[batch, seqlen_kv, heads_kv, head_dim]`).
+        key_shape (torch.Size): Shape of 4-D key tensor (`[batch, seqlen_kv, heads_kv, head_dim]`).
 
-        value (Tensor): 4-D value tensor, with heads-last contiguous layout
-            (`[batch, seqlen_kv, heads_kv, head_dim_v]`).
+        value_shape (torch.Size): Shape of 4-D value tensor (`[batch, seqlen_kv, heads_kv, head_dim_v]`).
+
+        dtype (torch.dtype): Data type of tensors.
+
+        device (torch.device): Device of tensors.
+
+        requires_grad (bool): Whether tensors require gradients (training vs inference).
 
         is_causal (bool): whether or not causal masking is enabled.
 
@@ -85,13 +91,15 @@ def flash2_attention_check(
         )
         return False
 
-    arch_tag = get_arch_tag(query.device)
+    arch_tag = get_arch_tag(device)
     fwd_dtypes = get_fwd_dtypes(arch_tag)
     bwd_dtypes = get_bwd_dtypes(arch_tag)
     if not attention_tensor_checks(
-        query=query,
-        key=key,
-        value=value,
+        query_shape=query_shape,
+        key_shape=key_shape,
+        value_shape=value_shape,
+        dtype=dtype,
+        requires_grad=requires_grad,
         supported_dtypes_forward=fwd_dtypes,
         supported_dtypes_backward=bwd_dtypes,
         supports_mla=False,
@@ -105,9 +113,9 @@ def flash2_attention_check(
     # Verifies causal_type is a CausalType instance when is_causal
     # Verifies DontCare is not used unless seqlen_q == seqlen_kv
     attention_param_checks(
-        query=query,
-        key=key,
-        value=value,
+        query_shape=query_shape,
+        key_shape=key_shape,
+        value_shape=value_shape,
         is_causal=is_causal,
         causal_type=causal_type,
     )

@@ -29,6 +29,7 @@ import torch
 import torch.distributed as dist
 from torch.distributed import get_process_group_ranks
 
+from cosmos_transfer2._src.imaginaire.flags import INTERNAL
 from cosmos_transfer2._src.imaginaire.utils.device import Device
 
 if dist.is_available():
@@ -69,11 +70,13 @@ def init() -> int | None:
             rank0_only=False,
         )
     # Increase the L2 fetch granularity for faster speed.
-    _libcudart = ctypes.CDLL("libcudart.so")
-    # Set device limit on the current device.
-    p_value = ctypes.cast((ctypes.c_int * 1)(), ctypes.POINTER(ctypes.c_int))
-    _libcudart.cudaDeviceSetLimit(ctypes.c_int(0x05), ctypes.c_int(128))
-    _libcudart.cudaDeviceGetLimit(p_value, ctypes.c_int(0x05))
+    # For oss, we need to search for the library in site-packages.
+    if INTERNAL:
+        _libcudart = ctypes.CDLL("libcudart.so")
+        # Set device limit on the current device.
+        p_value = ctypes.cast((ctypes.c_int * 1)(), ctypes.POINTER(ctypes.c_int))
+        _libcudart.cudaDeviceSetLimit(ctypes.c_int(0x05), ctypes.c_int(128))
+        _libcudart.cudaDeviceGetLimit(p_value, ctypes.c_int(0x05))
     log.info(f"Training with {get_world_size()} GPUs.")
 
 

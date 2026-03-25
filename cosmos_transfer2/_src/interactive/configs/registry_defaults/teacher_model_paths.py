@@ -91,6 +91,27 @@ TRANSFER2_DEPTH_TEACHER_CKPT_2B_RELEASE = dict(
 )
 
 # ================================================
+# HDMap-conditioned 2B released checkpoints
+# ================================================
+HDMAP_CONDITIONED_TEACHER_CKPT_2B_RELEASE = dict(  # This is a bidirectional HDMap-Conditioned Model from SIL
+    load_path="s3://bucket/cosmos_v2_causal_av/cosmos2_gws/16N@teacher_cosmos2_2B_res480p_10fps_hdmap_av_1080p@20260116161454/checkpoints/iter_000020000/model",
+    load_path_short="cosmos_v2_causal_av/cosmos2_gws/16N@teacher_cosmos2_2B_res480p_10fps_hdmap_av_1080p@20260116161454/checkpoints/iter_000020000",
+    credentials="credentials/s3_checkpoint.secret",
+)
+
+CAUSAL_HDMAP_CONDITIONED_TEACHER_CKPT_2B = dict(  # This is a Diffusion-Forcing Trained Model from SIL
+    load_path="s3://bucket/cosmos_v2_causal_av/cosmos2_gws/8N@causal_cosmos2_2B_res480p_10fps_hdmap_casual_pretrained_1080p@20260116161611/checkpoints/iter_000020000/model",
+    load_path_short="cosmos_v2_causal_av/cosmos2_gws/8N@causal_cosmos2_2B_res480p_10fps_hdmap_casual_pretrained_1080p@20260116161611/checkpoints/iter_000020000",
+    credentials="credentials/s3_checkpoint.secret",
+)
+
+CAUSAL_HDMAP_CONDITIONED_TEACHER_CKPT_2B_INTERACTIVE_DIFFUSION_FORCING = dict(  # This is a Diffusion-Forcing Trained Model from Cosmos3/Interactive
+    load_path="s3://bucket/bucket/cosmos_interactive/cosmos2_interactive_cl/diffusion_forcing_cosmos_cl_2B_hdmap_i2v_16nodes/checkpoints/iter_000018000/model",
+    load_path_short="cosmos_interactive/cosmos2_interactive_cl/diffusion_forcing_cosmos_cl_2B_hdmap_i2v_16nodes/checkpoints/iter_000018000",
+    credentials="credentials/s3_checkpoint.secret",
+)
+
+# ================================================
 # Action-conditioned Predict2.5 2B released checkpoints
 # ================================================
 ACTION_CONDITIONED_TEACHER_CKPT_2B_256X320 = dict(

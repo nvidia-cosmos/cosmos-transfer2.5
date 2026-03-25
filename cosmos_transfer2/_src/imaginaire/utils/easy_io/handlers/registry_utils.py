@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from cosmos_transfer2._src.imaginaire.flags import TRAINING
 from cosmos_transfer2._src.imaginaire.utils.easy_io.handlers.base import BaseFileHandler
 from cosmos_transfer2._src.imaginaire.utils.easy_io.handlers.byte_handler import ByteHandler
 from cosmos_transfer2._src.imaginaire.utils.easy_io.handlers.csv_handler import CsvHandler
@@ -20,7 +21,6 @@ from cosmos_transfer2._src.imaginaire.utils.easy_io.handlers.imageio_video_handl
 from cosmos_transfer2._src.imaginaire.utils.easy_io.handlers.json_handler import JsonHandler
 from cosmos_transfer2._src.imaginaire.utils.easy_io.handlers.jsonl_handler import JsonlHandler
 from cosmos_transfer2._src.imaginaire.utils.easy_io.handlers.np_handler import NumpyHandler
-from cosmos_transfer2._src.imaginaire.utils.easy_io.handlers.pandas_handler import PandasHandler
 from cosmos_transfer2._src.imaginaire.utils.easy_io.handlers.pickle_handler import PickleHandler
 from cosmos_transfer2._src.imaginaire.utils.easy_io.handlers.pil_handler import PILHandler
 from cosmos_transfer2._src.imaginaire.utils.easy_io.handlers.tarfile_handler import TarHandler
@@ -40,11 +40,15 @@ file_handlers = {
     "npy": NumpyHandler(),
     "txt": TxtHandler(),
     "csv": CsvHandler(),
-    "pandas": PandasHandler(),
     "gz": GzipHandler(),
     "jsonl": JsonlHandler(),
     "byte": ByteHandler(),
 }
+
+if TRAINING:
+    from cosmos_transfer2._src.imaginaire.utils.easy_io.handlers.pandas_handler import PandasHandler
+
+    file_handlers["pandas"] = PandasHandler()
 
 for torch_type in ["pt", "pth", "ckpt"]:
     file_handlers[torch_type] = TorchHandler()

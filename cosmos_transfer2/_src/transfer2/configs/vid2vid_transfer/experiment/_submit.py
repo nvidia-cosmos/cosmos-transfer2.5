@@ -15,7 +15,7 @@
 
 """
 AWS:
-PYTHONPATH=. python cosmos_transfer2/_src/transfer2/configs/vid2vid_transfer/experiment/_submit.py --exp_name=example_experiment_control_layer14 --run_tag=p0 --nnode=2 --partition=pool0_datahall_a
+PYTHONPATH=. python cosmos_transfer2/_src/transfer2/configs/vid2vid_transfer/experiment/_submit.py --exp_name=example_experiment_control_layer14 --run_tag=p0 --nnode=2 --partition=pool0_cosmos --ppp=dir_cosmos_misc
 Lepton:
 PYTHONPATH=. python cosmos_transfer2/_src/transfer2/configs/vid2vid_transfer/experiment/_submit.py --exp_name=example_experiment_control_layer14 --run_tag=p0 --nnode=2 --cluster lepton --node_group cosmos-aws-h100-02
 """
@@ -26,7 +26,6 @@ import os
 from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.experiment.experiment_list import EXPERIMENTS
 from cosmos_transfer2._src.transfer2.utils.submit_helper import get_executor
 
-# DOCKER_IMAGE = "/project/cosmos/snah/dpdata/sqsh/imaginaire4_mcore_v0.0.7_efa.sqsh"
 AWS_DOCKER_IMAGE = "/project/cosmos/snah/dpdata/sqsh/imaginaire4_v10.1.3.sqsh"
 LEPTON_DOCKER_IMAGE = "nvcr.io/nvidian/imaginaire4:v10.1.3"
 
@@ -37,9 +36,10 @@ def run_experiment(
     run_tag: str,
     partition: str,
     node_group: str,
+    ppp: str,
     exp_name_tag: str = "",
     cluster: str = "aws",
-):
+) -> None:
     """
     exp_name_tag: in case one wants to run several different training runs with the exact same config in experiment_list.py,
                 this tag will update the job.name in the config, so that each run can have their own log/wandb/ckpt folder name.
@@ -66,11 +66,14 @@ def run_experiment(
         cluster=cluster,
         partition=partition,
         node_group=node_group,
+        ppp=ppp,
         stage_code=True,
         enable_aps=not is_debug_job,
         user=user,
         docker_image=docker_image,
         extra_env_vars={"NVTE_FUSED_ATTN": "0"},
+        venv="packages/cosmos-transfer2",
+        venv_symlink=True,
     )
 
     if cluster.lower() == "aws":
@@ -138,7 +141,13 @@ if __name__ == "__main__":
     )
     parser.add_argument("--nnode", type=int, default=0)
     parser.add_argument("--cluster", default="aws", choices=["aws", "lepton"], help="Cluster to use")
-    parser.add_argument("--partition", type=str, default="pool0_datahall_a", help="Partition to use for aws")
+    parser.add_argument("--partition", type=str, default="pool0_cosmos", help="Partition to use for aws")
+    parser.add_argument(
+        "--ppp",
+        type=str,
+        default="dir_cosmos_misc",
+        help="Slurm account/PPP to use for aws jobs.",
+    )
     parser.add_argument(
         "--node_group",
         type=str,
@@ -149,5 +158,12 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     run_experiment(
-        args.exp_name, args.nnode, args.run_tag, args.partition, args.node_group, args.exp_name_tag, args.cluster
+        args.exp_name,
+        args.nnode,
+        args.run_tag,
+        args.partition,
+        args.node_group,
+        args.ppp,
+        args.exp_name_tag,
+        args.cluster,
     )

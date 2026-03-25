@@ -31,6 +31,7 @@ from torch import Tensor
 # reflection of the commit hash in the version, so we have to manually inspect the signatures
 HAS_RETURN_ATTN_PROBS = "return_attn_probs" in inspect.signature(flash_attn_func).parameters
 
+from cosmos_transfer2._src.imaginaire.attention.checks import assert_universal_tensor_checks
 from cosmos_transfer2._src.imaginaire.attention.flash3.checks import flash3_attention_check
 from cosmos_transfer2._src.imaginaire.attention.masks import CausalType
 
@@ -105,10 +106,14 @@ def flash3_attention(
     """
 
     is_varlen = cumulative_seqlen_Q is not None
+    assert_universal_tensor_checks(query, key, value)
     assert flash3_attention_check(
-        query=query,
-        key=key,
-        value=value,
+        query_shape=query.shape,
+        key_shape=key.shape,
+        value_shape=value.shape,
+        dtype=query.dtype,
+        device=query.device,
+        requires_grad=query.requires_grad,
         is_causal=is_causal,
         causal_type=causal_type,
         is_varlen=is_varlen,

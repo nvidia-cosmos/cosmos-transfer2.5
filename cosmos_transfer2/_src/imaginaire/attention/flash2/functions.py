@@ -24,6 +24,7 @@ Only safe to import when FLASH2_SUPPORTED is True.
 from flash_attn.flash_attn_interface import flash_attn_func, flash_attn_varlen_func
 from torch import Tensor
 
+from cosmos_transfer2._src.imaginaire.attention.checks import assert_universal_tensor_checks
 from cosmos_transfer2._src.imaginaire.attention.flash2.checks import flash2_attention_check
 from cosmos_transfer2._src.imaginaire.attention.masks import CausalType
 
@@ -98,10 +99,14 @@ def flash2_attention(
     """
 
     is_varlen = cumulative_seqlen_Q is not None
+    assert_universal_tensor_checks(query, key, value)
     assert flash2_attention_check(
-        query=query,
-        key=key,
-        value=value,
+        query_shape=query.shape,
+        key_shape=key.shape,
+        value_shape=value.shape,
+        dtype=query.dtype,
+        device=query.device,
+        requires_grad=query.requires_grad,
         is_causal=is_causal,
         causal_type=causal_type,
         is_varlen=is_varlen,

@@ -18,12 +18,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Generator, Iterator, Optional, Tuple, Union
 
-from cosmos_transfer2._src.imaginaire.utils.easy_io.backends import (
-    BaseStorageBackend,
-    HTTPBackend,
-    LocalBackend,
-    MSCBackend,
-)
+from cosmos_transfer2._src.imaginaire.flags import TRAINING
+from cosmos_transfer2._src.imaginaire.utils.easy_io.backends import BaseStorageBackend, HTTPBackend, LocalBackend
 
 
 def is_filepath(filepath):
@@ -80,16 +76,20 @@ class FileClient:
 
     _backends = {
         "disk": HardDiskBackend,
-        "s3": MSCBackend,
         "http": HTTPBackend,
-        "msc": MSCBackend,
     }
 
     _prefix_to_backends: dict = {
-        "s3": MSCBackend,
         "http": HTTPBackend,
         "https": HTTPBackend,
     }
+
+    if TRAINING:
+        from cosmos_transfer2._src.imaginaire.utils.easy_io.backends.msc_backend import MSCBackend
+
+        _backends["s3"] = MSCBackend
+        _backends["msc"] = MSCBackend
+        _prefix_to_backends["s3"] = MSCBackend
 
     _instances: dict = {}
 

@@ -147,15 +147,37 @@ def _handle_file_upload_event(temp_files, output_dir: str) -> tuple[str, dict]:
         return f"❌ Upload failed: {e!s}", refresh_update
 
 
+def _list_top_level_folders(root_dir: str) -> list[str]:
+    """Return sorted list of top-level directory names under root_dir."""
+    try:
+        return sorted(entry.name for entry in os.scandir(root_dir) if entry.is_dir())
+    except OSError:
+        return []
+
+
 def _refresh_file_explorer_update(upload_dir: str) -> dict:
-    """Return gr.update() to force FileExplorer to re-read the directory (refresh folder list).
+    """Return gr.update() to force FileExplorer to re-read the directory.
     Gradio FileExplorer only re-fetches when its config changes; passing a unique ignore_glob
     (that matches no files) forces a refresh without hiding any files.
     """
     return gr.update(
         root_dir=upload_dir,
+        glob="**/*",
         ignore_glob=f"*__refresh_{int(time.time() * 1000)}__*",
     )
+
+
+def _handle_folder_select(folder_name: str | None, root_dir: str) -> dict:
+    """Navigate the FileExplorer into the selected folder, or back to root if cleared."""
+    if folder_name:
+        target = os.path.join(root_dir, folder_name)
+        if os.path.isdir(target):
+            return gr.update(
+                root_dir=target,
+                glob="**/*",
+                ignore_glob=f"*__refresh_{int(time.time() * 1000)}__*",
+            )
+    return _refresh_file_explorer_update(root_dir)
 
 
 def _zip_folder(folder_path: str) -> str | None:
@@ -270,57 +292,67 @@ def _instructions():
             )
 
 
-def file_server_components(upload_dir: str, open: bool = True) -> gr.Accordion:
+def file_server_components(upload_dir: str, open: bool = True, enable_upload: bool = True) -> gr.Accordion:
     """
     Gradio component that allows users to upload files, browse uploads, and view file contents.
 
     Args:
         upload_dir (str): The directory to store the uploaded files
         open (bool): Whether to open the top-level accordion by default
+        enable_upload (bool): Whether to show the upload UI and API endpoints
 
     Returns:
         gr.Accordion: The top-level accordion component
     """
     os.makedirs(upload_dir, exist_ok=True)
 
-    with gr.Accordion("File Upload and Viewer", open=open) as top_level_accordion:
+    title = "File Upload and Viewer" if enable_upload else "File Viewer"
+    with gr.Accordion(title, open=open) as top_level_accordion:
         with top_level_accordion:
             gr.Markdown(f"**Directory**: `{upload_dir}`")
-            # Hidden components to support API file uploads (i.e. via the Python client)
-            with gr.Row(visible=False):
-                api_upload_file_input = gr.File(visible=False)
-                api_upload_file_response = gr.Textbox(visible=False)
-                api_upload_file_input_list = gr.File(visible=False, file_count="multiple")
-                api_upload_file_response_list = gr.Textbox(visible=False)
 
-            # UI components for file upload/browsing
+            if enable_upload:
+                with gr.Row(visible=False):
+                    api_upload_file_input = gr.File(visible=False)
+                    api_upload_file_response = gr.Textbox(visible=False)
+                    api_upload_file_input_list = gr.File(visible=False, file_count="multiple")
+                    api_upload_file_response_list = gr.Textbox(visible=False)
+
             with gr.Row():
-                with gr.Column(scale=1):
-                    gr.Markdown("## Upload Files")
-                    file_upload = gr.File(
-                        label="Select Files",
-                        file_count="multiple",
-                        file_types=[
-                            ".mp4",
-                            ".avi",
-                            ".mov",
-                            ".mkv",
-                            ".webm",
-                            ".jpg",
-                            ".jpeg",
-                            ".png",
-                            ".gif",
-                            ".bmp",
-                            ".webp",
-                            ".json",
-                            ".txt",
-                            ".md",
-                        ],
-                    )
-                    upload_status = gr.Textbox(label="Status", lines=2, interactive=False)
+                if enable_upload:
+                    with gr.Column(scale=1):
+                        gr.Markdown("## Upload Files")
+                        file_upload = gr.File(
+                            label="Select Files",
+                            file_count="multiple",
+                            file_types=[
+                                ".mp4",
+                                ".avi",
+                                ".mov",
+                                ".mkv",
+                                ".webm",
+                                ".jpg",
+                                ".jpeg",
+                                ".png",
+                                ".gif",
+                                ".bmp",
+                                ".webp",
+                                ".json",
+                                ".txt",
+                                ".md",
+                            ],
+                        )
+                        upload_status = gr.Textbox(label="Status", lines=2, interactive=False)
 
                 with gr.Column(scale=1):
                     gr.Markdown("## View Files")
+                    folder_dropdown = gr.Dropdown(
+                        label="Select folder",
+                        choices=_list_top_level_folders(upload_dir),
+                        value=None,
+                        allow_custom_value=True,
+                        interactive=True,
+                    )
                     file_explorer = gr.FileExplorer(
                         root_dir=upload_dir,
                         glob="**/*",
@@ -329,11 +361,10 @@ def file_server_components(upload_dir: str, open: bool = True) -> gr.Accordion:
                         height=300,
                     )
                     refresh_file_list_btn = gr.Button(
-                        value="🔄 Refresh Folder List",
+                        value="🔄 Reset",
                         variant="secondary",
                     )
 
-                    # Output components
                     with gr.Group(elem_classes=["view-file-content"]):
                         output_video = gr.Video(label="Video", visible=False, height=400)
                         output_image = gr.Image(label="Image", visible=False, height=400)
@@ -354,45 +385,55 @@ def file_server_components(upload_dir: str, open: bool = True) -> gr.Accordion:
                 with instr_accordion:
                     _instructions()
 
-    # Set up event handlers
-    api_upload_file_input.upload(
-        fn=lambda file: _handle_api_file_upload_event(file, upload_dir),
-        inputs=[api_upload_file_input],
-        outputs=[api_upload_file_response],
-        api_name="upload_file",
-    )
-    api_upload_file_input_list.upload(
-        fn=lambda files: _handle_api_file_upload_event_list(files, upload_dir),
-        inputs=[api_upload_file_input_list],
-        outputs=[api_upload_file_response_list],
-        api_name="upload_file_list",
-    )
-    file_upload.upload(
-        fn=lambda temp_files: _handle_file_upload_event(temp_files, upload_dir),
-        inputs=[file_upload],
-        outputs=[upload_status, file_explorer],
-        api_name=False,  # UI only component.
-    )
-    refresh_file_list_btn.click(
-        fn=lambda: _refresh_file_explorer_update(upload_dir),
-        inputs=[],
+    if enable_upload:
+        api_upload_file_input.upload(
+            fn=lambda file: _handle_api_file_upload_event(file, upload_dir),
+            inputs=[api_upload_file_input],
+            outputs=[api_upload_file_response],
+            api_name="upload_file",
+        )
+        api_upload_file_input_list.upload(
+            fn=lambda files: _handle_api_file_upload_event_list(files, upload_dir),
+            inputs=[api_upload_file_input_list],
+            outputs=[api_upload_file_response_list],
+            api_name="upload_file_list",
+        )
+        file_upload.upload(
+            fn=lambda temp_files: _handle_file_upload_event(temp_files, upload_dir),
+            inputs=[file_upload],
+            outputs=[upload_status, file_explorer],
+            api_name=False,
+        )
+
+    folder_dropdown.change(
+        fn=lambda folder: _handle_folder_select(folder, upload_dir),
+        inputs=[folder_dropdown],
         outputs=[file_explorer],
         api_name=False,
     )
-    # FileExplorer file/folder selection: preview + generic download for file or folder
+    refresh_file_list_btn.click(
+        fn=lambda: (
+            gr.update(choices=_list_top_level_folders(upload_dir), value=None),
+            _refresh_file_explorer_update(upload_dir),
+        ),
+        inputs=[],
+        outputs=[folder_dropdown, file_explorer],
+        api_name=False,
+    )
     file_explorer.change(
         fn=_handle_file_explorer_select_event,
         inputs=[file_explorer],
         outputs=[output_video, output_image, output_json, output_text, download_selected_btn],
-        api_name=False,  # UI only component.
+        api_name=False,
     )
 
     return top_level_accordion
 
 
-def create_gradio_blocks(output_dir: str) -> gr.Blocks:
-    with gr.Blocks(title="File Upload and Viewer", theme=gr.themes.Soft()) as blocks:
-        file_server_components(output_dir, open=True)
+def create_gradio_blocks(output_dir: str, enable_upload: bool = True) -> gr.Blocks:
+    title = "File Upload and Viewer" if enable_upload else "File Viewer"
+    with gr.Blocks(title=title, theme=gr.themes.Soft()) as blocks:
+        file_server_components(output_dir, open=True, enable_upload=enable_upload)
 
     return blocks
 
@@ -401,9 +442,10 @@ if __name__ == "__main__":
     save_dir = os.environ.get("GRADIO_SAVE_DIR", "/mnt/pvc/gradio/uploads")
     server_name = os.environ.get("GRADIO_SERVER_NAME", "0.0.0.0")
     server_port = int(os.environ.get("GRADIO_SERVER_PORT", 8080))
+    enable_upload = os.environ.get("GRADIO_ENABLE_UPLOAD", "1") == "1"
 
     os.makedirs(save_dir, exist_ok=True)
-    logger.info(f"Starting app - {server_name}:{server_port} -> {save_dir}")
+    logger.info(f"Starting app - {server_name}:{server_port} -> {save_dir} (upload={'on' if enable_upload else 'off'})")
 
-    blocks = create_gradio_blocks(output_dir=save_dir)
+    blocks = create_gradio_blocks(output_dir=save_dir, enable_upload=enable_upload)
     blocks.launch(server_name=server_name, server_port=server_port, allowed_paths=[save_dir], share=False)

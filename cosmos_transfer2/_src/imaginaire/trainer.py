@@ -120,8 +120,6 @@ class ImaginaireTrainer:
         # Initialize cuDNN.
         torch.backends.cudnn.deterministic = config.trainer.cudnn.deterministic
         torch.backends.cudnn.benchmark = config.trainer.cudnn.benchmark
-        # Floating-point precision settings.
-        torch.backends.cudnn.allow_tf32 = torch.backends.cuda.matmul.allow_tf32 = True
         # Initialize the callback functions.
         self.callbacks = callback.CallBackGroup(config=config, trainer=self)
         # Initialize the model checkpointer.
@@ -140,6 +138,7 @@ class ImaginaireTrainer:
             profile_freq=self.config.trainer.straggler_detection.profile_freq,
             max_diff=self.config.trainer.straggler_detection.max_diff,
             raise_error=self.config.trainer.straggler_detection.raise_error,
+            save_s3=self.config.trainer.straggler_detection.save_s3,
         )
         misc.set_torch_compile_options(
             self.config.trainer.compile_config.recompile_limit, self.config.trainer.compile_config.use_duck_shape
@@ -225,6 +224,8 @@ class ImaginaireTrainer:
         self.callbacks.on_optimizer_init_end()
         # Load the model checkpoint and get the starting iteration number.
         iteration = self.checkpointer.load(model, optimizer, scheduler, grad_scaler)
+        if hasattr(dataloader_train, "set_start_iteration"):
+            dataloader_train.set_start_iteration(iteration * self.config.trainer.grad_accum_iter)
         grad_accum_iter = 0
         log.critical(f"Distributed parallelism mode: {self.config.trainer.distributed_parallelism}")
         if self.config.trainer.distributed_parallelism == "ddp":

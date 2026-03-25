@@ -578,6 +578,7 @@ class StragglerDetectorV2:
         profile_freq: int = 1,
         max_diff: float = 2.0,
         raise_error: bool = True,
+        save_s3: bool = False,
     ):
         self.enabled = enabled
         self.report_freq = report_freq
@@ -586,6 +587,7 @@ class StragglerDetectorV2:
         self.slowdown_count = BufferCnt(thres=10, reset_over_thres=True)
         self.max_diff = max_diff
         self.raise_error = raise_error
+        self.save_s3 = save_s3
 
     def initialize(self):
         if self.enabled:
@@ -658,7 +660,11 @@ class StragglerDetectorV2:
 
                 import cosmos_transfer2._src.imaginaire.utils.launch
 
-                if cosmos_transfer2._src.imaginaire.utils.launch.S3_READY and (iteration % (5 * self.report_freq) == 0):
+                if (
+                    cosmos_transfer2._src.imaginaire.utils.launch.S3_READY
+                    and (iteration % (5 * self.report_freq) == 0)
+                    and self.save_s3
+                ):
                     easy_io.dump(
                         wandb_info,
                         f"s3://rundir/{self.__class__.__name__}/iter_{iteration:09d}.yaml",

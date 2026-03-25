@@ -20,10 +20,9 @@ Unified implementation for all Attention implementations.
 NATTEN backend checks
 """
 
-from functools import partial
+from functools import lru_cache, partial
 
 import torch
-from torch import Tensor
 
 from cosmos_transfer2._src.imaginaire.attention.checks import (
     attention_param_checks,
@@ -38,7 +37,7 @@ from cosmos_transfer2._src.imaginaire.attention.utils import safe_log as log
 
 
 def dtype_supported(
-    dtype: torch.dtype, is_training: bool, dtypes_fwd: list[torch.dtype], dtypes_bwd: list[torch.dtype] | None = None
+    dtype: torch.dtype, requires_grad: bool, dtypes_fwd: list[torch.dtype], dtypes_bwd: list[torch.dtype] | None = None
 ) -> bool:
     """
     Helper determining whether dtype is supported with different sets of supported dtypes for
@@ -47,7 +46,7 @@ def dtype_supported(
     Parameters:
         dtype (torch.dtype): tensor element type.
 
-        is_training (bool): whether use case can be used to backpropagate (tensor.requires_grad).
+        requires_grad (bool): Whether tensors require gradients (training vs inference).
 
         dtypes_fwd (list[torch.dtype]): list of dtypes allowed for inference only (when not
             tensor.requires_grad).
@@ -56,13 +55,22 @@ def dtype_supported(
             (when tensor.requires_grad), if different from dtypes_fwd.
 
     """
-    if is_training and dtypes_bwd is not None:
+    if requires_grad and dtypes_bwd is not None:
         return dtype in dtypes_bwd
     return dtype in dtypes_fwd
 
 
+@lru_cache
 def choose_natten_backend(
-    query: Tensor, key: Tensor, value: Tensor, is_causal: bool, is_varlen: bool, raise_error: bool = False
+    query_shape: torch.Size,
+    key_shape: torch.Size,
+    value_shape: torch.Size,
+    dtype: torch.dtype,
+    device: torch.device,
+    requires_grad: bool,
+    is_causal: bool,
+    is_varlen: bool,
+    raise_error: bool = False,
 ) -> str | None:
     """
     Chooses an FMHA backend in NATTEN (cutlass-fmha, hopper-fmha, blackwell-fmha) for the current
@@ -70,7 +78,7 @@ def choose_natten_backend(
 
     Using tensor shapes, it infers whether MLA (head_dim_value != head_dim_qk) or
     GQA/MQA (heads_kv != heads_q) are required.
-    Using tensor device, it infers GPU architecture and compatible backends.
+    Using device, it infers GPU architecture and compatible backends.
     Using arguments is_causal and is_varlen, and other inferred features, it picks the best
     available backend.
 
@@ -78,14 +86,17 @@ def choose_natten_backend(
     any one of the NATTEN backends, in which case it will return None.
 
     Parameters:
-        query (Tensor): 4-D query tensor, with the heads-last contiguous layout
-            (`[batch, seqlen, heads, head_dim]`).
+        query_shape (torch.Size): Shape of 4-D query tensor (`[batch, seqlen, heads, head_dim]`).
 
-        key (Tensor): 4-D key tensor, with the heads-last contiguous layout
-            (`[batch, seqlen_kv, heads_kv, head_dim]`).
+        key_shape (torch.Size): Shape of 4-D key tensor (`[batch, seqlen_kv, heads_kv, head_dim]`).
 
-        value (Tensor): 4-D value tensor, with heads-last contiguous layout
-            (`[batch, seqlen_kv, heads_kv, head_dim_v]`).
+        value_shape (torch.Size): Shape of 4-D value tensor (`[batch, seqlen_kv, heads_kv, head_dim_v]`).
+
+        dtype (torch.dtype): Data type of tensors.
+
+        device (torch.device): Device of tensors.
+
+        requires_grad (bool): Whether tensors require gradients (training vs inference).
 
         is_causal (bool): whether or not causal masking is enabled.
 
@@ -103,12 +114,10 @@ def choose_natten_backend(
     target_fn = partial(log_or_raise_error, raise_error=raise_error)
 
     # NOTE: assumes attention_tensor_checks have already been run once!
-    arch_tag = get_arch_tag(query.device)
-    dtype = query.dtype
-    is_training = query.requires_grad
+    arch_tag = get_arch_tag(device)
 
-    is_mla = query.shape[-1] != value.shape[-1]
-    head_dim = max(query.shape[-1], value.shape[-1])
+    is_mla = query_shape[-1] != value_shape[-1]
+    head_dim = max(query_shape[-1], value_shape[-1])
 
     # banning devices not supported since CUDA 13.0 for simplicity
     if arch_tag < 75:
@@ -120,7 +129,10 @@ def choose_natten_backend(
     blackwell_fmha_fwd_dtypes = [torch.float16, torch.bfloat16, torch.float8_e5m2, torch.float8_e4m3fn]
     blackwell_fmha_bwd_dtypes = [torch.float16, torch.bfloat16]
     dtype_supported_blackwell = dtype_supported(
-        dtype=dtype, is_training=is_training, dtypes_fwd=blackwell_fmha_fwd_dtypes, dtypes_bwd=blackwell_fmha_bwd_dtypes
+        dtype=dtype,
+        requires_grad=requires_grad,
+        dtypes_fwd=blackwell_fmha_fwd_dtypes,
+        dtypes_bwd=blackwell_fmha_bwd_dtypes,
     )
     head_dim_supported_blackwell = head_dim in [32, 64, 128]
     if arch_tag in [100, 103] and not is_mla and dtype_supported_blackwell and head_dim_supported_blackwell:
@@ -132,7 +144,7 @@ def choose_natten_backend(
         if is_mla:
             reason += "Use case is MLA (head_dim_qk != head_dim_value). "
         if not dtype_supported_blackwell:
-            if is_training:
+            if requires_grad:
                 reason += (
                     f"Data type {dtype} is not in list of supported dtypes for training: {blackwell_fmha_bwd_dtypes}. "
                 )
@@ -147,8 +159,8 @@ def choose_natten_backend(
     # hopper-fmha: sm90 only.
     # limitations: no causal masking (TBD), no varlen, no mla.
     hopper_fmha_dtypes = [torch.float16, torch.bfloat16]
-    dtype_supported_hopper = dtype_supported(dtype=dtype, is_training=is_training, dtypes_fwd=hopper_fmha_dtypes)
-    head_dim_supported_hopper = (head_dim in [32, 64, 128, 256] and not is_training) or head_dim in [32, 64, 128]
+    dtype_supported_hopper = dtype_supported(dtype=dtype, requires_grad=requires_grad, dtypes_fwd=hopper_fmha_dtypes)
+    head_dim_supported_hopper = (head_dim in [32, 64, 128, 256] and not requires_grad) or head_dim in [32, 64, 128]
     if (
         arch_tag == 90
         and not is_causal
@@ -171,13 +183,13 @@ def choose_natten_backend(
         if not dtype_supported_hopper:
             reason += f"Data type {dtype} is not in list of supported dtypes: {hopper_fmha_dtypes}. "
         if not head_dim_supported_hopper:
-            reason += f"{head_dim=} with {is_training=} is not supported. "
+            reason += f"{head_dim=} with {requires_grad=} is not supported. "
         log.debug(f"NATTEN backend hopper-fmha is not compatible. Reason: {reason}")
 
     # cutlass-fmha: targets sm50, sm70, sm75, sm80 (supports sm80+)
     # limitations: none.
     cutlass_fmha_dtypes = [torch.float32, torch.float16, torch.bfloat16]
-    dtype_supported_cutlass = dtype_supported(dtype=dtype, is_training=is_training, dtypes_fwd=cutlass_fmha_dtypes)
+    dtype_supported_cutlass = dtype_supported(dtype=dtype, requires_grad=requires_grad, dtypes_fwd=cutlass_fmha_dtypes)
     head_dim_supported_cutlass = head_dim % 8 == 0
     if dtype_supported_cutlass and head_dim_supported_cutlass:
         return "cutlass-fmha"
@@ -197,9 +209,12 @@ def choose_natten_backend(
 
 
 def natten_attention_check(
-    query: Tensor,
-    key: Tensor,
-    value: Tensor,
+    query_shape: torch.Size,
+    key_shape: torch.Size,
+    value_shape: torch.Size,
+    dtype: torch.dtype,
+    device: torch.device,
+    requires_grad: bool,
     is_causal: bool,
     causal_type: CausalType,
     is_varlen: bool,
@@ -211,14 +226,17 @@ def natten_attention_check(
     fail, or no compatible backend is found in NATTEN, returns False.
 
     Parameters:
-        query (Tensor): 4-D query tensor, with the heads-last contiguous layout
-            (`[batch, seqlen, heads, head_dim]`).
+        query_shape (torch.Size): Shape of 4-D query tensor (`[batch, seqlen, heads, head_dim]`).
 
-        key (Tensor): 4-D key tensor, with the heads-last contiguous layout
-            (`[batch, seqlen_kv, heads_kv, head_dim]`).
+        key_shape (torch.Size): Shape of 4-D key tensor (`[batch, seqlen_kv, heads_kv, head_dim]`).
 
-        value (Tensor): 4-D value tensor, with heads-last contiguous layout
-            (`[batch, seqlen_kv, heads_kv, head_dim_v]`).
+        value_shape (torch.Size): Shape of 4-D value tensor (`[batch, seqlen_kv, heads_kv, head_dim_v]`).
+
+        dtype (torch.dtype): Data type of tensors.
+
+        device (torch.device): Device of tensors.
+
+        requires_grad (bool): Whether tensors require gradients (training vs inference).
 
         is_causal (bool): whether or not causal masking is enabled.
 
@@ -245,13 +263,15 @@ def natten_attention_check(
         )
         return False
 
-    arch_tag = get_arch_tag(query.device)
+    arch_tag = get_arch_tag(device)
     fwd_dtypes = get_fwd_dtypes(arch_tag)
     bwd_dtypes = get_bwd_dtypes(arch_tag)
     if not attention_tensor_checks(
-        query=query,
-        key=key,
-        value=value,
+        query_shape=query_shape,
+        key_shape=key_shape,
+        value_shape=value_shape,
+        dtype=dtype,
+        requires_grad=requires_grad,
         supported_dtypes_forward=fwd_dtypes,
         supported_dtypes_backward=bwd_dtypes,
         supports_mla=True,
@@ -265,9 +285,9 @@ def natten_attention_check(
     # Verifies causal_type is a CausalType instance when is_causal
     # Verifies DontCare is not used unless seqlen_q == seqlen_kv
     attention_param_checks(
-        query=query,
-        key=key,
-        value=value,
+        query_shape=query_shape,
+        key_shape=key_shape,
+        value_shape=value_shape,
         is_causal=is_causal,
         causal_type=causal_type,
     )
@@ -277,7 +297,15 @@ def natten_attention_check(
         return False
 
     natten_backend = choose_natten_backend(
-        query, key, value, is_causal=is_causal, is_varlen=is_varlen, raise_error=raise_error
+        query_shape=query_shape,
+        key_shape=key_shape,
+        value_shape=value_shape,
+        dtype=dtype,
+        device=device,
+        requires_grad=requires_grad,
+        is_causal=is_causal,
+        is_varlen=is_varlen,
+        raise_error=raise_error,
     )
 
     if natten_backend is None:
@@ -286,14 +314,23 @@ def natten_attention_check(
     return True
 
 
-def choose_natten_multi_dim_backend(query: Tensor, key: Tensor, value: Tensor, raise_error: bool = False) -> str | None:
+@lru_cache
+def choose_natten_multi_dim_backend(
+    query_shape: torch.Size,
+    key_shape: torch.Size,
+    value_shape: torch.Size,
+    dtype: torch.dtype,
+    device: torch.device,
+    requires_grad: bool,
+    raise_error: bool = False,
+) -> str | None:
     """
     Chooses an FNA backend in NATTEN (cutlass-fna, hopper-fna, blackwell-fna) for the current
     use case based on features needed and current GPU architecture.
 
     Using tensor shapes, it infers whether MLA (head_dim_value != head_dim_qk) or
     GQA/MQA (heads_kv != heads_q) are required.
-    Using tensor device, it infers GPU architecture and compatible backends.
+    Using device, it infers GPU architecture and compatible backends.
     Using arguments is_causal and is_varlen, and other inferred features, it picks the best
     available backend.
 
@@ -301,14 +338,17 @@ def choose_natten_multi_dim_backend(query: Tensor, key: Tensor, value: Tensor, r
     any one of the NATTEN backends, in which case it will return None.
 
     Parameters:
-        query (Tensor): 4-D, 5-D, or 6-D query tensor, with the heads-last contiguous layout
-            (`[batch, *token_layout_shape, heads, head_dim]`).
+        query_shape (torch.Size): Shape of 4-D, 5-D, or 6-D query tensor (`[batch, *token_layout_shape, heads, head_dim]`).
 
-        key (Tensor): 4-D, 5-D, or 6-D key tensor, with the heads-last contiguous layout
-            (`[batch, *token_layout_shape, heads_kv, head_dim]`).
+        key_shape (torch.Size): Shape of 4-D, 5-D, or 6-D key tensor (`[batch, *token_layout_shape, heads_kv, head_dim]`).
 
-        value (Tensor): 4-D, 5-D, or 6-D value tensor, with heads-last contiguous layout
-            (`[batch, *token_layout_shape, heads_kv, head_dim_v]`).
+        value_shape (torch.Size): Shape of 4-D, 5-D, or 6-D value tensor (`[batch, *token_layout_shape, heads_kv, head_dim_v]`).
+
+        dtype (torch.dtype): Data type of tensors.
+
+        device (torch.device): Device of tensors.
+
+        requires_grad (bool): Whether tensors require gradients (training vs inference).
 
         raise_error (bool): whether to raise an error if no backend is selected, instead of just
             returning None. Default is False.
@@ -322,9 +362,12 @@ def choose_natten_multi_dim_backend(query: Tensor, key: Tensor, value: Tensor, r
     # NATTEN specifically makes sure the FNA counterparts cover all the features the FMHA kernels
     # do.
     fmha_backend = choose_natten_backend(
-        query=query,
-        key=key,
-        value=value,
+        query_shape=query_shape,
+        key_shape=key_shape,
+        value_shape=value_shape,
+        dtype=dtype,
+        device=device,
+        requires_grad=requires_grad,
         is_causal=False,  # causal masking in supported across all multi-dim (FNA) backends
         is_varlen=False,  # varlen is undefined (so far) for multi-dim
         raise_error=raise_error,
@@ -341,9 +384,12 @@ def choose_natten_multi_dim_backend(query: Tensor, key: Tensor, value: Tensor, r
 
 
 def natten_multi_dim_attention_check(
-    query: Tensor,
-    key: Tensor,
-    value: Tensor,
+    query_shape: torch.Size,
+    key_shape: torch.Size,
+    value_shape: torch.Size,
+    dtype: torch.dtype,
+    device: torch.device,
+    requires_grad: bool,
     raise_error: bool = False,
 ) -> bool:
     """
@@ -352,14 +398,17 @@ def natten_multi_dim_attention_check(
     fail, or no compatible backend is found in NATTEN, returns False.
 
     Parameters:
-        query (Tensor): 4-D, 5-D, or 6-D query tensor, with the heads-last contiguous layout
-            (`[batch, *token_layout_shape, heads, head_dim]`).
+        query_shape (torch.Size): Shape of 4-D, 5-D, or 6-D query tensor (`[batch, *token_layout_shape, heads, head_dim]`).
 
-        key (Tensor): 4-D, 5-D, or 6-D key tensor, with the heads-last contiguous layout
-            (`[batch, *token_layout_shape, heads_kv, head_dim]`).
+        key_shape (torch.Size): Shape of 4-D, 5-D, or 6-D key tensor (`[batch, *token_layout_shape, heads_kv, head_dim]`).
 
-        value (Tensor): 4-D, 5-D, or 6-D value tensor, with heads-last contiguous layout
-            (`[batch, *token_layout_shape, heads_kv, head_dim_v]`).
+        value_shape (torch.Size): Shape of 4-D, 5-D, or 6-D value tensor (`[batch, *token_layout_shape, heads_kv, head_dim_v]`).
+
+        dtype (torch.dtype): Data type of tensors.
+
+        device (torch.device): Device of tensors.
+
+        requires_grad (bool): Whether tensors require gradients (training vs inference).
 
         raise_error (bool): whether to raise an error if any checks fail or no backend is selected,
             instead of just returning False. Default is False.
@@ -377,13 +426,15 @@ def natten_multi_dim_attention_check(
         )
         return False
 
-    arch_tag = get_arch_tag(query.device)
+    arch_tag = get_arch_tag(device)
     fwd_dtypes = get_fwd_dtypes(arch_tag)
     bwd_dtypes = get_bwd_dtypes(arch_tag)
     if not multi_dim_attention_tensor_checks(
-        query=query,
-        key=key,
-        value=value,
+        query_shape=query_shape,
+        key_shape=key_shape,
+        value_shape=value_shape,
+        dtype=dtype,
+        requires_grad=requires_grad,
         supported_dtypes_forward=fwd_dtypes,
         supported_dtypes_backward=bwd_dtypes,
         supports_mla=True,
@@ -394,7 +445,15 @@ def natten_multi_dim_attention_check(
         target_fn("NATTEN does not support the given inputs.", exception=RuntimeError)
         return False
 
-    natten_backend = choose_natten_multi_dim_backend(query, key, value, raise_error=raise_error)
+    natten_backend = choose_natten_multi_dim_backend(
+        query_shape=query_shape,
+        key_shape=key_shape,
+        value_shape=value_shape,
+        dtype=dtype,
+        device=device,
+        requires_grad=requires_grad,
+        raise_error=raise_error,
+    )
 
     if natten_backend is None:
         return False

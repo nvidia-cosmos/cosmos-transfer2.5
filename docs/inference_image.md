@@ -15,7 +15,7 @@ python examples/inference.py -i assets/image_example/image2image.json -o outputs
 
 ## Image Prompt: using an image as a style reference
 
-**For more detailed guidance and example about image prompting, checkout our Cosmos Cookbook [Style-Guided Inference](https://nvidia-cosmos.github.io/cosmos-cookbook/recipes/inference/transfer2_5/inference-image-prompt/inference.html) recipe.**
+**For more detailed guidance and example about image prompting, checkout our Cosmos Cookbook [Style-Guided Inference](https://nvidia-cosmos.github.io/cosmos-cookbook/recipes/inference/transfer2_5/inference-image/inference.html) recipe.**
 
 Use an image as a style reference to guide video generation with a particular visual aesthetic.
 

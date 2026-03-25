@@ -27,6 +27,7 @@ from natten.functional import neighborhood_attention_generic as _natten_multi_di
 from torch import Tensor
 
 from cosmos_transfer2._src.imaginaire.attention.checks import (
+    assert_universal_tensor_checks,
     multi_dim_attention_param_checks,
     multi_dim_attention_param_filter,
 )
@@ -111,10 +112,14 @@ def natten_attention(
     """
 
     is_varlen = cumulative_seqlen_Q is not None
+    assert_universal_tensor_checks(query, key, value)
     assert natten_attention_check(
-        query=query,
-        key=key,
-        value=value,
+        query_shape=query.shape,
+        key_shape=key.shape,
+        value_shape=value.shape,
+        dtype=query.dtype,
+        device=query.device,
+        requires_grad=query.requires_grad,
         is_causal=is_causal,
         causal_type=causal_type,
         is_varlen=is_varlen,
@@ -131,7 +136,15 @@ def natten_attention(
         del backend_kwargs["backend"]
     else:
         natten_backend = choose_natten_backend(
-            query, key, value, is_causal=is_causal, is_varlen=is_varlen, raise_error=True
+            query_shape=query.shape,
+            key_shape=key.shape,
+            value_shape=value.shape,
+            dtype=query.dtype,
+            device=query.device,
+            requires_grad=query.requires_grad,
+            is_causal=is_causal,
+            is_varlen=is_varlen,
+            raise_error=True,
         )
 
     assert natten_backend is not None
@@ -230,10 +243,14 @@ def natten_multi_dim_attention(
             (`[batch, *token_layout_shape, heads, 1]`). Only returned when return_lse is True.
     """
 
+    assert_universal_tensor_checks(query, key, value)
     assert natten_multi_dim_attention_check(
-        query=query,
-        key=key,
-        value=value,
+        query_shape=query.shape,
+        key_shape=key.shape,
+        value_shape=value.shape,
+        dtype=query.dtype,
+        device=query.device,
+        requires_grad=query.requires_grad,
         raise_error=True,
     )
 
@@ -262,7 +279,15 @@ def natten_multi_dim_attention(
         natten_backend = backend_kwargs["backend"]
         del backend_kwargs["backend"]
     else:
-        natten_backend = choose_natten_multi_dim_backend(query, key, value, raise_error=True)
+        natten_backend = choose_natten_multi_dim_backend(
+            query_shape=query.shape,
+            key_shape=key.shape,
+            value_shape=value.shape,
+            dtype=query.dtype,
+            device=query.device,
+            requires_grad=query.requires_grad,
+            raise_error=True,
+        )
 
     assert natten_backend is not None
 

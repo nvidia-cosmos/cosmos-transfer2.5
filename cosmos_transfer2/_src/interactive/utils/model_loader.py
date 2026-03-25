@@ -108,6 +108,9 @@ def load_model_from_checkpoint(
         if hasattr(config.model, "config") and hasattr(config.model.config, "load_teacher_weights"):
             log.info("Setting load_teacher_weights=False for inference to skip teacher checkpoint download")
             config.model.config.load_teacher_weights = False
+        if hasattr(config.model, "config") and hasattr(config.model.config, "init_student_with_teacher"):
+            log.info("Setting init_student_with_teacher=False for inference to skip teacher weight initialization")
+            config.model.config.init_student_with_teacher = False
 
     if not enable_fsdp:
         # disable fsdp
