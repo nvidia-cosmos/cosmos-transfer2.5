@@ -33,21 +33,16 @@ from cosmos_transfer2.gradio.sample_data import (
     sample_request_vis,
 )
 from cosmos_transfer2.multiview_config import MultiviewInferenceArguments
+from cosmos_transfer2.plenoptic_config import PlenopticInferenceArguments
 from cosmos_transfer2.robot_multiview_control_agibot_config import RobotMultiviewControlAgibotInferenceArguments
-
-try:
-    from cosmos_transfer2.plenoptic_config import PlenopticInferenceArguments
-
-    help_text_multiview_many_camera = (
-        f"```json\n{json.dumps(PlenopticInferenceArguments.model_json_schema(), indent=2)}\n```"
-    )
-except ImportError:
-    help_text_multiview_many_camera = ""
 
 help_control2world = f"```json\n{json.dumps(InferenceArguments.model_json_schema(), indent=2)}\n```"
 help_text_mv = f"```json\n{json.dumps(MultiviewInferenceArguments.model_json_schema(), indent=2)}\n```"
 help_robot_multiview_agibot = (
     f"```json\n{json.dumps(RobotMultiviewControlAgibotInferenceArguments.model_json_schema(), indent=2)}\n```"
+)
+help_text_multiview_many_camera = (
+    f"```json\n{json.dumps(PlenopticInferenceArguments.model_json_schema(), indent=2)}\n```"
 )
 
 

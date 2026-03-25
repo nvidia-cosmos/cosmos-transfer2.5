@@ -148,6 +148,8 @@ ignore-missing-imports = [
     "plyfile.*",
     "pycocotools",
     "pycocotools.*",
+    "pymeshlab",
+    "pymeshlab.*",
     "pytorch_lightning",
     "pytorch_lightning.*",
     "qwen_vl_utils",
