@@ -16,14 +16,13 @@
 import atexit
 import os
 import sys
-from typing import Any
+from typing import Any, Optional
 
 import torch.distributed as dist
 from loguru._logger import Core, Logger
 
 RANK0_ONLY = True
 LEVEL = os.environ.get("LOGURU_LEVEL", "INFO")
-RANK = int(os.environ.get("RANK", "0"))
 
 
 def make_new_logger(depth: int = 1) -> Logger:
@@ -113,10 +112,10 @@ def get_message_format() -> str:
 
 def _rank0_only_filter(record: Any) -> bool:
     is_rank0 = record["extra"].get("rank0_only", True)
-    if RANK == 0 and is_rank0:
+    if _get_rank() == 0 and is_rank0:
         return True
     if not is_rank0:
-        record["message"] = f"[RANK {RANK}] " + record["message"]
+        record["message"] = f"[RANK {_get_rank()}] " + record["message"]
     return not is_rank0
 
 
@@ -150,6 +149,18 @@ def critical(message: str, rank0_only: bool = True) -> None:
 
 def exception(message: str, rank0_only: bool = True) -> None:
     logger.opt(depth=1).bind(rank0_only=rank0_only).exception(message)
+
+
+def _get_rank(group: Optional[dist.ProcessGroup] = None) -> int:
+    """Get the rank (GPU device) of the worker.
+
+    Returns:
+        rank (int): The rank of the worker.
+    """
+    rank = 0
+    if dist.is_available() and dist.is_initialized():
+        rank = dist.get_rank(group)
+    return rank
 
 
 # Execute at import time.

@@ -360,8 +360,6 @@ class StragglerDetectionConfig:
     analyze_optimizer: bool = True
     # Analyze dataloading time.
     analyze_dataloading: bool = True
-    # Whether to save logs to S3
-    save_s3: bool = False
 
 
 @make_freezable

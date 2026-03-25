@@ -51,10 +51,6 @@ EXPERIMENTAL_CHECKPOINTS = _get_bool("COSMOS_EXPERIMENTAL_CHECKPOINTS", INTERNAL
 """Whether to enable experimental checkpoints."""
 
 
-if INTERNAL:
-    TRAINING = True
-
-
 @dataclass
 class Flags:
     internal: bool = INTERNAL

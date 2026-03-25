@@ -20,9 +20,7 @@ Unified implementation for all Attention implementations.
 Frontend APIs
 """
 
-from functools import lru_cache
-
-import torch
+from torch import Tensor
 
 from cosmos_transfer2._src.imaginaire.attention.flash2.checks import flash2_attention_check
 from cosmos_transfer2._src.imaginaire.attention.flash3.checks import flash3_attention_check
@@ -47,12 +45,9 @@ BACKEND_MULTI_DIM_CHECK_MAP = {
 
 def is_backend_compatible(
     backend: str,
-    query_shape: torch.Size,
-    key_shape: torch.Size,
-    value_shape: torch.Size,
-    dtype: torch.dtype,
-    device: torch.device,
-    requires_grad: bool,
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
     is_causal: bool,
     causal_type: CausalType | None,
     is_varlen: bool,
@@ -65,17 +60,14 @@ def is_backend_compatible(
     Parameters:
         backend (str): selected backend.
 
-        query_shape (torch.Size): Shape of 4-D query tensor (`[batch, seqlen, heads, head_dim]`).
+        query (Tensor): 4-D query tensor, with the heads-last contiguous layout
+            (`[batch, seqlen, heads, head_dim]`).
 
-        key_shape (torch.Size): Shape of 4-D key tensor (`[batch, seqlen_kv, heads_kv, head_dim]`).
+        key (Tensor): 4-D key tensor, with the heads-last contiguous layout
+            (`[batch, seqlen_kv, heads_kv, head_dim]`).
 
-        value_shape (torch.Size): Shape of 4-D value tensor (`[batch, seqlen_kv, heads_kv, head_dim_v]`).
-
-        dtype (torch.dtype): Data type of tensors.
-
-        device (torch.device): Device of tensors.
-
-        requires_grad (bool): Whether tensors require gradients (training vs inference).
+        value (Tensor): 4-D value tensor, with heads-last contiguous layout
+            (`[batch, seqlen_kv, heads_kv, head_dim_v]`).
 
         is_causal (bool): whether or not causal masking is enabled.
 
@@ -100,12 +92,9 @@ def is_backend_compatible(
         raise ValueError(f"Unrecognized backend name {backend}.")
 
     return BACKEND_CHECK_MAP[backend](
-        query_shape=query_shape,
-        key_shape=key_shape,
-        value_shape=value_shape,
-        dtype=dtype,
-        device=device,
-        requires_grad=requires_grad,
+        query=query,
+        key=key,
+        value=value,
         is_causal=is_causal,
         causal_type=causal_type,
         is_varlen=is_varlen,
@@ -153,14 +142,10 @@ def get_backend_list(arch_tag: int) -> list[str]:
     return ["natten"]
 
 
-@lru_cache
 def choose_backend(
-    query_shape: torch.Size,
-    key_shape: torch.Size,
-    value_shape: torch.Size,
-    dtype: torch.dtype,
-    device: torch.device,
-    requires_grad: bool,
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
     is_causal: bool,
     causal_type: CausalType | None,
     is_varlen: bool,
@@ -172,17 +157,14 @@ def choose_backend(
     checks.
 
     Parameters:
-        query_shape (torch.Size): Shape of 4-D query tensor (`[batch, seqlen, heads, head_dim]`).
+        query (Tensor): 4-D query tensor, with the heads-last contiguous layout
+            (`[batch, seqlen, heads, head_dim]`).
 
-        key_shape (torch.Size): Shape of 4-D key tensor (`[batch, seqlen_kv, heads_kv, head_dim]`).
+        key (Tensor): 4-D key tensor, with the heads-last contiguous layout
+            (`[batch, seqlen_kv, heads_kv, head_dim]`).
 
-        value_shape (torch.Size): Shape of 4-D value tensor (`[batch, seqlen_kv, heads_kv, head_dim_v]`).
-
-        dtype (torch.dtype): Data type of tensors.
-
-        device (torch.device): Device of tensors.
-
-        requires_grad (bool): Whether tensors require gradients (training vs inference).
+        value (Tensor): 4-D value tensor, with heads-last contiguous layout
+            (`[batch, seqlen_kv, heads_kv, head_dim_v]`).
 
         is_causal (bool): whether or not causal masking is enabled.
 
@@ -205,12 +187,9 @@ def choose_backend(
     if backend is not None:
         if is_backend_compatible(
             backend=backend,
-            query_shape=query_shape,
-            key_shape=key_shape,
-            value_shape=value_shape,
-            dtype=dtype,
-            device=device,
-            requires_grad=requires_grad,
+            query=query,
+            key=key,
+            value=value,
             is_causal=is_causal,
             causal_type=causal_type,
             is_varlen=is_varlen,
@@ -219,17 +198,14 @@ def choose_backend(
             return backend
         return None
 
-    arch_tag = get_arch_tag(device)
+    arch_tag = get_arch_tag(query.device)
     backend_list = get_backend_list(arch_tag)
     for backend in backend_list:
         if is_backend_compatible(
             backend=backend,
-            query_shape=query_shape,
-            key_shape=key_shape,
-            value_shape=value_shape,
-            dtype=dtype,
-            device=device,
-            requires_grad=requires_grad,
+            query=query,
+            key=key,
+            value=value,
             is_causal=is_causal,
             causal_type=causal_type,
             is_varlen=is_varlen,
@@ -248,12 +224,9 @@ def choose_backend(
 
 def is_multi_dim_backend_compatible(
     backend: str,
-    query_shape: torch.Size,
-    key_shape: torch.Size,
-    value_shape: torch.Size,
-    dtype: torch.dtype,
-    device: torch.device,
-    requires_grad: bool,
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
     raise_error: bool = False,
 ) -> bool:
     """
@@ -263,17 +236,14 @@ def is_multi_dim_backend_compatible(
     Parameters:
         backend (str): selected backend.
 
-        query_shape (torch.Size): Shape of 4-D, 5-D, or 6-D query tensor (`[batch, *token_layout_shape, heads, head_dim]`).
+        query (Tensor): 4-D, 5-D, or 6-D query tensor, with the heads-last contiguous layout
+            (`[batch, *token_layout_shape, heads, head_dim]`).
 
-        key_shape (torch.Size): Shape of 4-D, 5-D, or 6-D key tensor (`[batch, *token_layout_shape, heads_kv, head_dim]`).
+        key (Tensor): 4-D, 5-D, or 6-D key tensor, with the heads-last contiguous layout
+            (`[batch, *token_layout_shape, heads_kv, head_dim]`).
 
-        value_shape (torch.Size): Shape of 4-D, 5-D, or 6-D value tensor (`[batch, *token_layout_shape, heads_kv, head_dim_v]`).
-
-        dtype (torch.dtype): Data type of tensors.
-
-        device (torch.device): Device of tensors.
-
-        requires_grad (bool): Whether tensors require gradients (training vs inference).
+        value (Tensor): 4-D, 5-D, or 6-D value tensor, with heads-last contiguous layout
+            (`[batch, *token_layout_shape, heads_kv, head_dim_v]`).
 
         raise_error (bool): whether to raise an error if any checks fail or no backend is selected,
             instead of just returning False. Default is False.
@@ -289,12 +259,9 @@ def is_multi_dim_backend_compatible(
         raise ValueError(f"Unrecognized backend name {backend}.")
 
     return BACKEND_MULTI_DIM_CHECK_MAP[backend](
-        query_shape=query_shape,
-        key_shape=key_shape,
-        value_shape=value_shape,
-        dtype=dtype,
-        device=device,
-        requires_grad=requires_grad,
+        query=query,
+        key=key,
+        value=value,
         raise_error=raise_error,
     )
 
@@ -321,14 +288,10 @@ def get_multi_dim_backend_list(arch_tag: int) -> list[str]:
     return ["natten"]
 
 
-@lru_cache
 def choose_multi_dim_backend(
-    query_shape: torch.Size,
-    key_shape: torch.Size,
-    value_shape: torch.Size,
-    dtype: torch.dtype,
-    device: torch.device,
-    requires_grad: bool,
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
     backend: str | None = None,
 ) -> str:
     """
@@ -336,17 +299,14 @@ def choose_multi_dim_backend(
     corresponding checks.
 
     Parameters:
-        query_shape (torch.Size): Shape of 4-D, 5-D, or 6-D query tensor (`[batch, *token_layout_shape, heads, head_dim]`).
+        query (Tensor): 4-D, 5-D, or 6-D query tensor, with the heads-last contiguous layout
+            (`[batch, *token_layout_shape, heads, head_dim]`).
 
-        key_shape (torch.Size): Shape of 4-D, 5-D, or 6-D key tensor (`[batch, *token_layout_shape, heads_kv, head_dim]`).
+        key (Tensor): 4-D, 5-D, or 6-D key tensor, with the heads-last contiguous layout
+            (`[batch, *token_layout_shape, heads_kv, head_dim]`).
 
-        value_shape (torch.Size): Shape of 4-D, 5-D, or 6-D value tensor (`[batch, *token_layout_shape, heads_kv, head_dim_v]`).
-
-        dtype (torch.dtype): Data type of tensors.
-
-        device (torch.device): Device of tensors.
-
-        requires_grad (bool): Whether tensors require gradients (training vs inference).
+        value (Tensor): 4-D, 5-D, or 6-D value tensor, with heads-last contiguous layout
+            (`[batch, *token_layout_shape, heads_kv, head_dim_v]`).
 
         backend (str | None): selected backend, if any.
 
@@ -357,27 +317,21 @@ def choose_multi_dim_backend(
     if backend is not None:
         assert is_multi_dim_backend_compatible(
             backend=backend,
-            query_shape=query_shape,
-            key_shape=key_shape,
-            value_shape=value_shape,
-            dtype=dtype,
-            device=device,
-            requires_grad=requires_grad,
+            query=query,
+            key=key,
+            value=value,
             raise_error=True,
         )
         return backend
 
-    arch_tag = get_arch_tag(device)
+    arch_tag = get_arch_tag(query.device)
     backend_list = get_multi_dim_backend_list(arch_tag)
     for backend in backend_list:
         if is_multi_dim_backend_compatible(
             backend=backend,
-            query_shape=query_shape,
-            key_shape=key_shape,
-            value_shape=value_shape,
-            dtype=dtype,
-            device=device,
-            requires_grad=requires_grad,
+            query=query,
+            key=key,
+            value=value,
             raise_error=False,
         ):
             return backend

@@ -29,7 +29,6 @@ from cosmos_transfer2._src.imaginaire.attention.checks import (
     multi_dim_attention_param_checks,
     multi_dim_attention_param_filter,
     multi_dim_attention_tensor_checks,
-    universal_tensor_checks,
     varlen_tensor_checks,
 )
 from cosmos_transfer2._src.imaginaire.attention.flash2 import flash2_attention
@@ -162,21 +161,12 @@ def attention(
             `merge_attentions`.
     """
 
-    assert universal_tensor_checks(query=query, key=key, value=value, raise_error=True)
-
-    assert attention_tensor_checks(
-        query_shape=query.shape,
-        key_shape=key.shape,
-        value_shape=value.shape,
-        dtype=query.dtype,
-        requires_grad=query.requires_grad,
-        raise_error=True,
-    )
+    assert attention_tensor_checks(query=query, key=key, value=value, raise_error=True)
 
     attention_param_checks(
-        query_shape=query.shape,
-        key_shape=key.shape,
-        value_shape=value.shape,
+        query=query,
+        key=key,
+        value=value,
         is_causal=is_causal,
         causal_type=causal_type,
     )
@@ -209,12 +199,9 @@ def attention(
         raise ValueError(f"Selected {backend=}, but available choices are {BACKEND_MAP.keys()}. ")
 
     compatible_backend = choose_backend(
-        query_shape=query.shape,
-        key_shape=key.shape,
-        value_shape=value.shape,
-        dtype=query.dtype,
-        device=query.device,
-        requires_grad=query.requires_grad,
+        query=query,
+        key=key,
+        value=value,
         is_causal=is_causal,
         causal_type=causal_type,
         is_varlen=is_varlen,
@@ -368,16 +355,7 @@ def multi_dimensional_attention(
             (`[batch, *token_layout_shape, heads]`). Only returned when return_lse is True.
     """
 
-    assert universal_tensor_checks(query=query, key=key, value=value, raise_error=True)
-
-    assert multi_dim_attention_tensor_checks(
-        query_shape=query.shape,
-        key_shape=key.shape,
-        value_shape=value.shape,
-        dtype=query.dtype,
-        requires_grad=query.requires_grad,
-        raise_error=True,
-    )
+    assert multi_dim_attention_tensor_checks(query=query, key=key, value=value, raise_error=True)
 
     token_layout_shape, window_size, stride, dilation, is_causal = multi_dim_attention_param_filter(
         query,
@@ -479,12 +457,9 @@ def multi_dimensional_attention(
         log.debug("A backend was not specified, but got backend_kwargs. Ignoring... ")
 
     backend = choose_multi_dim_backend(
-        query_shape=query.shape,
-        key_shape=key.shape,
-        value_shape=value.shape,
-        dtype=query.dtype,
-        device=query.device,
-        requires_grad=query.requires_grad,
+        query=query,
+        key=key,
+        value=value,
         backend=backend,
     )
 

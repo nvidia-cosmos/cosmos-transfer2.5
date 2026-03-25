@@ -76,22 +76,3 @@ class RectifiedFlow_sCMWrapper:
             self.sigma_data * torch.sin(trigflow_t) / (torch.cos(trigflow_t) + self.sigma_data * torch.sin(trigflow_t))
         )
         return c_skip.to(dtype), c_out.to(dtype), c_in.to(dtype), c_noise.to(dtype)
-
-
-class VelocityPassthroughWrapper:
-    """Identity scaling for networks that directly predict velocity (no EDM preconditioning).
-
-    Returns c_in=1, c_skip=0, c_out=1 so that denoise_edm_seq becomes a simple
-    forward pass: output = 0*x + 1*F(1*x, time) = F(x, time) = velocity.
-    c_noise passes the input time through unchanged.
-    """
-
-    def __init__(self, sigma_data: float = 1.0):
-        self.sigma_data = sigma_data
-
-    def __call__(self, time: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        c_skip = torch.zeros_like(time)
-        c_out = torch.ones_like(time)
-        c_in = torch.ones_like(time)
-        c_noise = time  # pass through
-        return c_skip, c_out, c_in, c_noise

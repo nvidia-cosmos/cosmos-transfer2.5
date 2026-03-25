@@ -29,15 +29,12 @@ def get_executor(
     cluster: str,
     partition: str,
     node_group: str,
-    ppp: str = "dir_cosmos_base",
     stage_code: bool = True,
     docker_image: str = "/project/cosmos/snah/dpdata/sqsh/imaginaire4_mcore_v0.0.7_efa.sqsh",
     enable_aps: bool = False,
     user: Optional[str] = None,
     extra_env_vars: Optional[dict] = None,
     user_fp: Optional[str] = None,
-    venv: Optional[str] = "packages/cosmos-transfer2",
-    venv_symlink: bool = False,
 ):
     import launcher
 
@@ -53,10 +50,9 @@ def get_executor(
             user = pwd.getpwuid(os.getuid()).pw_name
         assert user is not None, "Cannot get user name."
         if cluster.lower() == "aws":
-            user_fp = f"/lustre/fsw/portfolios/dir/users/{user}"
+            user_fp = f"/project/cosmos/{user}"
         elif cluster.lower() == "lepton":
             user_fp = f"/workspace/log/{user}"
-        assert os.path.exists(user_fp), f"{user_fp} DNE"
     else:
         print(f"Use given user_fp {user_fp} to set slurm_workdir, slurm_logdir, slurm_cachedir")
 
@@ -82,7 +78,7 @@ def get_executor(
             docker_image=docker_image,
             cluster="aws-iad-cs-002",
             partition=partition,
-            account=ppp,
+            account="dir_cosmos_base",
             num_gpus=8,
             num_nodes=nnode,
             exclude_nodes=[],
@@ -90,8 +86,6 @@ def get_executor(
             slurm_logdir=os.path.join(user_fp, "logs", "cosmos_transfer2", job_group, job_name),
             slurm_cachedir=user_fp,
             enable_aps=enable_aps,
-            venv=venv,
-            venv_symlink=venv_symlink,
         )
     elif cluster.lower() == "lepton":
         if "aws" in node_group:

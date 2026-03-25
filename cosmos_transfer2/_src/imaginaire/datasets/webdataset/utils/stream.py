@@ -65,7 +65,7 @@ __all__ = [
 #   stream_module.ENABLE_RETRY_STATS = False  # Disable stats
 #   # ... run benchmark ...
 #   stream_module.ENABLE_RETRY_STATS = True   # Re-enable
-ENABLE_RETRY_STATS = False
+ENABLE_RETRY_STATS = True
 
 # Interval in seconds between periodic retry statistics logs
 # Default is 300 seconds (5 minutes). Set to a lower value for more frequent logging
@@ -82,7 +82,7 @@ RETRY_STATS_LOG_INTERVAL = 300.0  # 5 minutes
 # Usage:
 #   import cosmos_transfer2._src.imaginaire.datasets.webdataset.utils.stream as stream_module
 #   stream_module.ENABLE_THROUGHPUT_STATS = False
-ENABLE_THROUGHPUT_STATS = False
+ENABLE_THROUGHPUT_STATS = True
 
 # Interval in seconds between periodic throughput statistics logs.
 # Independent from retry stats log interval.
@@ -748,14 +748,13 @@ class RetryingStream:
             with _global_throughput_stats.lock:
                 _global_throughput_stats.cumulative_watchdog_reconnects += 1
 
-        if self._enable_throughput_stats:
-            log.warning(
-                f"[Throughput Watchdog] reconnecting: "
-                f"{throughput_mbps:.1f}MB/s < {wd.min_throughput_mbps}MB/s, "
-                f"read_time {window_read_time:.1f}s, "
-                f"{self.name} @ {new_position}/{self.content_size}",
-                rank0_only=False,
-            )
+        log.warning(
+            f"[Throughput Watchdog] reconnecting: "
+            f"{throughput_mbps:.1f}MB/s < {wd.min_throughput_mbps}MB/s, "
+            f"read_time {window_read_time:.1f}s, "
+            f"{self.name} @ {new_position}/{self.content_size}",
+            rank0_only=False,
+        )
 
         try:
             self.stream, _ = self.get_stream(new_position)
