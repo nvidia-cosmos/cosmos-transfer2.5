@@ -98,10 +98,94 @@ dmd2_transfer2p5_experiments = {
     ),
 }
 
+dmd2_cl_experiments = {
+    "dmd2_trigflow_distill_cosmos_cl_2B_hdmap_i2v": Experiment(
+        registered_exp_name="dmd2_trigflow_distill_cosmos_cl_2B_hdmap_i2v",
+        job_name_for_ckpt="dmd2_trigflow_distill_cosmos_cl_2B_hdmap_i2v",
+        job_group="cosmos2_interactive_cl",
+        nnode=8,
+        command_args=[],
+    ),
+    "dmd2_trigflow_distill_cosmos_cl_2B_hdmap_i2v_16nodes": Experiment(
+        registered_exp_name="dmd2_trigflow_distill_cosmos_cl_2B_hdmap_i2v",
+        job_name_for_ckpt="dmd2_trigflow_distill_cosmos_cl_2B_hdmap_i2v_16nodes",
+        job_group="cosmos2_interactive_cl",
+        nnode=16,
+        command_args=[],
+    ),
+}
+
+self_forcing_cl_experiments = {
+    "self_forcing_cosmos_cl_2B_hdmap_i2v_8nodes": Experiment(
+        registered_exp_name="self_forcing_cosmos_cl_2B_hdmap_i2v",
+        job_name_for_ckpt="self_forcing_cosmos_cl_2B_hdmap_i2v_8nodes",
+        job_group="cosmos2_interactive_cl",
+        nnode=8,
+        command_args=[],
+    ),
+    "self_forcing_cosmos_cl_2B_hdmap_i2v_16nodes": Experiment(
+        registered_exp_name="self_forcing_cosmos_cl_2B_hdmap_i2v",
+        job_name_for_ckpt="self_forcing_cosmos_cl_2B_hdmap_i2v_16nodes",
+        job_group="cosmos2_interactive_cl",
+        nnode=16,
+        command_args=[],
+    ),
+}
+
+self_forcing_cl_from_df_experiments = {
+    "self_forcing_cosmos_cl_2B_hdmap_i2v_from_df_8nodes": Experiment(
+        registered_exp_name="self_forcing_cosmos_cl_2B_hdmap_i2v_from_df",
+        job_name_for_ckpt="self_forcing_cosmos_cl_2B_hdmap_i2v_from_df_8nodes",
+        job_group="cosmos2_interactive_cl",
+        nnode=8,
+        command_args=[],
+    ),
+    "self_forcing_cosmos_cl_2B_hdmap_i2v_from_df_16nodes": Experiment(
+        registered_exp_name="self_forcing_cosmos_cl_2B_hdmap_i2v_from_df",
+        job_name_for_ckpt="self_forcing_cosmos_cl_2B_hdmap_i2v_from_df_16nodes",
+        job_group="cosmos2_interactive_cl",
+        nnode=16,
+        command_args=[],
+    ),
+}
+
+self_forcing_cl_cache_ablation_experiments = {
+    f"self_forcing_cosmos_cl_2B_hdmap_i2v_4nodes_cache{size}": Experiment(
+        registered_exp_name="self_forcing_cosmos_cl_2B_hdmap_i2v",
+        job_name_for_ckpt=f"self_forcing_cosmos_cl_2B_hdmap_i2v_4nodes_cache{size}",
+        job_group="cosmos2_interactive_cl",
+        nnode=4,
+        command_args=[f"model.config.cache_frame_size={size}"],
+    )
+    for size in range(1, 24)
+}
+
+diffusion_forcing_cl_experiments = {
+    "diffusion_forcing_cosmos_cl_2B_hdmap_i2v_8nodes": Experiment(
+        registered_exp_name="diffusion_forcing_cosmos_cl_2B_hdmap_i2v",
+        job_name_for_ckpt="diffusion_forcing_cosmos_cl_2B_hdmap_i2v_8nodes",
+        job_group="cosmos2_interactive_cl",
+        nnode=8,
+        command_args=[],
+    ),
+    "diffusion_forcing_cosmos_cl_2B_hdmap_i2v_16nodes": Experiment(
+        registered_exp_name="diffusion_forcing_cosmos_cl_2B_hdmap_i2v",
+        job_name_for_ckpt="diffusion_forcing_cosmos_cl_2B_hdmap_i2v_16nodes",
+        job_group="cosmos2_interactive_cl",
+        nnode=16,
+        command_args=[],
+    ),
+}
+
 EXPERIMENTS = {}
 EXPERIMENTS_LIST = [
     dmd2_predict2p5_experiments,
     dmd2_transfer2p5_experiments,
+    dmd2_cl_experiments,
+    self_forcing_cl_experiments,
+    self_forcing_cl_from_df_experiments,
+    self_forcing_cl_cache_ablation_experiments,
+    diffusion_forcing_cl_experiments,
 ]
 for experiments in EXPERIMENTS_LIST:
     for exp_name, _ in experiments.items():

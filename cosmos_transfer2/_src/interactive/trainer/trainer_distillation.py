@@ -138,6 +138,7 @@ class ImaginaireDistillationTrainer:
             profile_freq=self.config.trainer.straggler_detection.profile_freq,
             max_diff=self.config.trainer.straggler_detection.max_diff,
             raise_error=self.config.trainer.straggler_detection.raise_error,
+            save_s3=self.config.trainer.straggler_detection.save_s3,
         )
         self.straggler_detector.initialize()
         # Send a TimeoutError if a training step takes over timeout_period seconds.

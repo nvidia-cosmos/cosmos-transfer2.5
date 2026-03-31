@@ -72,6 +72,7 @@ from cosmos_transfer2._src.predict2.utils.dtensor_helper import (
     broadcast_dtensor_model_states,
 )
 from cosmos_transfer2._src.predict2.utils.kv_cache import KVCacheConfig, VideoSeqPos
+from cosmos_transfer2._src.predict2_multiview.configs.vid2vid.defaults.conditioner import MultiViewCondition
 
 
 class Cosmos2InteractiveModel(ImaginaireModel):
@@ -486,13 +487,32 @@ class Cosmos2InteractiveModel(ImaginaireModel):
         num_conditional_frames: torch.Tensor,
     ) -> Video2WorldCondition:
         """Apply video2world conditioning (frame masks etc.) to a condition object."""
-        return condition.set_video_condition(
-            gt_frames=latent_state.to(**self.tensor_kwargs),
-            random_min_num_conditional_frames=0,  # will not take effect since num_conditional_frames is provided
-            random_max_num_conditional_frames=0,  # will not take effect since num_conditional_frames is provided
-            num_conditional_frames=num_conditional_frames,
-            conditional_frames_probs=None,
-        )
+        gt_frames = latent_state.to(**self.tensor_kwargs)
+
+        if isinstance(condition, MultiViewCondition):
+            # Multiview causal conditioner (CL/HDMap): use per-view API
+            num_cf_per_view = 1
+            if isinstance(num_conditional_frames, torch.Tensor) and num_conditional_frames.numel() > 0:
+                num_cf_per_view = int(num_conditional_frames[0].item())
+            return condition.set_video_condition(
+                state_t=self.config.state_t,
+                gt_frames=gt_frames,
+                condition_locations=["first_random_n"],
+                random_min_num_conditional_frames_per_view=0,
+                random_max_num_conditional_frames_per_view=0,
+                num_conditional_frames_per_view=num_cf_per_view,
+                view_condition_dropout_max=0,
+                conditional_frames_probs=None,
+            )
+        else:
+            # Single-view (e.g. Transfer2p5)
+            return condition.set_video_condition(
+                gt_frames=gt_frames,
+                random_min_num_conditional_frames=0,
+                random_max_num_conditional_frames=0,
+                num_conditional_frames=num_conditional_frames,
+                conditional_frames_probs=None,
+            )
 
     def _apply_vid2vid_conditioning(
         self,
@@ -652,6 +672,26 @@ class Cosmos2InteractiveModel(ImaginaireModel):
                     self.net_discriminator_head, dynamic=False, disable=not self.config.use_torch_compile
                 )
 
+    def _ensure_latent_view_indices_B_T(self, data_batch: dict[str, torch.Tensor]) -> None:
+        """
+        If the batch has multiview keys (view_indices, num_video_frames_per_view) but is missing
+        latent_view_indices_B_T, compute and add it. Required by the multiview causal conditioner
+        (e.g. CL/HDMap). No-op when batch is not multiview (e.g. Transfer2p5).
+        """
+        if "latent_view_indices_B_T" in data_batch:
+            return
+        if "view_indices" not in data_batch or "num_video_frames_per_view" not in data_batch:
+            return
+
+        num_video_frames_per_view = int(data_batch["num_video_frames_per_view"].cpu().item())
+        n_views = data_batch["view_indices"].shape[1] // num_video_frames_per_view
+        view_indices_B_V_T = rearrange(data_batch["view_indices"], "B (V T) -> B V T", V=n_views)
+        state_t = getattr(self.config, "state_t", None)
+        if state_t is None:
+            return
+        latent_view_indices_B_V_T = view_indices_B_V_T[:, :, 0:state_t]
+        data_batch["latent_view_indices_B_T"] = rearrange(latent_view_indices_B_V_T, "B V T -> B (V T)")
+
     # ------------------------ Data loading ------------------------
     def get_data_and_condition(
         self, data_batch: dict[str, torch.Tensor], set_video_condition: bool = True
@@ -667,6 +707,8 @@ class Cosmos2InteractiveModel(ImaginaireModel):
         """
         self._normalize_video_databatch_inplace(data_batch)
         self._augment_image_dim_inplace(data_batch)
+
+        self._ensure_latent_view_indices_B_T(data_batch)  # for multiview causal conditioner (CL)
 
         is_image_batch = self.is_image_batch(data_batch)
         input_key = self.input_image_key if is_image_batch else self.input_data_key
@@ -1000,29 +1042,36 @@ class Cosmos2InteractiveModel(ImaginaireModel):
 
         num_conditional_frames = data_batch.get("num_conditional_frames", 0)
         _, x0, condition, uncondition = self.get_data_and_condition(data_batch)
-        condition = condition.set_video_condition(
-            gt_frames=x0,  # x0: clean, tokenized latent video
-            random_min_num_conditional_frames=0,  # inference time will use the fixed num_conditional_frames
-            random_max_num_conditional_frames=0,
-            num_conditional_frames=num_conditional_frames,
-        )
-        condition = condition.edit_for_inference(is_cfg_conditional=True, num_conditional_frames=num_conditional_frames)
+
+        # Handle edit_for_inference for both MultiView and single-view conditions
+        if isinstance(condition, MultiViewCondition):
+            condition = condition.edit_for_inference(
+                is_cfg_conditional=True,
+                condition_locations=["first_random_n"],
+                num_conditional_frames_per_view=num_conditional_frames,
+            )
+        else:
+            condition = condition.edit_for_inference(
+                is_cfg_conditional=True,
+                num_conditional_frames=num_conditional_frames,
+            )
         if condition.is_video and cp_size > 1:
             condition = condition.broadcast(cp_group)
 
         # Only teacher could have uncondition in inference
         if uncondition is not None and net_type == "teacher":
-            uncondition = uncondition.set_video_condition(
-                gt_frames=x0,
-                random_min_num_conditional_frames=0,
-                random_max_num_conditional_frames=0,
-                num_conditional_frames=num_conditional_frames,
-            )
-            uncondition = uncondition.edit_for_inference(
-                is_cfg_conditional=True, num_conditional_frames=num_conditional_frames
-            )
-            if hasattr(uncondition, "use_video_condition") and torch.is_tensor(uncondition.use_video_condition):
-                uncondition.use_video_condition.fill_(False)
+            # Handle edit_for_inference for both MultiView and single-view conditions
+            if isinstance(uncondition, MultiViewCondition):
+                uncondition = uncondition.edit_for_inference(
+                    is_cfg_conditional=False,
+                    condition_locations=["first_random_n"],
+                    num_conditional_frames_per_view=num_conditional_frames,
+                )
+            else:
+                uncondition = uncondition.edit_for_inference(
+                    is_cfg_conditional=False,
+                    num_conditional_frames=num_conditional_frames,
+                )
             if condition.is_video and cp_size > 1:
                 uncondition = uncondition.broadcast(cp_group)
 
@@ -1125,9 +1174,14 @@ class Cosmos2InteractiveModel(ImaginaireModel):
                 t_cur_rf = t_steps_rf[idx]
                 t_next_rf = t_steps_rf[idx + 1]
                 if t_next_rf > 1e-5 and t_cur_rf > 1e-5:
-                    # Rectified Flow Euler update using velocity v = (x_t - x0) / t
-                    v_pred = (x_t - x0_pred) / t_cur_rf
-                    x = x_t + (t_next_rf - t_cur_rf) * v_pred
+                    # Convert from TrigFlow space to RF space for Euler step
+                    scale_cur = math.cos(t_cur) + math.sin(t_cur) * self.config.sigma_data
+                    x_rf = x_t / scale_cur
+                    v_pred = (x_rf - x0_pred) / t_cur_rf
+                    x_rf_next = x_rf + (t_next_rf - t_cur_rf) * v_pred
+                    # Convert back to TrigFlow space for next denoise call
+                    scale_next = math.cos(t_next) + math.sin(t_next) * self.config.sigma_data
+                    x = x_rf_next * scale_next
                 else:
                     x = x0_pred
             else:

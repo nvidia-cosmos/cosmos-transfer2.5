@@ -8,6 +8,7 @@ Self-forcing DMD2 Distillation (RectifiedFlow) with KVCache rollout
 """
 
 import collections
+import os
 import uuid
 
 import attrs
@@ -55,8 +56,12 @@ class SelfForcingModel(DMD2Model):
         super().__init__(config)
         # Latest decoded video for visualization callbacks
         self.latest_backward_simulation_video = None
-        self.neg_embed = None
-        self.condition_postprocessor = None
+
+        if not hasattr(self, "neg_embed"):
+            self.neg_embed = None
+        if not hasattr(self, "condition_postprocessor"):
+            self.condition_postprocessor = None
+
         self.scaling_from_time = (
             EDM_sCMWrapper(config.sigma_data)
             if config.scaling == "edm"
@@ -86,7 +91,7 @@ class SelfForcingModel(DMD2Model):
             credential_path = self.config.teacher_load_from.credentials
 
         storage_reader = get_storage_reader(ckpt_path, credential_path)
-        if ckpt_path.endswith(".dcp/model"):
+        if ckpt_path.endswith(".dcp/model") or ckpt_path.endswith("/model") or ckpt_path.endswith("/model/"):
             prefix = "net"
         _state_dict = get_model_state_dict(net)
 
@@ -184,7 +189,8 @@ class SelfForcingModel(DMD2Model):
                     credential_path=self.config.teacher_load_from.credentials,
                 )
 
-            self.net = self.build_net(config.net, no_fsdp=True)
+            if not hasattr(self, "net"):
+                self.net = self.build_net(config.net, no_fsdp=True)
             log.info("==========Loading student checkpoint to STUDENT net (no weight; no fsdp)==========")
 
             # fake score net for approximating score func of the student generator output
@@ -279,8 +285,10 @@ class SelfForcingModel(DMD2Model):
             with torch.no_grad():
                 video = self.decode(output_latents.detach())
             video = video.detach().cpu()
+            video = torch.clamp(video.detach().cpu(), -1.0, 1.0)
             uid = uuid.uuid4()
-            save_img_or_video((1.0 + video[0]) / 2, f"out-{dump_iter:06d}-{uid}", fps=10)
+            os.makedirs("results", exist_ok=True)
+            save_img_or_video((1.0 + video[0]) / 2, f"results/out-{dump_iter:06d}-{uid}-nsteps_{n_steps}", fps=10)
             # Expose for interactive wandb callbacks
             self.latest_backward_simulation_video = video
 

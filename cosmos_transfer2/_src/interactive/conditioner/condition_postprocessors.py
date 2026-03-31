@@ -27,6 +27,7 @@ import torch
 import torch.nn.functional as F
 from einops import rearrange
 
+from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.interactive.configs.method_configs.config_cosmos2_interactive_base import IS_PREPROCESSED_KEY
 from cosmos_transfer2._src.predict2.conditioner import DataType
 from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.defaults.conditioner import ControlVideo2WorldCondition
@@ -316,6 +317,139 @@ class ControlConditionPostprocessor:
         if hasattr(condition, prefixed):
             return prefixed
         return hint_key
+
+
+class HDMapI2VConditionPostprocessor:
+    """
+    Adds HDMap latent to condition objects for HDMap-conditioned I2V models.
+
+    The implementation mirrors the get_data_and_condition method in the HDMap model class:
+        projects/cosmos/sil/causal_multiview/models/joint_causal_cosmos_model_hdmap.py
+
+    This postprocessor processes the HDMap input (control_input_hdmap_bbox) from the data batch
+    by either VAE encoding or pixel shuffling it, then attaches the processed hdmap to both
+    condition and uncondition objects.
+
+    Usage in config:
+        condition_postprocessor = L(HDMapI2VConditionPostprocessor)(
+            preset_hint_keys=["control_input_hdmap_bbox"],
+            hdmap_process_method="vae_encoding",  # or "pixel_shuffle"
+            hdmap_selection_mode="all",  # or "first_frame" or "last_frame"
+        )
+    """
+
+    def __init__(
+        self,
+        preset_hint_keys: list[str] | None = None,
+        hdmap_process_method: str = "vae_encoding",
+        hdmap_selection_mode: str = "all",
+    ):
+        """
+        Args:
+            preset_hint_keys: List of hdmap keys in the data batch (e.g., ["control_input_hdmap_bbox"]).
+            hdmap_process_method: Method to process hdmap - "vae_encoding" or "pixel_shuffle".
+            hdmap_selection_mode: Frame selection mode for pixel_shuffle - "all", "first_frame", or "last_frame".
+        """
+        self.preset_hint_keys = preset_hint_keys or ["control_input_hdmap_bbox"]
+        self.hdmap_process_method = hdmap_process_method
+        self.hdmap_selection_mode = hdmap_selection_mode
+
+    def __call__(
+        self,
+        model: Any,
+        condition: Any,
+        uncondition: Any,
+        latent_state: torch.Tensor,
+        data_batch: dict[str, torch.Tensor],
+    ) -> tuple[Any, Any]:
+        """
+        Process HDMap inputs and attach them to condition objects.
+
+        Args:
+            model: The model instance (provides encode(), tokenizer, tensor_kwargs)
+            condition: The positive condition object
+            uncondition: The negative/unconditional condition object
+            latent_state: The encoded latent state tensor
+            data_batch: The input data batch containing hdmap data
+
+        Returns:
+            Tuple of (modified_condition, modified_uncondition) with processed hdmap attached
+        """
+        for hint_key in self.preset_hint_keys:
+            if hint_key not in data_batch:
+                continue
+
+            hint_value = data_batch[hint_key]
+
+            if self.hdmap_process_method == "vae_encoding":
+                # Normalize and encode hdmap using VAE
+                if torch.is_floating_point(hint_value) and not (
+                    torch.all((hint_value >= -1.0001) & (hint_value <= 1.0001))
+                ):
+                    warning_msg = f"Hint value {hint_key} is not in the range [-1, 1]. get data range [{hint_value.min()}, {hint_value.max()}]"
+                    log.warning(warning_msg)
+                else:
+                    control_input = self._process_hint_value(data_batch, hint_key, model.tensor_kwargs)
+                    data_batch[hint_key] = model.encode(control_input).contiguous().to(**model.tensor_kwargs)
+
+            elif self.hdmap_process_method == "pixel_shuffle":
+                # Pixel shuffle the hdmap (downsample spatially)
+                if hint_value.shape[1] == 3:  # Only process if not already shuffled
+                    control_input = self._process_hint_value(data_batch, hint_key, model.tensor_kwargs)
+
+                    # Select frames based on selection mode
+                    if self.hdmap_selection_mode == "first_frame":
+                        indices = [0] + [i for i in range(1, hint_value.shape[2], 4)]
+                    elif self.hdmap_selection_mode == "last_frame":
+                        indices = [0] + [i for i in range(4, hint_value.shape[2], 4)]
+                    elif self.hdmap_selection_mode == "all":
+                        indices = [i for i in range(hint_value.shape[2])]
+                    else:
+                        raise ValueError(f"Invalid hdmap selection mode: {self.hdmap_selection_mode}")
+
+                    indices_tensor = torch.tensor(indices, dtype=torch.long, device=control_input.device)
+                    control_input = control_input[:, :, indices_tensor, :, :]
+
+                    # Rearrange to perform spatial downsampling via pixel shuffling
+                    control_input_down = rearrange(
+                        control_input, "b c t (h h8) (w w8) -> b (c h8 w8) t h w", h8=8, w8=8
+                    )
+                    data_batch[hint_key] = control_input_down.contiguous().to(**model.tensor_kwargs)
+            else:
+                raise ValueError(f"Invalid hdmap process method: {self.hdmap_process_method}")
+
+        # Attach the processed hdmap to both condition and uncondition objects
+        # Share the same hdmap for classifier-free guidance
+        for hint_key in self.preset_hint_keys:
+            if hint_key in data_batch:
+                processed_hdmap = data_batch[hint_key]
+
+                # Update condition with processed hdmap
+                condition_kwargs = condition.to_dict(skip_underscore=False)
+                condition_kwargs[hint_key] = processed_hdmap
+                condition = type(condition)(**condition_kwargs)
+
+                # Update uncondition with the same processed hdmap (shared for CFG)
+                uncondition_kwargs = uncondition.to_dict(skip_underscore=False)
+                uncondition_kwargs[hint_key] = processed_hdmap
+                uncondition = type(uncondition)(**uncondition_kwargs)
+
+        return condition, uncondition
+
+    def _process_hint_value(
+        self, data_batch: dict[str, torch.Tensor], hint_key: str, tensor_kwargs: dict[str, Any]
+    ) -> torch.Tensor:
+        """Normalize hint value to [-1, 1] on the correct device/dtype."""
+        hint_value = data_batch[hint_key]
+        if torch.is_floating_point(hint_value):
+            assert torch.all((hint_value >= -1.0001) & (hint_value <= 1.0001)), (
+                f"HDMap data is not in the range [-1, 1]. Got range [{hint_value.min()}, {hint_value.max()}]"
+            )
+        else:
+            assert hint_value.dtype == torch.uint8, "HDMap data is not in uint8 format."
+            hint_value = hint_value.to(**tensor_kwargs) / 127.5 - 1.0
+            data_batch[hint_key] = hint_value
+        return hint_value
 
 
 class ActionConditionPostprocessor:
