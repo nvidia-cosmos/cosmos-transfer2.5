@@ -76,3 +76,20 @@ class RectifiedFlow_sCMWrapper:
             self.sigma_data * torch.sin(trigflow_t) / (torch.cos(trigflow_t) + self.sigma_data * torch.sin(trigflow_t))
         )
         return c_skip.to(dtype), c_out.to(dtype), c_in.to(dtype), c_noise.to(dtype)
+
+
+class VelocityPassthroughWrapper:
+    """
+    Passthrough scaling: returns raw velocity prediction without EDM preconditioning.
+    c_skip=0, c_out=1, c_in=1, c_noise=time.
+    """
+
+    def __init__(self, sigma_data: float = 1.0):
+        self.sigma_data = sigma_data
+
+    def __call__(self, trigflow_t: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        c_skip = torch.zeros_like(trigflow_t)
+        c_out = torch.ones_like(trigflow_t)
+        c_in = torch.ones_like(trigflow_t)
+        c_noise = trigflow_t
+        return c_skip, c_out, c_in, c_noise
