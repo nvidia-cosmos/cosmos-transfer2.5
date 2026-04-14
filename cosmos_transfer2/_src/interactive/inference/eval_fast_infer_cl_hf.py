@@ -83,24 +83,27 @@ _HF_EXAMPLES: dict[str, tuple[str, str]] = {
 # Key: (reso_bucket, pixel_shuffle)
 # Value: filename of the .pt state dict inside av_closed_loop/
 _HF_CHECKPOINTS: dict[tuple, tuple[str, float]] = {
-    # (reso_bucket, pixel_shuffle): (filename, rope_hw_extrapolation_ratio)
-    ("480p", False): ("dit_480p_vae.pt", 2.0),
-    ("480p", True): ("dit_480p_pixshuffle.pt", 2.0),
-    ("720p", False): ("dit_720p_vae.pt", 3.0),
-    ("720p", True): ("dit_720p_pixshuffle.pt", 3.0),
+    # (reso_bucket, pixel_shuffle, num_frames_per_block): (filename, rope_hw_extrapolation_ratio)
+    ("480p", False, 12): ("dit_480p_vae.pt", 2.0),
+    ("480p", True, 12): ("dit_480p_pixshuffle.pt", 2.0),
+    ("720p", False, 12): ("dit_720p_vae.pt", 3.0),
+    ("720p", True, 16): ("dit_720p_pixshuffle.pt", 3.0),
+    ("720p", False, 8): ("dit_720p_vae_chunk2.pt", 3.0),
 }
 
 
-def resolve_hf_checkpoint(reso: str, pixel_shuffle: bool) -> tuple[str, float]:
+def resolve_hf_checkpoint(reso: str, pixel_shuffle: bool, num_frames_per_block: int) -> tuple[str, float]:
     """Look up the HF checkpoint filename for the given config.
 
     Returns:
         (filename, rope_hw_extrapolation_ratio)
     """
     reso_bucket = "480p" if reso == "480p" else "720p"
-    key = (reso_bucket, pixel_shuffle)
+    key = (reso_bucket, pixel_shuffle, num_frames_per_block)
     if key not in _HF_CHECKPOINTS:
-        raise ValueError(f"No HF checkpoint for reso={reso}, pixel_shuffle={pixel_shuffle}")
+        raise ValueError(
+            f"No HF checkpoint for reso={reso}, pixel_shuffle={pixel_shuffle}, num_frames_per_block={num_frames_per_block}"
+        )
     return _HF_CHECKPOINTS[key]
 
 
@@ -526,7 +529,9 @@ def main():
         ckpt_filename = args.ckpt_name
         rope_hw_extrapolation_ratio = args.rope_hw_extrapolation_ratio
     else:
-        ckpt_filename, default_rope_ratio = resolve_hf_checkpoint(args.reso, args.encode_with_pixel_shuffle)
+        ckpt_filename, default_rope_ratio = resolve_hf_checkpoint(
+            args.reso, args.encode_with_pixel_shuffle, args.num_frames_per_block
+        )
         rope_hw_extrapolation_ratio = args.rope_hw_extrapolation_ratio or default_rope_ratio
         log.info(f"Auto-resolved checkpoint: {ckpt_filename} (rope_ratio={rope_hw_extrapolation_ratio})")
 
