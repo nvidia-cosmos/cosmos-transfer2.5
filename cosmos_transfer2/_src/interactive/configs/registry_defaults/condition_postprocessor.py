@@ -17,17 +17,9 @@ from hydra.core.config_store import ConfigStore
 
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyDict
-from cosmos_transfer2._src.interactive.conditioner.condition_postprocessors import (
-    ControlConditionPostprocessor,
-    HDMapI2VConditionPostprocessor,
-)
+from cosmos_transfer2._src.interactive.conditioner.condition_postprocessors import ControlConditionPostprocessor
 
 control_condition_postprocessor: LazyDict = L(ControlConditionPostprocessor)(hint_keys=["edge"])
-hdmap_i2v_condition_postprocessor: LazyDict = L(HDMapI2VConditionPostprocessor)(
-    preset_hint_keys=["control_input_hdmap_bbox"],
-    hdmap_process_method="vae_encoding",
-    hdmap_selection_mode="all",
-)
 
 
 def register_condition_postprocessor():
@@ -37,10 +29,4 @@ def register_condition_postprocessor():
         package="model.config.condition_postprocessor",
         name="control_condition_postprocessor",
         node=control_condition_postprocessor,
-    )
-    cs.store(
-        group="condition_postprocessor",
-        package="model.config.condition_postprocessor",
-        name="hdmap_i2v_condition_postprocessor",
-        node=hdmap_i2v_condition_postprocessor,
     )
