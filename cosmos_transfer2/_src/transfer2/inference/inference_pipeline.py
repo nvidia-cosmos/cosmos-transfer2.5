@@ -268,7 +268,9 @@ class ControlVideo2WorldInference:
         # Frame number settting for chunk-wise long video generation
         num_total_frames = input_frames.shape[1]
         num_frames_per_chunk = num_video_frames_per_chunk - num_conditional_frames
-        if num_video_frames_per_chunk == 1:
+        if num_video_frames_per_chunk == 1 or num_total_frames <= num_video_frames_per_chunk:
+            # Single-chunk path: either explicit 1-frame chunks, or the input is
+            # shorter than one chunk and will be padded up by _pad_input_frames.
             num_chunks = 1
         else:
             num_generated_frames_vid2vid = num_total_frames - num_video_frames_per_chunk
@@ -297,10 +299,16 @@ class ControlVideo2WorldInference:
                 padding = last_frame.repeat(1, num_video_frames_per_chunk - num_total_frames, 1, 1)
                 input_frames = torch.cat([input_frames, padding], dim=1)
             elif padding_mode == "reflect":
-                while input_frames.shape[1] < num_video_frames_per_chunk:
-                    padding = min(input_frames.shape[1] - 1, num_video_frames_per_chunk - input_frames.shape[1])
-                    padding_frames = input_frames.flip(dims=[1])[:, :padding, :, :]
+                if input_frames.shape[1] == 1:
+                    # Reflect padding is undefined for T=1 (nothing to mirror); fall back to repeat.
+                    last_frame = input_frames[:, -1:, :, :]
+                    padding_frames = last_frame.repeat(1, num_video_frames_per_chunk - input_frames.shape[1], 1, 1)
                     input_frames = torch.cat([input_frames, padding_frames], dim=1)
+                else:
+                    while input_frames.shape[1] < num_video_frames_per_chunk:
+                        padding = min(input_frames.shape[1] - 1, num_video_frames_per_chunk - input_frames.shape[1])
+                        padding_frames = input_frames.flip(dims=[1])[:, :padding, :, :]
+                        input_frames = torch.cat([input_frames, padding_frames], dim=1)
             else:
                 raise ValueError(f"Invalid padding mode: {padding_mode}")
         return input_frames
