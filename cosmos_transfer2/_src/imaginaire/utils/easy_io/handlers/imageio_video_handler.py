@@ -118,6 +118,9 @@ class ImageioVideoHandler(BaseFileHandler):
                 "size": (0, 0),
             }
 
+    # Flags whose values we enforce; stripped from caller-supplied ffmpeg_params.
+    _OVERRIDDEN_FFMPEG_FLAGS = frozenset({"-s", "-b:v", "-bufsize"})
+
     def dump_to_fileobj(
         self,
         obj: np.ndarray | torch.Tensor,
@@ -136,24 +139,36 @@ class ImageioVideoHandler(BaseFileHandler):
             file (IO[bytes]): A file-like object to which the video data will be written.
             format (str): Format of the video file (default 'mp4').
             fps (int): Frames per second of the output video (default 17).
-            quality (int): Quality of the video (0-10, default 5).
+            quality (int): Ignored. Kept for backward compatibility.
             ffmpeg_params (list): Additional parameters to pass to ffmpeg.
 
         """
         if isinstance(obj, torch.Tensor):
             assert obj.dtype == torch.uint8, "Tensor must be of type uint8"
             obj = obj.cpu().numpy()
-        h, w = obj.shape[1:-1]
+        h, w = obj.shape[1], obj.shape[2]
 
-        # Default ffmpeg params that ensure width and height are set
-        default_ffmpeg_params = ["-s", f"{w}x{h}"]
+        # Explicit -b:v bitrate avoids the NVENC global_quality regression on
+        # Blackwell (SM 12.0+). Scale at ~0.1 bpp, floored at 8 Mbps.
+        bitrate_bps = max(8_000_000, int(h * w * fps * 0.1))
+        required_ffmpeg_params = [
+            "-s",
+            f"{w}x{h}",
+            "-b:v",
+            f"{bitrate_bps}",
+            "-bufsize",
+            f"{2 * bitrate_bps}",
+        ]
 
-        # Use provided ffmpeg_params if any, otherwise use defaults
-        final_ffmpeg_params = ffmpeg_params if ffmpeg_params is not None else default_ffmpeg_params
+        if ffmpeg_params:
+            final_ffmpeg_params = required_ffmpeg_params + self._strip_flag_pairs(
+                ffmpeg_params, self._OVERRIDDEN_FFMPEG_FLAGS
+            )
+        else:
+            final_ffmpeg_params = required_ffmpeg_params
 
         mimsave_kwargs = {
             "fps": fps,
-            "quality": quality,
             "macro_block_size": 1,
             "ffmpeg_params": final_ffmpeg_params,
             "output_params": ["-f", "mp4"],
@@ -163,6 +178,21 @@ class ImageioVideoHandler(BaseFileHandler):
         log.debug(f"mimsave_kwargs: {mimsave_kwargs}")
 
         imageio.mimsave(file, obj, format, **mimsave_kwargs)
+
+    @staticmethod
+    def _strip_flag_pairs(params: list, flags: frozenset) -> list:
+        """Drop each (flag, value) pair from *params* where flag is in *flags*."""
+        out = []
+        skip_value = False
+        for p in params:
+            if skip_value:
+                skip_value = False
+                continue
+            if p in flags:
+                skip_value = True
+                continue
+            out.append(p)
+        return out
 
     def dump_to_str(self, obj, **kwargs):
         raise NotImplementedError
