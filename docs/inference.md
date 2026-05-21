@@ -58,6 +58,16 @@ For multi-GPU inference on a single control or to run multiple control variants,
 torchrun --nproc_per_node=8 --master_port=12341 examples/inference.py -i assets/robot_example/depth/robot_depth_spec.json -o outputs/depth
 ```
 
+For classifier-free guidance, the base Transfer2.5 model normally evaluates the conditional and unconditional branches sequentially. To run those branches in parallel, use an even number of GPUs and enable CFG parallelism:
+```bash
+torchrun --nproc_per_node=8 --master_port=12341 examples/inference.py \
+    -i assets/robot_example/edge/robot_edge_spec.json \
+    -o outputs/edge_cfg_parallel \
+    --cfg_parallel \
+    --benchmark
+```
+`--cfg_parallel` requires `context_parallel_size` to match the torchrun world size and to be greater than 1. The `--benchmark` option reports `generate_img2world` timing for before/after comparisons.
+
 We provide example parameter files for each individual control variant along with a multi-control variant:
 
 | Variant | Parameter File  |

@@ -303,6 +303,24 @@ class SetupArguments(CommonSetupArguments):
     # Override defaults
     # pyrefly: ignore  # invalid-annotation
     model: get_model_literal(BASE_MODEL_VARIANTS) = DEFAULT_MODEL_KEY.name
+    cfg_parallel: bool = False
+    """Parallelize classifier-free guidance across two context-parallel rank groups. Requires an even context_parallel_size greater than 1."""
+
+    @pydantic.model_validator(mode="after")
+    def validate_cfg_parallel(self) -> Self:
+        if not self.cfg_parallel:
+            return self
+
+        if self.context_parallel_size is None:
+            raise ValueError("cfg_parallel requires context_parallel_size to be set.")
+        if self.context_parallel_size <= 1 or self.context_parallel_size % 2 != 0:
+            raise ValueError("cfg_parallel requires an even context_parallel_size greater than 1.")
+
+        world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        if self.context_parallel_size != world_size:
+            raise ValueError("cfg_parallel requires context_parallel_size to match WORLD_SIZE.")
+
+        return self
 
 
 Guidance = Annotated[int, pydantic.Field(ge=0, le=7)]
