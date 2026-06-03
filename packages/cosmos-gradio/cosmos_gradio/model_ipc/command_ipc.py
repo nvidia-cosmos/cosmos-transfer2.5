@@ -81,11 +81,11 @@ class WorkerCommand:
 
 
 class WorkerException(Exception):
-    def __init__(self, rank, status, result_json: dict[str, Any] = {}):
+    def __init__(self, rank, status, result_json: dict[str, Any] | None = None):
         super().__init__("worker exception")
         self.rank = rank
         self.status = status
-        self.results = result_json
+        self.results = result_json if result_json is not None else {}
 
     def __str__(self):
         rank = self.rank
@@ -135,7 +135,7 @@ class WorkerStatus:
                 if os.path.exists(file_path):
                     os.remove(file_path)
 
-    def signal_status(self, rank: int, status: str, request_id: int, result: dict[str, Any] = {}) -> None:
+    def signal_status(self, rank: int, status: str, request_id: int, result: dict[str, Any] | None = None) -> None:
         """signal individual worker status per rank
 
         Args:
@@ -143,6 +143,8 @@ class WorkerStatus:
             status (str): The status of the worker is either "success" or an error string
             results_json (dict[str, Any]): The result json of the worker/model. Model can place arbitrary data here.
         """
+        if result is None:
+            result = {}
         status_file = f"/tmp/worker_{rank}_status.json"
 
         status_data = StatusData(rank=rank, status=status, request_id=request_id, result=result)
