@@ -1,5 +1,5 @@
 > [!IMPORTANT]
-> ## 🚀 Cosmos 3 Has Arrived
+> ## 🚀 [Cosmos 3 Has Arrived](https://github.com/NVIDIA/Cosmos)
 >
 > Cosmos 3 is NVIDIA's next-generation foundation model platform for Physical AI. Compared with Cosmos-Transfer2.5, Cosmos 3 delivers significantly stronger transfer capabilities, enabling higher-fidelity transformation, adaptation, and simulation across diverse domains, sensors, environments, and embodiments.
 >
