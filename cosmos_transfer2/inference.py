@@ -131,6 +131,7 @@ class Control2WorldInference:
             use_cp_wan=args.enable_parallel_tokenizer,
             wan_cp_grid=args.parallel_tokenizer_grid,
             benchmark_timer=self.benchmark_timer if args.benchmark else None,
+            cfg_parallel=args.cfg_parallel,
             config_file=args.config_file,
         )
 

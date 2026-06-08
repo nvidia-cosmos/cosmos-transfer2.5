@@ -103,6 +103,7 @@ class ControlVideo2WorldInference:
         self.s3_credential_path = s3_credential_path
         self.cache_dir = cache_dir
         self.cache_text_encoder = cache_text_encoder
+        self._validate_cfg_parallel(process_group, cfg_parallel)
         if exp_override_opts is None:
             exp_override_opts = []
         # no need to load base model separately at inference
@@ -198,6 +199,23 @@ class ControlVideo2WorldInference:
         self.config = config
         self.batch_size = 1
         self.benchmark_timer = benchmark_timer
+
+    @staticmethod
+    def _validate_cfg_parallel(process_group: Optional[torch.distributed.ProcessGroup], cfg_parallel: bool) -> None:
+        if not cfg_parallel:
+            return
+        if process_group is None:
+            raise ValueError(
+                "cfg_parallel requires context parallelism. Run with torchrun and context_parallel_size > 1."
+            )
+
+        cp_size = process_group.size()
+        if cp_size <= 1 or cp_size % 2 != 0:
+            raise ValueError("cfg_parallel requires an even context-parallel group size greater than 1.")
+
+        world_size = distributed.get_world_size()
+        if world_size > 1 and cp_size != world_size:
+            raise ValueError("cfg_parallel currently requires the context-parallel group to span WORLD_SIZE.")
 
     def _get_data_batch_input(
         self,
