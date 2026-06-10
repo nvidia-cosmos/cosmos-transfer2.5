@@ -161,12 +161,12 @@ MODEL_CHECKPOINTS = {
     ModelKey(variant=ModelVariant.SEG): CheckpointConfig.from_uri("5136ef49-6d8d-42e8-8abf-7dac722a304a"),
     ModelKey(variant=ModelVariant.VIS): CheckpointConfig.from_uri("ba2f44f2-c726-4fe7-949f-597069d9b91c"),
     ModelKey(variant=ModelVariant.AUTO_MULTIVIEW): CheckpointConfig.from_uri("4ecc66e9-df19-4aed-9802-0d11e057287a"),
+    ModelKey(variant=ModelVariant.EDGE, distilled=True): CheckpointConfig.from_uri(
+        "41f07f13-f2e4-4e34-ba4c-86f595acbc20"
+    ),
 }
 if EXPERIMENTAL_CHECKPOINTS:
     MODEL_CHECKPOINTS |= {
-        ModelKey(variant=ModelVariant.EDGE, distilled=True): CheckpointConfig.from_uri(
-            "41f07f13-f2e4-4e34-ba4c-86f595acbc20"
-        ),
         # Transfer2.5 Agibot Control-Conditioned Multiview
         ModelKey(variant=ModelVariant.ROBOT_MULTIVIEW_AGIBOT_DEPTH): CheckpointConfig.from_uri(
             "32514ba1-6d05-4ce5-997d-a3b5bf894cab"
