@@ -83,10 +83,6 @@ def test_behind_camera_does_not_sign_flip(z):
     # Regression guard: the original unguarded formula DID wrap these.
     assert naive_project_np(cam, np.array([[3.0, 0.0, z]], dtype=np.float32))[0, 0] < CX
 
-
-# --------------------------------------------------------------------------- #
-# Scenario from issue #107: an actor cuboid crossing the camera plane.
-# --------------------------------------------------------------------------- #
 def _actor_to_world(center_z: float, lateral_x: float = 2.0) -> np.ndarray:
     """Scenario: an actor cuboid crossing the camera plane.
     Car (length along its local x) rotated so its 4.5 m length lies along world +z.
@@ -96,7 +92,6 @@ def _actor_to_world(center_z: float, lateral_x: float = 2.0) -> np.ndarray:
     tfm[:3, :3] = rot
     tfm[:3, 3] = [lateral_x, 0.0, center_z]
     return tfm
-
 
 def test_crossing_cuboid_projects_finite_and_on_correct_side():
     cam = make_pinhole()
