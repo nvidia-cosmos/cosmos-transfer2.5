@@ -20,6 +20,10 @@ from cosmos_transfer2._src.imaginaire.modules.camera import Camera
 
 
 class PinholeCamera(CameraBase):
+    # Near-plane (meters) used to clip the projection depth so points at/behind the
+    # camera do not divide-by-zero or sign-flip during projection.
+    NEAR_PLANE_EPS: float = 1e-2
+
     def __init__(
         self,
         fx: float,
@@ -186,7 +190,10 @@ class PinholeCamera(CameraBase):
         if len(rays.shape) == 1:
             rays = rays.reshape(1, -1)
 
-        rays_norm = rays / rays[:, 2:3]  # normalize the rays, image plane is z=1
+        # Clip the projection depth to a small positive near-plane
+        z = rays[:, 2:3]
+        z_clipped = np.where(z < self.NEAR_PLANE_EPS, self.NEAR_PLANE_EPS, z)
+        rays_norm = np.concatenate([rays[:, :2] / z_clipped, np.ones_like(z)], axis=-1)
         pixel_coords = np.einsum("ij,nj->ni", self.intrinsics_matrix_np, rays_norm)[:, :2]
 
         return pixel_coords
@@ -201,7 +208,10 @@ class PinholeCamera(CameraBase):
         if len(rays.shape) == 1:
             rays = rays.unsqueeze(0)
 
-        rays_norm = rays / rays[:, 2:3]  # normalize the rays, image plane is z=1
+        # Clip the projection depth to a small positive near-plane
+        z = rays[:, 2:3]
+        z_clipped = torch.where(z < self.NEAR_PLANE_EPS, torch.full_like(z, self.NEAR_PLANE_EPS), z)
+        rays_norm = torch.cat([rays[:, :2] / z_clipped, torch.ones_like(z)], dim=-1)
         pixel_coords = torch.einsum("ij,nj->ni", self.intrinsics_matrix_torch, rays_norm)[:, :2]
 
         return pixel_coords
