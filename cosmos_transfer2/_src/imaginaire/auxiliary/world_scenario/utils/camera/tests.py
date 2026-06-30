@@ -26,13 +26,16 @@ W, H = 1280, 720
 FX = FY = (W / 2) / np.tan(np.radians(120) / 2)  # ~120 deg horizontal FOV
 CX, CY = W / 2, H / 2
 
+
 def make_pinhole(device: str = "cpu") -> PinholeCamera:
     return PinholeCamera(fx=FX, fy=FY, cx=CX, cy=CY, w=W, h=H, device=device)
+
 
 def naive_project_np(cam: PinholeCamera, rays: np.ndarray) -> np.ndarray:
     """Original (unguarded) pinhole projection: K @ (rays / z)."""
     rays_norm = rays / rays[:, 2:3]
     return np.einsum("ij,nj->ni", cam.intrinsics_matrix_np, rays_norm)[:, :2]
+
 
 def test_in_front_projection_matches_unguarded_formula():
     cam = make_pinhole()
@@ -41,6 +44,7 @@ def test_in_front_projection_matches_unguarded_formula():
     rays[:, 2] = np.abs(rays[:, 2]) + 0.5  # strictly in front (z >> near plane)
 
     np.testing.assert_allclose(cam.ray2pixel_np(rays), naive_project_np(cam, rays), rtol=0, atol=1e-3)
+
 
 def test_np_and_torch_agree():
     cam = make_pinhole()
@@ -51,6 +55,7 @@ def test_np_and_torch_agree():
     out_np = cam.ray2pixel_np(rays)
     out_torch = cam.ray2pixel_torch(torch.from_numpy(rays)).cpu().numpy()
     np.testing.assert_allclose(out_np, out_torch, rtol=1e-5, atol=1e-3)
+
 
 @pytest.mark.parametrize(
     "ray",
@@ -68,6 +73,7 @@ def test_no_inf_or_nan_at_or_behind_near_plane(ray):
     assert np.isfinite(cam.ray2pixel_np(arr)).all()
     assert torch.isfinite(cam.ray2pixel_torch(torch.from_numpy(arr))).all()
 
+
 @pytest.mark.parametrize("z", [-0.5, -5.0, -50.0])
 def test_behind_camera_does_not_sign_flip(z):
     """Behind-camera points must NOT wrap to the opposite side."""
@@ -83,6 +89,7 @@ def test_behind_camera_does_not_sign_flip(z):
     # Regression guard: the original unguarded formula DID wrap these.
     assert naive_project_np(cam, np.array([[3.0, 0.0, z]], dtype=np.float32))[0, 0] < CX
 
+
 def _actor_to_world(center_z: float, lateral_x: float = 2.0) -> np.ndarray:
     """Scenario: an actor cuboid crossing the camera plane.
     Car (length along its local x) rotated so its 4.5 m length lies along world +z.
@@ -92,6 +99,7 @@ def _actor_to_world(center_z: float, lateral_x: float = 2.0) -> np.ndarray:
     tfm[:3, :3] = rot
     tfm[:3, 3] = [lateral_x, 0.0, center_z]
     return tfm
+
 
 def test_crossing_cuboid_projects_finite_and_on_correct_side():
     cam = make_pinhole()
@@ -110,11 +118,11 @@ def test_crossing_cuboid_projects_finite_and_on_correct_side():
             # The actor is entirely to the right (lateral_x=+2). After the fix no
             # vertex may wrap to the far left; the original code produced u far below 0.
             assert uv[:, 0].min() > -CX, (
-                f"straddling cuboid wrapped to the opposite side at center_z={center_z} "
-                f"(u_min={uv[:, 0].min():.1f})"
+                f"straddling cuboid wrapped to the opposite side at center_z={center_z} (u_min={uv[:, 0].min():.1f})"
             )
 
     assert saw_straddle, "test scenario never produced a straddling cuboid"
+
 
 def test_renderer_no_opposite_side_wrap_for_crossing_actor():
     """End-to-end check through the real TiledMultiCameraRenderer."""
