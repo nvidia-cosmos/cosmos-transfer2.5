@@ -42,16 +42,12 @@ class _LossRecord:
         self.edm_loss = 0
 
     def get_stat(self) -> Tuple[float, float]:
-        if self.iter_count > 0:
-            avg_loss = self.loss / self.iter_count
-            avg_edm_loss = self.edm_loss / self.iter_count
-            dist.all_reduce(avg_loss, op=dist.ReduceOp.AVG)
-            dist.all_reduce(avg_edm_loss, op=dist.ReduceOp.AVG)
-            avg_loss = avg_loss.item()
-            avg_edm_loss = avg_edm_loss.item()
-        else:
-            avg_loss = 0
-            avg_edm_loss = 0
+        stats = torch.zeros(3, device="cuda", dtype=torch.float32)
+        stats[0] = self.loss
+        stats[1] = self.edm_loss
+        stats[2] = self.iter_count
+        dist.all_reduce(stats, op=dist.ReduceOp.SUM)
+        avg_loss, avg_edm_loss = (stats[:2] / stats[2].clamp_min(1)).tolist()
         self.reset()
         return avg_loss, avg_edm_loss
 
